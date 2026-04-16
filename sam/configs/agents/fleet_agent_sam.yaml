@@ -1,13 +1,15 @@
 # fleet_agent_sam.yaml
 # ─────────────────────────────────────────────────────────────────────────────
-# Fleet Anomaly Agent — SAM Configuration
+# Fleet Anomaly Agent — SAM Configuration (Merged)
 #
-# Monitors sketch outputs from all sensors to detect fleet-wide patterns
-# that individual sensors would miss:
-#   - Correlated drift (majority trending same direction)
-#   - Simultaneous zone transitions
-#   - Sensor silence patterns (infrastructure issues)
-#   - Zone clustering (many sensors in WARNING/CRITICAL)
+# Monitors sketch outputs from all sensors to detect fleet-wide patterns:
+#   - Correlated drift (linear trend: majority trending same direction)
+#   - Simultaneous zone escalations (global transition deque)
+#   - Geographic/logical cluster anomalies (named sensor groups)
+#   - Sensor silence (recently-active sensors that go quiet)
+#
+# Runs PARALLEL to per-sensor AnomalyAgent — additive, not a replacement.
+# The Solace broker fan-outs sketch events to both agents independently.
 #
 # Deploy: copy to your SAM project's configs/agents/ directory
 # ─────────────────────────────────────────────────────────────────────────────
@@ -48,7 +50,7 @@ apps:
     broker_request_response:
       enabled: true
       broker_config: *broker_connection
-      request_expiry_ms: 30000
+      request_expiry_ms: 60000        # 60s — fleet analysis needs more breathing room
       payload_encoding: utf-8
       payload_format: json
       response_topic_prefix: ${NAMESPACE}solace-agent-mesh/v1
@@ -66,60 +68,83 @@ apps:
 
         You receive sketch summaries from all sensors in the fleet. Your job is to
         detect patterns that span multiple sensors — anomalies that individual
-        sensors would miss because each one looks "normal" in isolation.
+        sensors would miss because each one looks normal in isolation.
 
-        For every incoming sketch, call the analyze_fleet tool with the sensor data.
+        For every incoming sketch, call the analyze_fleet tool with all available
+        fields. The tool maintains fleet state and analyses correlated patterns.
 
-        The tool will return fleet analysis including any detected patterns:
-        - correlated_drift: Majority of sensors trending same direction
-        - simultaneous_escalation: Multiple sensors changing zone together
-        - sensor_silence: Multiple sensors stopped reporting
-        - zone_clustering: Many sensors in WARNING/CRITICAL simultaneously
+        The tool returns fleet_status: NORMAL, WARNING, or CRITICAL.
 
-        If patterns are detected (fleet_status is WARNING or CRITICAL):
-        1. Summarize the fleet-wide situation
-        2. List affected sensors
-        3. Provide a hypothesis for the root cause
-        4. Recommend investigation actions
-
-        If no patterns detected (fleet_status is NORMAL):
+        If fleet_status is NORMAL:
         Respond briefly: "Fleet nominal. [N] sensors active, no correlated anomalies."
 
-        You can also call get_fleet_status at any time to query current fleet state.
+        If fleet_status is WARNING or CRITICAL:
+        Generate a fleet alert that includes:
+          1. The pattern type detected (e.g. correlated_drift, simultaneous_escalation,
+             geographic_cluster, sensor_silence)
+          2. The affected sensors
+          3. The correlation strength or count
+          4. Your hypothesis for the root cause
+          5. Recommended investigation action
+
+        Make clear this is a FLEET-LEVEL observation — distinct from any single-sensor
+        alert that may have already been raised by the per-sensor anomaly agent.
+
+        You can also call get_fleet_status at any time when asked about overall
+        fleet health, zone distribution, or silent sensors.
 
       tools:
         - tool_type: builtin-group
           group_name: artifact_management
 
+        # ── Primary tool: ingest sketch + run fleet pattern analysis ─────────
         - tool_type: python
           component_module: fleet_agent_sam
           function_name: analyze_fleet
           tool_name: "analyze_fleet"
           description: |
-            Analyze incoming sensor data for fleet-wide anomaly patterns.
-            Maintains state across all sensors and detects correlated issues.
+            Analyze an incoming sensor sketch for fleet-wide anomaly patterns.
+            Maintains rolling state across all sensors and detects correlated issues.
+            Returns fleet_status (NORMAL/WARNING/CRITICAL) and detected patterns.
 
             Parameters:
-            - sensor_id [string|required]: Sensor identifier
-            - temperature [number|required]: Temperature reading in °C
-            - zone [string|required]: NORMAL | WARNING | CRITICAL
-            - sketch [string|required]: Natural language sketch from SketchAgent
-            - timestamp [string|required]: ISO8601 timestamp
-            - window [object|optional]: Rolling window stats from upstream
+            - sensor_id    [string|required]: Sensor identifier (e.g. "sensor-001")
+            - temperature  [number|required]: Temperature reading in °C
+            - zone         [string|required]: NORMAL | WARNING | CRITICAL
+            - sketch       [string|required]: Natural language sketch from SketchAgent
+            - timestamp    [string|required]: ISO8601 timestamp
+            - window       [object|optional]: Rolling window stats (mean/min/max/count)
           tool_config:
-            window_secs: 300           # 5 minute correlation window
-            correlation_threshold: 0.6  # 60% trending same = alert
-            silence_threshold_secs: 60  # Sensor silent > 60s = concerning
-            cluster_threshold: 3        # 3+ sensors in same state = cluster
+            # ── Timing windows ───────────────────────────────────────────────
+            window_secs:            300   # 5-min correlation window for drift detection
+            transition_window_secs: 30    # Zone transitions within 30s = simultaneous
+            silence_threshold_secs: 60    # Sensor silent >60s = concerning
 
+            # ── Sensitivity thresholds ───────────────────────────────────────
+            correlation_threshold:  0.60  # 60% of sensors trending same way = alert
+            cluster_threshold:      3     # 3+ sensors in same state = cluster alert
+            drift_delta_celsius:    0.5   # Min °C change to count as a trend
+            min_sensors_for_fleet:  2     # Min sensors needed before fleet analysis runs
+
+            # ── Sensor groups — update to match your sensor topology ─────────
+            # Sensors in the same group are monitored for cluster-level patterns.
+            # A group alert fires when >50% of the group is in WARNING or CRITICAL.
+            sensor_groups:
+              # Example groups — replace with your actual sensor topology:
+              engine_bay:       ["sensor-001", "sensor-002", "sensor-003"]
+              cooling_loop:     ["sensor-004", "sensor-005"]
+              exhaust_manifold: ["sensor-006", "sensor-007", "sensor-008"]
+
+        # ── Secondary tool: on-demand fleet health query ─────────────────────
         - tool_type: python
           component_module: fleet_agent_sam
           function_name: get_fleet_status
           tool_name: "get_fleet_status"
           description: |
-            Query current fleet status without processing a new reading.
-            Returns active sensor count, zone distribution, and silent sensors.
-            Useful for periodic health checks.
+            Query current fleet health without processing a new sensor reading.
+            Returns active sensor count, zone distribution (NORMAL/WARNING/CRITICAL),
+            list of silent sensors, and a plain-English summary.
+            Use this when asked about overall fleet status or for periodic health checks.
 
       session_service:
         type: "sqlite"
@@ -131,16 +156,24 @@ apps:
       enable_embed_resolution: true
 
       agent_card:
-        description: "Monitors all sensors for fleet-wide anomaly patterns including correlated drift, simultaneous transitions, and infrastructure issues."
+        description: >
+          Fleet-level anomaly detection across all sensors. Detects correlated drift,
+          simultaneous zone escalations, geographic/logical cluster anomalies, and
+          sensor silence patterns that per-sensor agents would miss individually.
         defaultInputModes: ["text"]
         defaultOutputModes: ["text"]
         skills:
           - id: "fleet_analysis"
             name: "Fleet Anomaly Analysis"
-            description: "Detects correlated patterns across the sensor fleet that individual sensors would miss."
+            description: >
+              Detects correlated patterns across the sensor fleet using a
+              5-minute rolling window. Covers drift, zone transitions,
+              named cluster anomalies, and sensor silence.
           - id: "fleet_status"
             name: "Fleet Status Query"
-            description: "Returns current fleet health including zone distribution and silent sensors."
+            description: >
+              Returns current fleet health including zone distribution,
+              silent sensors, and a plain-English summary.
 
       agent_card_publishing:
         interval_seconds: 10
@@ -148,8 +181,8 @@ apps:
       agent_discovery:
         enabled: true
 
-      # ── Routing: Fleet agent is terminal — it produces alerts ─────────────
+      # Terminal agent — publishes alerts, does not delegate downstream
       inter_agent_communication:
-        allow_list: []              # Terminal agent, no downstream delegation
+        allow_list: []
         deny_list: []
         request_timeout_seconds: 30
