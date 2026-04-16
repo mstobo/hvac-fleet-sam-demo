@@ -39,7 +39,7 @@ apps:
     broker_request_response:
       enabled: true
       broker_config: *broker_connection
-      request_expiry_ms: 30000
+      request_expiry_ms: 45000        # 45s — allow headroom for processing
       payload_encoding: utf-8
       payload_format: json
       response_topic_prefix: ${NAMESPACE}solace-agent-mesh/v1
@@ -89,6 +89,7 @@ apps:
             - window [object|optional]: Rolling window stats (mean/min/max/count)
           tool_config:
             mode: TEMPLATE      # TEMPLATE (default) | LLM (Phase 4+)
+            window_secs: 30     # Default window duration for sketch text
             baselines:
               default:
                 weekly_mean: 46.0
@@ -120,6 +121,7 @@ apps:
 
       inter_agent_communication:
         allow_list:
-          - "AnomalyAgent"    # Can only delegate to the Anomaly Agent
+          - "AnomalyAgent"        # Per-sensor anomaly assessment
+          - "FleetAnomalyAgent"   # Fleet-wide pattern detection (parallel)
         deny_list: []
         request_timeout_seconds: 30
