@@ -185,9 +185,8 @@
 
   function prependCard(colId, html, limit = MAX_CARDS) {
     const col = document.getElementById(colId);
-    const div = document.createElement('div');
-    div.innerHTML = html;
-    col.insertBefore(div.firstChild, col.firstChild);
+    if (!col) return;
+    col.insertAdjacentHTML('afterbegin', html);
     while (col.children.length > limit) col.removeChild(col.lastChild);
   }
 
@@ -245,14 +244,12 @@
       const payload = JSON.parse(msg.payloadString);
 
       // ── Raw sensor events (from publisher) ──────────────────────────────
-      if (topic.startsWith('sensors/')) {
+      if (topic.startsWith('sensors/temperature/')) {
         stats.total++;
         const et   = payload.eventType || 'NORMAL';
         const zone = et === 'ANOMALY' ? 'CRITICAL' : (et === 'NOISY' ? 'WARNING' : 'NORMAL');
         const icon = {NORMAL:'🟢', NOISY:'🟡', ANOMALY:'🔴'}[et] || '⚪';
 
-        // We'll mark it as suppressed in the deadband col if it's NOISY
-        // (the deadband agent will make the real decision)
         prependCard('col-raw', `
           <div class="event-card ${zone}">
             <div class="ev-header">

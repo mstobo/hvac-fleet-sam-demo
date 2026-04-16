@@ -106,6 +106,7 @@ def create_client() -> mqtt.Client:
     userdata = {"connected": False}
 
     client = mqtt.Client(
+        callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         client_id=f"demo-publisher-{int(time.time())}",
         protocol=mqtt.MQTTv5,
         userdata=userdata
