@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Solace Agent Mesh | Live Pipeline Demo</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.2/mqttws31.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0f1e; --card: #131929; --card2: #1a2235;
+    --green: #00c176; --yellow: #fbbf24; --red: #f87171;
+    --blue: #60a5fa; --muted: #8892a4; --border: rgba(0,193,118,0.2);
+    --text: #e8eaf0;
+  }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', monospace; font-size: 13px; }
+
+  header {
+    background: var(--card); border-bottom: 1px solid var(--border);
+    padding: 14px 24px; display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 { font-size: 1.1rem; font-weight: 700; color: var(--green); }
+  header .subtitle { font-size: 0.8rem; color: var(--muted); }
+  .conn-badge {
+    padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700;
+    background: rgba(248,113,113,0.15); color: var(--red); border: 1px solid var(--red);
+  }
+  .conn-badge.connected { background: rgba(0,193,118,0.15); color: var(--green); border-color: var(--green); }
+
+  /* Config panel */
+  #config-panel {
+    background: var(--card2); border-bottom: 1px solid var(--border);
+    padding: 12px 24px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  }
+  #config-panel input {
+    background: #0a0f1e; border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text); padding: 6px 10px; font-size: 0.8rem; width: 220px;
+  }
+  #config-panel label { font-size: 0.75rem; color: var(--muted); }
+  #config-panel button {
+    background: var(--green); color: #0a0f1e; border: none; border-radius: 4px;
+    padding: 7px 18px; font-weight: 700; cursor: pointer; font-size: 0.82rem;
+  }
+
+  /* Main layout */
+  .main { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; height: calc(100vh - 110px); }
+
+  /* Pipeline column */
+  .pipeline-col {
+    background: var(--card); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .col-header {
+    padding: 10px 16px; background: rgba(0,193,118,0.06);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .col-header h2 { font-size: 0.82rem; font-weight: 700; color: var(--green); text-transform: uppercase; letter-spacing: 0.08em; }
+  .col-header .badge { font-size: 0.7rem; color: var(--muted); }
+  .col-body { flex: 1; overflow-y: auto; padding: 8px; }
+
+  /* Event cards */
+  .event-card {
+    background: var(--card2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 12px; margin-bottom: 6px;
+    animation: slideIn 0.25s ease; border-left: 3px solid var(--muted);
+  }
+  .event-card.NORMAL   { border-left-color: var(--green); }
+  .event-card.WARNING  { border-left-color: var(--yellow); }
+  .event-card.CRITICAL { border-left-color: var(--red); background: rgba(248,113,113,0.04); }
+  .event-card.SUPPRESSED { opacity: 0.4; border-left-color: #333; }
+  .event-card.ALERT    { border-left-color: var(--red); background: rgba(248,113,113,0.08); }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+
+  .ev-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .ev-sensor { font-weight: 700; font-size: 0.82rem; }
+  .ev-time   { font-size: 0.7rem; color: var(--muted); margin-left: auto; }
+  .ev-temp   { font-size: 1.1rem; font-weight: 700; }
+  .ev-temp.CRITICAL { color: var(--red); }
+  .ev-temp.WARNING  { color: var(--yellow); }
+  .ev-temp.NORMAL   { color: var(--green); }
+  .ev-body   { font-size: 0.78rem; color: #94a3b8; line-height: 1.5; }
+  .ev-sketch { font-style: italic; color: #c8d0dc; font-size: 0.8rem; line-height: 1.5; margin-top: 4px; }
+  .ev-action { color: var(--blue); font-size: 0.78rem; margin-top: 4px; font-weight: 600; }
+  .zone-pill {
+    font-size: 0.65rem; font-weight: 700; padding: 1px 7px; border-radius: 3px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .zone-pill.NORMAL   { background: rgba(0,193,118,0.15); color: var(--green); }
+  .zone-pill.WARNING  { background: rgba(251,191,36,0.15); color: var(--yellow); }
+  .zone-pill.CRITICAL { background: rgba(248,113,113,0.2); color: var(--red); }
+  .zone-pill.SUPPRESSED { background: #222; color: #555; }
+
+  /* Stats bar */
+  #stats-bar {
+    background: var(--card); border-top: 1px solid var(--border);
+    padding: 8px 24px; display: flex; gap: 32px; align-items: center;
+    position: fixed; bottom: 0; left: 0; right: 0;
+  }
+  .stat { display: flex; flex-direction: column; align-items: center; }
+  .stat .val { font-size: 1.2rem; font-weight: 800; color: var(--green); }
+  .stat .lbl { font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .stat .val.red    { color: var(--red); }
+  .stat .val.yellow { color: var(--yellow); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2a3550; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>⚡ Solace Agent Mesh | Live Pipeline Demo</h1>
+    <div class="subtitle">Filter → Trigger → Summarize → Act &nbsp;|&nbsp; Real-time sensor intelligence</div>
+  </div>
+  <div id="conn-badge" class="conn-badge">● Disconnected</div>
+</header>
+
+<div id="config-panel">
+  <div><label>WebSocket Host</label><br><input id="cfg-host" value="YOUR_BROKER.messaging.solace.cloud" /></div>
+  <div><label>WS Port</label><br><input id="cfg-port" value="8000" style="width:80px" /></div>
+  <div><label>Username</label><br><input id="cfg-user" value="YOUR_USERNAME" /></div>
+  <div><label>Password</label><br><input id="cfg-pass" type="password" value="YOUR_PASSWORD" style="width:140px" /></div>
+  <div style="align-self:flex-end;"><button onclick="connectBroker()">Connect ▶</button></div>
+</div>
+
+<div class="main" style="margin-bottom:50px;">
+
+  <!-- Col 1: Raw + Deadband -->
+  <div class="pipeline-col">
+    <div class="col-header">
+      <h2>📡 1 · Sensor Edge &amp; Deadband Filter</h2>
+      <span class="badge" id="badge-raw">0 events</span>
+    </div>
+    <div class="col-body" id="col-raw"></div>
+  </div>
+
+  <!-- Col 2: Sketch -->
+  <div class="pipeline-col">
+    <div class="col-header">
+      <h2>✍️ 2 · Sketch Summarizer</h2>
+      <span class="badge" id="badge-sketch">0 sketches</span>
+    </div>
+    <div class="col-body" id="col-sketch"></div>
+  </div>
+
+  <!-- Col 3: Anomaly Alerts -->
+  <div class="pipeline-col" style="border-right:none;">
+    <div class="col-header">
+      <h2>🚨 3 · Anomaly Alerts (LLM)</h2>
+      <span class="badge" id="badge-alert">0 alerts</span>
+    </div>
+    <div class="col-body" id="col-alert"></div>
+  </div>
+
+</div>
+
+<!-- Stats bar -->
+<div id="stats-bar">
+  <div class="stat"><div class="val" id="stat-total">0</div><div class="lbl">Total Events</div></div>
+  <div class="stat"><div class="val" id="stat-suppressed">0</div><div class="lbl">Suppressed</div></div>
+  <div class="stat"><div class="val" id="stat-pct">0%</div><div class="lbl">Suppression Rate</div></div>
+  <div class="stat"><div class="val" id="stat-forwarded">0</div><div class="lbl">Forwarded</div></div>
+  <div class="stat"><div class="val yellow" id="stat-warnings">0</div><div class="lbl">Warnings</div></div>
+  <div class="stat"><div class="val red" id="stat-alerts">0</div><div class="lbl">Critical Alerts</div></div>
+  <div class="stat"><div class="val" id="stat-llm-saved">0%</div><div class="lbl">LLM Calls Saved</div></div>
+</div>
+
+<script>
+  let mqttClient = null;
+  const MAX_CARDS = 30;
+
+  const stats = {
+    total: 0, suppressed: 0, forwarded: 0,
+    warnings: 0, alerts: 0,
+    llm_total: 0, llm_skipped: 0
+  };
+
+  function now() {
+    return new Date().toLocaleTimeString('en-US', {hour12: false});
+  }
+
+  function prependCard(colId, html, limit = MAX_CARDS) {
+    const col = document.getElementById(colId);
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    col.insertBefore(div.firstChild, col.firstChild);
+    while (col.children.length > limit) col.removeChild(col.lastChild);
+  }
+
+  function updateStats() {
+    document.getElementById('stat-total').textContent      = stats.total;
+    document.getElementById('stat-suppressed').textContent = stats.suppressed;
+    document.getElementById('stat-forwarded').textContent  = stats.forwarded;
+    document.getElementById('stat-warnings').textContent   = stats.warnings;
+    document.getElementById('stat-alerts').textContent     = stats.alerts;
+    const supPct = stats.total > 0 ? Math.round((stats.suppressed/stats.total)*100) : 0;
+    document.getElementById('stat-pct').textContent        = supPct + '%';
+    const llmPct = stats.llm_total > 0 ? Math.round((stats.llm_skipped/stats.llm_total)*100) : 0;
+    document.getElementById('stat-llm-saved').textContent  = llmPct + '%';
+  }
+
+  function connectBroker() {
+    const host = document.getElementById('cfg-host').value;
+    const port = parseInt(document.getElementById('cfg-port').value);
+    const user = document.getElementById('cfg-user').value;
+    const pass = document.getElementById('cfg-pass').value;
+
+    if (mqttClient) { try { mqttClient.disconnect(); } catch(e){} }
+
+    mqttClient = new Paho.MQTT.Client(host, port, '/mqtt', 'dashboard-' + Date.now());
+
+    mqttClient.onConnectionLost = (r) => {
+      document.getElementById('conn-badge').className = 'conn-badge';
+      document.getElementById('conn-badge').textContent = '● Disconnected';
+    };
+
+    mqttClient.onMessageArrived = handleMessage;
+
+    mqttClient.connect({
+      useSSL: port === 8443 || port === 443,
+      userName: user,
+      password: pass,
+      onSuccess: () => {
+        document.getElementById('conn-badge').className = 'conn-badge connected';
+        document.getElementById('conn-badge').textContent = '● Connected';
+        // Subscribe to all pipeline topics
+        mqttClient.subscribe('sensors/temperature/#');
+        mqttClient.subscribe('sensors/pipeline/sketch-input');
+        mqttClient.subscribe('sensors/pipeline/orchestrator-input');
+        mqttClient.subscribe('sensors/pipeline/alerts');
+      },
+      onFailure: (e) => {
+        alert('Connection failed: ' + e.errorMessage);
+      }
+    });
+  }
+
+  function handleMessage(msg) {
+    try {
+      const topic   = msg.destinationName;
+      const payload = JSON.parse(msg.payloadString);
+
+      // ── Raw sensor events (from publisher) ──────────────────────────────
+      if (topic.startsWith('sensors/')) {
+        stats.total++;
+        const et   = payload.eventType || 'NORMAL';
+        const zone = et === 'ANOMALY' ? 'CRITICAL' : (et === 'NOISY' ? 'WARNING' : 'NORMAL');
+        const icon = {NORMAL:'🟢', NOISY:'🟡', ANOMALY:'🔴'}[et] || '⚪';
+
+        // We'll mark it as suppressed in the deadband col if it's NOISY
+        // (the deadband agent will make the real decision)
+        prependCard('col-raw', `
+          <div class="event-card ${zone}">
+            <div class="ev-header">
+              <span>${icon}</span>
+              <span class="ev-sensor">${payload.sensorId}</span>
+              <span class="zone-pill ${zone}">${et}</span>
+              <span class="ev-time">${now()}</span>
+            </div>
+            <div class="ev-temp ${zone}">${payload.temperature}°C</div>
+            <div class="ev-body">seq=${payload.sequence} | raw publish</div>
+          </div>`);
+        document.getElementById('badge-raw').textContent = stats.total + ' events';
+        updateStats();
+      }
+
+      // ── Sketch-input (from deadband agent — forwarded events) ────────────
+      if (topic === 'sensors/pipeline/sketch-input') {
+        const zone = payload.zone || 'NORMAL';
+        const reason = payload.forwarded_reason || '';
+        const isSuppressed = false; // If it arrived here, it was forwarded
+        stats.forwarded++;
+        if (zone === 'WARNING')  stats.warnings++;
+
+        const icon = {NORMAL:'🟢', WARNING:'🟡', CRITICAL:'🔴'}[zone] || '⚪';
+        const win  = payload.window || {};
+
+        prependCard('col-raw', `
+          <div class="event-card ${zone}" style="border-left-width:2px; margin-left:12px;">
+            <div class="ev-header">
+              <span>${icon}</span>
+              <span class="ev-sensor">${payload.sensorId}</span>
+              <span class="zone-pill ${zone}">${zone}</span>
+              <span style="font-size:0.7rem; color:#60a5fa; margin-left:4px;">↑ FORWARDED</span>
+              <span class="ev-time">${now()}</span>
+            </div>
+            <div class="ev-body">
+              Δ=${(payload.delta_pct*100).toFixed(1)}% | reason=${reason}<br>
+              win: mean=${win.mean}°C min=${win.min}°C max=${win.max}°C
+            </div>
+          </div>`);
+        document.getElementById('badge-raw').textContent = stats.total + ' events';
+        updateStats();
+      }
+
+      // ── Orchestrator-input (from sketch agent) ───────────────────────────
+      if (topic === 'sensors/pipeline/orchestrator-input') {
+        const zone   = payload.zone || 'NORMAL';
+        const sketch = payload.sketch || '';
+        const icon   = {NORMAL:'🟢', WARNING:'🟡', CRITICAL:'🔴'}[zone] || '⚪';
+        stats.llm_total++;
+        if (zone === 'NORMAL') stats.llm_skipped++;
+
+        prependCard('col-sketch', `
+          <div class="event-card ${zone}">
+            <div class="ev-header">
+              <span>${icon}</span>
+              <span class="ev-sensor">${payload.sensorId}</span>
+              <span class="zone-pill ${zone}">${zone}</span>
+              <span class="ev-time">${now()}</span>
+            </div>
+            <div class="ev-temp ${zone}">${payload.raw_value}°C</div>
+            <div class="ev-sketch">"${sketch}"</div>
+            <div class="ev-body" style="margin-top:4px;">
+              ${zone === 'NORMAL' ? '💤 LLM skipped — cost saved' : '⚡ Routing to LLM...'}
+            </div>
+          </div>`);
+        document.getElementById('badge-sketch').textContent =
+          stats.llm_total + ' sketches';
+        updateStats();
+      }
+
+      // ── Alerts (from anomaly agent) ───────────────────────────────────────
+      if (topic === 'sensors/pipeline/alerts') {
+        const assess = payload.assessment || 'advisory';
+        const zone   = payload.zone || 'WARNING';
+        if (zone === 'CRITICAL') stats.alerts++;
+        const aIcon  = {normal:'✅', advisory:'⚡', alert:'🚨'}[assess] || '❓';
+        const aClass = {normal:'NORMAL', advisory:'WARNING', alert:'CRITICAL'}[assess] || 'WARNING';
+
+        prependCard('col-alert', `
+          <div class="event-card ${aClass} ALERT">
+            <div class="ev-header">
+              <span>${aIcon}</span>
+              <span class="ev-sensor">${payload.sensorId}</span>
+              <span class="zone-pill ${aClass}">${assess.toUpperCase()}</span>
+              <span class="ev-time">${now()}</span>
+            </div>
+            <div class="ev-body" style="margin-bottom:4px;">${payload.reasoning}</div>
+            <div class="ev-action">▶ ${payload.action}</div>
+            <div class="ev-body" style="margin-top:4px;">
+              confidence=${(payload.confidence*100).toFixed(0)}%
+              ${payload.llm_mock ? '| mock LLM' : '| GPT-4o-mini'}
+            </div>
+          </div>`);
+        document.getElementById('badge-alert').textContent =
+          (stats.warnings + stats.alerts) + ' alerts';
+        updateStats();
+      }
+
+    } catch(e) {
+      console.error('Message parse error:', e);
+    }
+  }
+</script>
+</body>
+</html>
