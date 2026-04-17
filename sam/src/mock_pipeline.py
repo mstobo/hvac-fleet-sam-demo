@@ -33,6 +33,7 @@ USE_TLS = os.getenv("SOLACE_TLS", "true").lower() in ("true", "1", "yes")
 
 # ── Topics ───────────────────────────────────────────────────────────────────
 SUBSCRIBE_TOPIC = "sensors/temperature/#"
+SUPPRESSED_TOPIC = "sensors/pipeline/suppressed"
 SKETCH_TOPIC = "sensors/pipeline/sketch-input"
 ORCHESTRATOR_TOPIC = "sensors/pipeline/orchestrator-input"
 ALERTS_TOPIC = "sensors/pipeline/alerts"
@@ -217,6 +218,8 @@ def on_message(client, userdata, msg):
         
         if action == "suppress":
             print(f"[Deadband] 🔇 SUPPRESS {sensor_id} | {result['reason']}")
+            # Publish suppression notification for dashboard stats
+            client.publish(SUPPRESSED_TOPIC, json.dumps(result))
             return
         
         zone = result["zone"]
