@@ -228,6 +228,7 @@
         document.getElementById('conn-badge').textContent = '● Connected';
         // Subscribe to all pipeline topics
         mqttClient.subscribe('sensors/temperature/#');
+        mqttClient.subscribe('sensors/pipeline/suppressed');
         mqttClient.subscribe('sensors/pipeline/sketch-input');
         mqttClient.subscribe('sensors/pipeline/orchestrator-input');
         mqttClient.subscribe('sensors/pipeline/alerts');
@@ -262,6 +263,12 @@
             <div class="ev-body">seq=${payload.sequence} | raw publish</div>
           </div>`);
         document.getElementById('badge-raw').textContent = stats.total + ' events';
+        updateStats();
+      }
+
+      // ── Suppressed events (from deadband agent) ─────────────────────────
+      if (topic === 'sensors/pipeline/suppressed') {
+        stats.suppressed++;
         updateStats();
       }
 
