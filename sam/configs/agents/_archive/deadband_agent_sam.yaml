@@ -1,0 +1,156 @@
+# deadband_agent_sam.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# CORRECTED Deadband / Delta Engine Agent — SAM Configuration
+#
+# Based on verified SAM config structure from sam-event-mesh-agent plugin.
+#
+# KEY CORRECTIONS:
+#   ❌ WRONG: agent_type: action | pipeline: position: 1 | on_suppress: ...
+#   ✅ CORRECT: Uses solace_agent_mesh.agent.sac.app as app_module
+#   ✅ CORRECT: Tools defined with tool_type: python + component_module + function_name
+#   ✅ CORRECT: Routing via inter_agent_communication allow_list / deny_list
+#   ✅ CORRECT: No "prescriptive pipeline" YAML key — agent chaining is via LLM
+#               instruction or peer_agent_tool (for explicit agent-to-agent calls)
+#
+# Deploy: copy to your SAM project's configs/agents/ directory
+# ─────────────────────────────────────────────────────────────────────────────
+
+log:
+  stdout_log_level: INFO
+  log_file_level: DEBUG
+  log_file: deadband-agent.log
+
+shared_config:
+  - broker_connection: &broker_connection
+      dev_mode: ${SOLACE_DEV_MODE, false}
+      broker_url: ${SOLACE_BROKER_URL, ws://localhost:8080}
+      broker_username: ${SOLACE_BROKER_USERNAME, default}
+      broker_password: ${SOLACE_BROKER_PASSWORD, default}
+      broker_vpn: ${SOLACE_BROKER_VPN, default}
+      temporary_queue: ${USE_TEMPORARY_QUEUES, true}
+
+  - models:
+    general: &general_model
+      model: ${LLM_SERVICE_GENERAL_MODEL_NAME}
+      api_base: ${LLM_SERVICE_ENDPOINT}
+      api_key: ${LLM_SERVICE_API_KEY}
+
+  - services:
+    session_service: &default_session_service
+      type: "memory"
+      default_behavior: "PERSISTENT"
+    artifact_service: &default_artifact_service
+      type: "filesystem"
+      base_path: "/tmp/samv2"
+      artifact_scope: namespace
+
+apps:
+  - name: deadband-agent-app
+    app_base_path: .
+    app_module: solace_agent_mesh.agent.sac.app    # ← The real SAM app module
+    broker:
+      <<: *broker_connection
+
+    broker_request_response:
+      enabled: true
+      broker_config: *broker_connection
+      request_expiry_ms: 45000        # 45s — allow headroom for processing
+      payload_encoding: utf-8
+      payload_format: json
+      response_topic_prefix: ${NAMESPACE}solace-agent-mesh/v1
+      response_queue_prefix: ${NAMESPACE}solace-agent-mesh/v1
+
+    app_config:
+      namespace: ${NAMESPACE}
+      supports_streaming: true
+      agent_name: "DeadbandAgent"
+      display_name: "Deadband / Delta Engine Agent"
+      model: *general_model
+
+      instruction: |
+        You are the Deadband / Delta Engine Agent for a sensor monitoring pipeline.
+
+        When you receive a sensor reading, call the apply_deadband_filter tool
+        with the sensor_id, temperature, and timestamp values.
+
+        If the tool returns action: "suppress" — respond with:
+        "SUPPRESSED: <reason>"
+
+        If the tool returns action: "forward" — pass the full result to the
+        SketchAgent for natural language summarization. Include all fields:
+        sensor_id, temperature, timestamp, zone, delta_pct, forwarded_reason, window.
+
+        Do not modify the data. Do not add commentary. Just filter and forward.
+
+      tools:
+        - tool_type: builtin-group
+          group_name: artifact_management
+
+        - tool_type: python
+          component_module: deadband_agent_sam
+          component_base_path: src
+          function_name: apply_deadband_filter
+          tool_name: "apply_deadband_filter"
+          description: |
+            Apply deadband filtering and zone classification to a sensor temperature reading.
+            Suppresses readings within the noise threshold; enriches and forwards
+            meaningful delta events with window statistics and zone classification.
+
+            Parameters:
+            - sensor_id [string|required]: Sensor identifier (e.g. "sensor-001")
+            - temperature [number|required]: Temperature reading in degrees Celsius
+            - timestamp [string|required]: ISO8601 timestamp of the reading
+          tool_config:
+            deadband_pct:   0.02      # 2% change threshold
+            heartbeat_secs: 30        # Force-forward every 30s
+            window_secs:    30        # Rolling window duration
+            warning_temp:   58.0      # °C warning threshold
+            critical_temp:  65.0      # °C critical threshold
+
+        # ── Secondary tool: on-demand status query ───────────────────────────
+        - tool_type: python
+          component_module: deadband_agent_sam
+          component_base_path: src
+          function_name: get_deadband_status
+          tool_name: "get_deadband_status"
+          description: |
+            Query current deadband filter status without processing a new reading.
+            Returns per-sensor state, zone distribution, and window statistics.
+            Use for dashboard health checks or debugging filter behavior.
+          tool_config:
+            warning_temp:   58.0
+            critical_temp:  65.0
+
+      session_service:
+        type: "sql"
+        database_url: "sqlite:///deadband_agent.db"
+        default_behavior: "PERSISTENT"
+      artifact_service: *default_artifact_service
+
+      artifact_handling_mode: "embed"
+      enable_embed_resolution: true
+
+      agent_card:
+        description: "Stateful deadband filter for sensor event streams. Suppresses noise, classifies zones, and forwards meaningful events."
+        defaultInputModes: ["text"]
+        defaultOutputModes: ["text"]
+        skills:
+          - id: "deadband_filter"
+            name: "Deadband Filter"
+            description: "Filters sensor readings below the deadband threshold and classifies zone severity."
+          - id: "deadband_status"
+            name: "Deadband Status Query"
+            description: "Returns current filter state including per-sensor values and zone distribution."
+
+      agent_card_publishing:
+        interval_seconds: 10
+
+      # ── Routing: this agent only talks to SketchAgent downstream ───────────
+      agent_discovery:
+        enabled: true
+
+      inter_agent_communication:
+        allow_list:
+          - "SketchAgent"     # Can only delegate to the Sketch Agent
+        deny_list: []
+        request_timeout_seconds: 30

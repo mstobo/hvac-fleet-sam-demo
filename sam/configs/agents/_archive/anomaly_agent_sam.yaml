@@ -1,0 +1,182 @@
+# anomaly_agent_sam.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-Sensor Anomaly Agent — SAM Configuration
+#
+# Analyzes individual sensor events classified as WARNING or CRITICAL.
+# Provides LLM-powered reasoning for severity assessment, trend analysis,
+# and recommended actions.
+#
+# This agent works WITH the Fleet Anomaly Agent:
+#   - Anomaly Agent: Deep analysis of individual sensor anomalies
+#   - Fleet Anomaly Agent: Cross-sensor correlation and pattern detection
+#
+# Deploy: copy to sam/configs/agents/ directory
+# ─────────────────────────────────────────────────────────────────────────────
+
+log:
+  stdout_log_level: INFO
+  log_file_level: DEBUG
+  log_file: anomaly-agent.log
+
+shared_config:
+  - broker_connection: &broker_connection
+      dev_mode: ${SOLACE_DEV_MODE, false}
+      broker_url: ${SOLACE_BROKER_URL, ws://localhost:8080}
+      broker_username: ${SOLACE_BROKER_USERNAME, default}
+      broker_password: ${SOLACE_BROKER_PASSWORD, default}
+      broker_vpn: ${SOLACE_BROKER_VPN, default}
+      temporary_queue: ${USE_TEMPORARY_QUEUES, true}
+
+  - models:
+    general: &general_model
+      model: ${LLM_SERVICE_GENERAL_MODEL_NAME}
+      api_base: ${LLM_SERVICE_ENDPOINT}
+      api_key: ${LLM_SERVICE_API_KEY}
+
+  - services:
+    artifact_service: &default_artifact_service
+      type: "filesystem"
+      base_path: "/tmp/samv2"
+      artifact_scope: namespace
+
+apps:
+  - name: anomaly-agent-app
+    app_base_path: .
+    app_module: solace_agent_mesh.agent.sac.app
+    broker:
+      <<: *broker_connection
+
+    broker_request_response:
+      enabled: true
+      broker_config: *broker_connection
+      request_expiry_ms: 30000
+      payload_encoding: utf-8
+      payload_format: json
+      response_topic_prefix: ${NAMESPACE}solace-agent-mesh/v1
+      response_queue_prefix: ${NAMESPACE}solace-agent-mesh/v1
+
+    app_config:
+      namespace: ${NAMESPACE}
+      supports_streaming: true
+      agent_name: "AnomalyAgent"
+      display_name: "Per-Sensor Anomaly Agent"
+      model: *general_model
+
+      instruction: |
+        You are the Per-Sensor Anomaly Agent for a temperature monitoring pipeline.
+
+        You receive sensor events that have been classified as WARNING or CRITICAL
+        by the upstream Sketch Agent. Your job is to:
+
+        1. Analyze the specific sensor reading using the analyze_sensor_event tool
+        2. Assess severity based on the zone, trend, and historical context
+        3. Generate human-readable assessments with recommended actions
+        4. Track alert history to avoid duplicate notifications
+
+        IMPORTANT: You only analyze WARNING and CRITICAL events. NORMAL events
+        are automatically skipped - they don't need LLM reasoning.
+
+        For each event you process:
+        - Call analyze_sensor_event with all available sensor data
+        - If an alert is raised, summarize the assessment and recommendations
+        - If the alert was deduplicated, note that the condition is ongoing
+
+        You can also use get_anomaly_stats to report on overall alert activity,
+        or get_sensor_history to retrieve recent readings for a specific sensor.
+
+        Your analysis complements the Fleet Anomaly Agent, which looks for
+        patterns across multiple sensors. You focus on individual sensor health.
+
+      tools:
+        - tool_type: builtin-group
+          group_name: artifact_management
+
+        # Primary tool: Analyze individual sensor events
+        - tool_type: python
+          component_module: anomaly_agent_sam
+          component_base_path: src
+          function_name: analyze_sensor_event
+          tool_name: "analyze_sensor_event"
+          description: |
+            Analyze a sensor event for anomalies and generate an assessment.
+            Called for WARNING and CRITICAL zone events from the Sketch Agent.
+            Returns severity, assessment, trend analysis, and recommendations.
+
+            Parameters:
+            - sensor_id    [string|required]: Sensor identifier (e.g., "sensor-001")
+            - temperature  [number|required]: Temperature reading in °C
+            - zone         [string|required]: NORMAL | WARNING | CRITICAL
+            - sketch       [string|required]: Natural language sketch from Sketch Agent
+            - timestamp    [string|required]: ISO8601 timestamp
+            - window       [object|optional]: Rolling window stats (mean/min/max/count)
+
+        # Stats tool: Get overall anomaly detection statistics
+        - tool_type: python
+          component_module: anomaly_agent_sam
+          component_base_path: src
+          function_name: get_anomaly_stats
+          tool_name: "get_anomaly_stats"
+          description: |
+            Get current anomaly detection statistics including total events analyzed,
+            alerts raised, NORMAL events skipped, and recent alert summaries.
+            Use this when asked about alert activity or system health.
+
+        # History tool: Get recent readings for a specific sensor
+        - tool_type: python
+          component_module: anomaly_agent_sam
+          component_base_path: src
+          function_name: get_sensor_history
+          tool_name: "get_sensor_history"
+          description: |
+            Get recent history for a specific sensor including readings, trend,
+            and zone classifications. Use when asked about a specific sensor's
+            recent behavior or history.
+
+            Parameters:
+            - sensor_id [string|required]: Sensor identifier to query
+
+      session_service:
+        type: "sql"
+        database_url: "sqlite:///anomaly_agent.db"
+        default_behavior: "PERSISTENT"
+      artifact_service: *default_artifact_service
+
+      artifact_handling_mode: "embed"
+      enable_embed_resolution: true
+
+      agent_card:
+        description: >
+          Per-sensor anomaly detection with LLM-powered reasoning. Analyzes
+          WARNING and CRITICAL events, assesses severity, tracks trends,
+          and provides recommended actions. Works alongside the Fleet Anomaly
+          Agent for comprehensive monitoring coverage.
+        defaultInputModes: ["text"]
+        defaultOutputModes: ["text"]
+        skills:
+          - id: "sensor_analysis"
+            name: "Sensor Event Analysis"
+            description: >
+              Analyzes individual sensor events for anomalies using trend
+              analysis and contextual reasoning. Generates severity assessments
+              and recommended actions.
+          - id: "anomaly_stats"
+            name: "Anomaly Statistics"
+            description: >
+              Reports on overall alert activity including events analyzed,
+              alerts raised, and recent alert history.
+          - id: "sensor_history"
+            name: "Sensor History Query"
+            description: >
+              Retrieves recent readings and trend analysis for a specific sensor.
+
+      agent_card_publishing:
+        interval_seconds: 10
+
+      agent_discovery:
+        enabled: true
+
+      # This agent can delegate to Fleet Anomaly Agent for correlation analysis
+      inter_agent_communication:
+        allow_list: ["FleetAnomalyAgent"]
+        deny_list: []
+        request_timeout_seconds: 30

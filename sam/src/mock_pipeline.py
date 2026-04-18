@@ -2,27 +2,31 @@
 """
 mock_pipeline.py
 ================
-Lightweight mock of the SAM agent pipeline for demo purposes.
+Deterministic sensor data pipeline (DATA PLANE - No LLM).
 
 Subscribes to raw sensor events, processes them through:
   1. Deadband filter (suppresses noise)
   2. Sketch generator (creates NL summary)
-  3. Anomaly assessment (mock LLM response)
+  3. Anomaly detector (rule-based alerts)
+  4. Fleet status tracker (aggregate health)
 
-Publishes to the pipeline topics that the dashboard expects.
+All results are written to SQLite for SAM agents to query.
 
-This avoids the heavy SAM/pandas dependencies while demonstrating
-the full event flow.
+Architecture:
+  MQTT → Pipeline → SQLite → SAM Agents (query via tools)
 """
 
 import collections
 import json
 import os
-import random
 import ssl
 import time
+from datetime import datetime
 
 import paho.mqtt.client as mqtt
+
+# Import our database module
+import sensor_db
 
 # ── Broker config ────────────────────────────────────────────────────────────
 BROKER_HOST = os.getenv("SOLACE_HOST", "YOUR_BROKER.messaging.solace.cloud")
@@ -43,6 +47,11 @@ _last_value = {}
 _last_forward_ts = {}
 _windows = {}
 
+# ── Fleet tracking state ─────────────────────────────────────────────────────
+_sensor_zones = {}  # sensor_id -> current zone
+_last_fleet_update = 0
+FLEET_UPDATE_INTERVAL = 10.0  # Update fleet status every 10 seconds
+
 # ── Thresholds ───────────────────────────────────────────────────────────────
 DEADBAND_PCT = 0.02      # 2% change threshold
 HEARTBEAT_SECS = 30.0
@@ -59,6 +68,30 @@ def classify_zone(temp):
     return "NORMAL"
 
 
+def classify_severity(zone, delta_pct, temperature):
+    """Determine alert severity based on zone and context."""
+    if zone == "CRITICAL":
+        if temperature >= 70.0:
+            return "CRITICAL"
+        return "HIGH"
+    elif zone == "WARNING":
+        if delta_pct > 0.10:  # 10% jump
+            return "MEDIUM"
+        return "LOW"
+    return None
+
+
+def get_alert_type(zone, delta_pct, forwarded_reason):
+    """Determine the type of alert."""
+    if delta_pct > 0.30:
+        return "SPIKE"
+    if forwarded_reason == "heartbeat" and zone != "NORMAL":
+        return "SUSTAINED_WARNING"
+    if zone == "CRITICAL":
+        return "THRESHOLD_BREACH"
+    return "ELEVATED_READING"
+
+
 def get_window_stats(sensor_id):
     if sensor_id not in _windows or not _windows[sensor_id]:
         return {"mean": 0.0, "min": 0.0, "max": 0.0, "count": 0}
@@ -69,6 +102,21 @@ def get_window_stats(sensor_id):
         "max": round(max(vals), 2),
         "count": len(vals)
     }
+
+
+def calculate_trend(sensor_id):
+    """Calculate temperature trend from window data."""
+    if sensor_id not in _windows or len(_windows[sensor_id]) < 3:
+        return "STABLE"
+    
+    vals = [v for _, v in _windows[sensor_id]]
+    recent = vals[-3:]
+    
+    if all(recent[i] < recent[i+1] for i in range(len(recent)-1)):
+        return "RISING"
+    elif all(recent[i] > recent[i+1] for i in range(len(recent)-1)):
+        return "FALLING"
+    return "STABLE"
 
 
 def apply_deadband(sensor_id, temperature, timestamp):
@@ -110,6 +158,10 @@ def apply_deadband(sensor_id, temperature, timestamp):
     
     zone = classify_zone(temperature)
     window = get_window_stats(sensor_id)
+    trend = calculate_trend(sensor_id)
+    
+    # Track sensor zone for fleet status
+    _sensor_zones[sensor_id] = zone
     
     return "forward", {
         "action": "forward",
@@ -119,16 +171,19 @@ def apply_deadband(sensor_id, temperature, timestamp):
         "zone": zone,
         "delta_pct": round(delta_pct_out, 4),
         "forwarded_reason": forwarded_reason,
-        "window": window
+        "window": window,
+        "trend": trend
     }
 
 
-def generate_sketch(sensor_id, temperature, zone, delta_pct, forwarded_reason, window):
+def generate_sketch(sensor_id, temperature, zone, delta_pct, forwarded_reason, window, trend):
     """Generate natural language sketch"""
     win_mean = window.get("mean", temperature)
     win_min = window.get("min", temperature)
     win_max = window.get("max", temperature)
     delta_pct_pct = delta_pct * 100
+    
+    timestamp = datetime.utcnow().isoformat() + "Z"
     
     if forwarded_reason == "heartbeat":
         sketch = (
@@ -148,47 +203,148 @@ def generate_sketch(sensor_id, temperature, zone, delta_pct, forwarded_reason, w
         elif zone == "WARNING":
             sketch += " ⚡ Elevated — monitoring advised."
     
+    # Write to database
+    sensor_db.insert_sketch(
+        sensor_id=sensor_id,
+        temperature=temperature,
+        zone=zone,
+        sketch=sketch,
+        timestamp=timestamp,
+        trend=trend,
+        window_avg=win_mean,
+        window_min=win_min,
+        window_max=win_max
+    )
+    
     return {
         "sensorId": sensor_id,
         "zone": zone,
         "sketch": sketch,
         "raw_value": temperature,
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "window": window
+        "timestamp": timestamp,
+        "window": window,
+        "trend": trend
     }
 
 
-def generate_alert(sensor_id, zone, sketch, temperature):
-    """Generate mock anomaly alert (simulating LLM response)"""
+def generate_alert(sensor_id, zone, temperature, delta_pct, forwarded_reason):
+    """Generate alert if conditions warrant (deterministic - no LLM)"""
     if zone == "NORMAL":
         return None
     
-    if zone == "CRITICAL":
-        assessment = "alert"
-        confidence = round(random.uniform(0.85, 0.98), 2)
-        reasoning = (
-            f"Temperature spike to {temperature:.1f}°C exceeds critical threshold. "
-            f"Immediate attention required to prevent equipment damage."
+    severity = classify_severity(zone, delta_pct, temperature)
+    if not severity:
+        return None
+    
+    alert_type = get_alert_type(zone, delta_pct, forwarded_reason)
+    timestamp = datetime.utcnow().isoformat() + "Z"
+    
+    # Generate description based on alert type
+    if alert_type == "SPIKE":
+        description = (
+            f"Temperature spike detected: {sensor_id} jumped {delta_pct*100:.1f}% to "
+            f"{temperature:.1f}°C. Immediate investigation recommended."
         )
-        action = "Dispatch technician for immediate inspection. Consider emergency shutdown if trend continues."
-    else:  # WARNING
-        assessment = "advisory"
-        confidence = round(random.uniform(0.70, 0.85), 2)
-        reasoning = (
-            f"Temperature elevated to {temperature:.1f}°C, approaching warning threshold. "
-            f"Monitor closely for further escalation."
+    elif alert_type == "THRESHOLD_BREACH":
+        description = (
+            f"Critical threshold breached: {sensor_id} at {temperature:.1f}°C "
+            f"exceeds {CRITICAL_TEMP}°C limit. Emergency protocol advised."
         )
-        action = "Increase monitoring frequency. Schedule preventive inspection within 24 hours."
+    elif alert_type == "SUSTAINED_WARNING":
+        description = (
+            f"Sustained warning condition: {sensor_id} remains elevated at "
+            f"{temperature:.1f}°C. Monitor for further escalation."
+        )
+    else:
+        description = (
+            f"Elevated reading: {sensor_id} at {temperature:.1f}°C "
+            f"in {zone} zone. Continue monitoring."
+        )
+    
+    # Write to database
+    sensor_db.insert_alert(
+        sensor_id=sensor_id,
+        temperature=temperature,
+        zone=zone,
+        severity=severity,
+        alert_type=alert_type,
+        description=description,
+        timestamp=timestamp
+    )
     
     return {
         "sensorId": sensor_id,
         "zone": zone,
-        "assessment": assessment,
-        "confidence": confidence,
-        "reasoning": reasoning,
-        "action": action,
-        "llm_mock": True
+        "severity": severity,
+        "alert_type": alert_type,
+        "description": description,
+        "temperature": temperature,
+        "timestamp": timestamp
     }
+
+
+def update_fleet_status():
+    """Update fleet status in database (called periodically)."""
+    global _last_fleet_update
+    
+    now = time.time()
+    if now - _last_fleet_update < FLEET_UPDATE_INTERVAL:
+        return
+    
+    _last_fleet_update = now
+    
+    active_sensors = len(_sensor_zones)
+    if active_sensors == 0:
+        return
+    
+    warning_count = sum(1 for z in _sensor_zones.values() if z == "WARNING")
+    critical_count = sum(1 for z in _sensor_zones.values() if z == "CRITICAL")
+    
+    # Determine fleet status
+    if critical_count > 0:
+        if critical_count >= active_sensors * 0.5:
+            fleet_status = "FLEET_CRITICAL"
+            notes = f"Multiple sensors in critical state ({critical_count}/{active_sensors})"
+            correlation = True
+        else:
+            fleet_status = "CRITICAL"
+            notes = f"{critical_count} sensor(s) in critical state"
+            correlation = False
+    elif warning_count > 0:
+        if warning_count >= active_sensors * 0.5:
+            fleet_status = "ELEVATED"
+            notes = f"Multiple sensors in warning state ({warning_count}/{active_sensors})"
+            correlation = True
+        else:
+            fleet_status = "WARNING"
+            notes = f"{warning_count} sensor(s) in warning state"
+            correlation = False
+    else:
+        fleet_status = "NOMINAL"
+        notes = "All sensors operating normally"
+        correlation = False
+    
+    timestamp = datetime.utcnow().isoformat() + "Z"
+    
+    sensor_db.insert_fleet_status(
+        active_sensors=active_sensors,
+        sensors_in_warning=warning_count,
+        sensors_in_critical=critical_count,
+        fleet_status=fleet_status,
+        timestamp=timestamp,
+        correlation_detected=correlation,
+        notes=notes
+    )
+    
+    status_icon = {
+        "NOMINAL": "🟢",
+        "WARNING": "🟡", 
+        "ELEVATED": "🟠",
+        "CRITICAL": "🔴",
+        "FLEET_CRITICAL": "🔴🔴"
+    }.get(fleet_status, "⚪")
+    
+    print(f"[Fleet]    {status_icon} {fleet_status} | {active_sensors} sensors | {warning_count}W {critical_count}C")
 
 
 def on_connect(client, userdata, flags, reason_code, properties=None):
@@ -207,8 +363,7 @@ def on_message(client, userdata, msg):
         payload = json.loads(msg.payload.decode())
         sensor_id = payload.get("sensorId")
         temperature = payload.get("temperature")
-        timestamp = payload.get("timestamp", "")
-        event_type = payload.get("eventType", "")
+        timestamp = payload.get("timestamp", datetime.utcnow().isoformat() + "Z")
         
         if not sensor_id or temperature is None:
             return
@@ -218,7 +373,6 @@ def on_message(client, userdata, msg):
         
         if action == "suppress":
             print(f"[Deadband] 🔇 SUPPRESS {sensor_id} | {result['reason']}")
-            # Publish suppression notification for dashboard stats
             client.publish(SUPPRESSED_TOPIC, json.dumps(result))
             return
         
@@ -226,42 +380,63 @@ def on_message(client, userdata, msg):
         zone_icon = {"NORMAL": "🟢", "WARNING": "🟡", "CRITICAL": "🔴"}.get(zone, "⚪")
         print(f"[Deadband] {zone_icon} FORWARD {sensor_id} | {temperature:.1f}°C | zone={zone}")
         
-        # Publish to sketch-input topic
+        # Write reading to database (passed deadband)
+        sensor_db.insert_reading(
+            sensor_id=sensor_id,
+            temperature=temperature,
+            timestamp=timestamp,
+            delta_percent=result["delta_pct"]
+        )
+        
+        # Publish to sketch-input topic (for dashboard)
         client.publish(SKETCH_TOPIC, json.dumps(result))
         
         # ── Stage 2: Sketch Generator ────────────────────────────────────────
         sketch_result = generate_sketch(
             sensor_id, temperature, zone,
-            result["delta_pct"], result["forwarded_reason"], result["window"]
+            result["delta_pct"], result["forwarded_reason"], 
+            result["window"], result["trend"]
         )
         
         print(f"[Sketch]   ✍️  {sensor_id} | \"{sketch_result['sketch'][:60]}...\"")
         
-        # Publish to orchestrator-input topic
+        # Publish to orchestrator-input topic (for dashboard)
         client.publish(ORCHESTRATOR_TOPIC, json.dumps(sketch_result))
         
-        # ── Stage 3: Anomaly Assessment (zone-gated) ─────────────────────────
+        # ── Stage 3: Anomaly Detection (deterministic - no LLM) ──────────────
         if zone == "NORMAL":
-            print(f"[Anomaly]  💤 SKIP LLM | {sensor_id} zone=NORMAL")
+            print(f"[Anomaly]  💤 SKIP | {sensor_id} zone=NORMAL")
         else:
-            alert = generate_alert(sensor_id, zone, sketch_result["sketch"], temperature)
+            alert = generate_alert(
+                sensor_id, zone, temperature, 
+                result["delta_pct"], result["forwarded_reason"]
+            )
             if alert:
-                alert_icon = "🚨" if zone == "CRITICAL" else "⚡"
-                print(f"[Anomaly]  {alert_icon} ALERT | {sensor_id} | {alert['assessment']} | conf={alert['confidence']}")
+                alert_icon = "🚨" if alert["severity"] in ["CRITICAL", "HIGH"] else "⚡"
+                print(f"[Anomaly]  {alert_icon} {alert['severity']} | {sensor_id} | {alert['alert_type']}")
                 client.publish(ALERTS_TOPIC, json.dumps(alert))
+        
+        # ── Stage 4: Fleet Status Update ─────────────────────────────────────
+        update_fleet_status()
         
         print()
         
     except Exception as e:
         print(f"[Pipeline] ❌ Error processing message: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def main():
+    # Initialize the database
+    print("[Pipeline] 📦 Initializing SQLite database...")
+    sensor_db.init_database()
+    
     userdata = {"connected": False}
     
     client = mqtt.Client(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
-        client_id=f"mock-pipeline-{int(time.time())}",
+        client_id=f"pipeline-{int(time.time())}",
         protocol=mqtt.MQTTv5,
         userdata=userdata
     )
@@ -273,21 +448,22 @@ def main():
         print(f"[Pipeline] 🔒 TLS enabled")
         client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLS)
     
-    print(f"\n{'='*60}")
-    print("  MOCK PIPELINE  |  Deadband → Sketch → Anomaly")
-    print(f"{'='*60}")
-    print(f"  Broker : {BROKER_HOST}:{BROKER_PORT}")
-    print(f"  Input  : {SUBSCRIBE_TOPIC}")
-    print(f"  Output : {SKETCH_TOPIC}")
-    print(f"           {ORCHESTRATOR_TOPIC}")
-    print(f"           {ALERTS_TOPIC}")
-    print(f"{'='*60}\n")
+    print(f"\n{'='*65}")
+    print("  DATA PLANE PIPELINE  |  Deadband → Sketch → Anomaly → SQLite")
+    print(f"{'='*65}")
+    print(f"  Broker   : {BROKER_HOST}:{BROKER_PORT}")
+    print(f"  Input    : {SUBSCRIBE_TOPIC}")
+    print(f"  Database : {sensor_db.get_db_path()}")
+    print(f"{'='*65}")
+    print("  SAM agents can now query this database for alerts & status")
+    print(f"{'='*65}\n")
     
     try:
         client.connect(BROKER_HOST, BROKER_PORT, keepalive=60)
         client.loop_forever()
     except KeyboardInterrupt:
         print("\n[Pipeline] Stopped by user.")
+        print(f"[Pipeline] Final stats: {sensor_db.get_statistics()}")
     finally:
         client.disconnect()
 

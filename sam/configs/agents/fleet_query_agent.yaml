@@ -1,0 +1,237 @@
+# Fleet Query Agent
+# ─────────────────────────────────────────────────────────────────────────────
+# SAM Agent for querying the sensor pipeline SQLite database.
+# 
+# This agent uses an LLM to interpret user questions and call the appropriate
+# query tools. The actual sensor data processing happens in the deterministic
+# pipeline (mock_pipeline.py) - this agent only READS from the database.
+#
+# Architecture:
+#   User Question → LLM → Query Tools → SQLite → LLM → Natural Language Answer
+# ─────────────────────────────────────────────────────────────────────────────
+
+log:
+  stdout_log_level: INFO
+  log_file_level: DEBUG
+  log_file: fleet-query-agent.log
+
+!include ../shared_config.yaml
+
+apps:
+  - name: fleet-query-agent-app
+    app_base_path: .
+    app_module: solace_agent_mesh.agent.sac.app
+    broker:
+      <<: *broker_connection
+    
+    broker_request_response:
+      enabled: true
+      broker_config: *broker_connection
+      request_expiry_ms: 60000
+      payload_encoding: utf-8
+      payload_format: json
+      response_topic_prefix: ${NAMESPACE}solace-agent-mesh/v1
+      response_queue_prefix: ${NAMESPACE}solace-agent-mesh/v1
+
+    app_config:
+      namespace: ${NAMESPACE}
+      supports_streaming: true
+      agent_name: "FleetQueryAgent"
+      display_name: "Fleet Query Agent"
+      
+      model: *general_model
+      
+      instruction: |
+        You are the Fleet Query Agent for a temperature sensor monitoring system.
+        
+        Your role is to answer questions about:
+        - Recent sensor activity and what's been happening
+        - Alerts and warnings
+        - Fleet health status
+        - Individual sensor readings
+        - Historical trends and patterns
+        
+        TOOL SELECTION GUIDE (use the RIGHT tool for the question):
+        
+        1. "What's been happening?" / "What's going on?" / "Recent activity?" / "Summarize lately"
+           → USE get_sketches FIRST - these are pre-written natural language summaries
+           → Sketches tell the STORY of what happened, not just alert counts
+        
+        2. "Any alerts?" / "What warnings?" / "Critical events?"
+           → USE get_recent_alerts or get_alert_summary
+        
+        3. "How is the fleet?" / "System status?" / "Overall health?"
+           → USE get_fleet_status
+        
+        4. "Tell me about sensor-001" / specific sensor questions
+           → USE get_sensor_details
+        
+        5. "How much data?" / "Statistics?"
+           → USE get_system_statistics
+        
+        IMPORTANT RULES:
+        - For "what's happening" questions, ALWAYS call get_sketches - it returns 
+          human-readable summaries like "sensor-001 spiked 38% to 63°C, Zone: WARNING"
+        - Don't call the same tool multiple times unnecessarily
+        - Sketches are MORE USEFUL than raw alerts for narrative questions
+        - If user asks about activity/behavior/trends, prefer sketches over alerts
+        
+        Database contains:
+        - sketches: Natural language summaries (BEST for "what's happening" questions)
+        - alerts: WARNING/CRITICAL events only
+        - sensor_readings: Raw temperature values
+        - fleet_status: Periodic health snapshots
+
+      tools:
+        # Query recent alerts
+        - tool_type: python
+          component_module: fleet_query_tools
+          component_base_path: src
+          function_name: get_recent_alerts
+          tool_name: "get_recent_alerts"
+          description: "Query recent alerts from the sensor pipeline. Use when user asks about alerts, warnings, or anomalies."
+          parameters:
+            - name: minutes
+              type: integer
+              description: "How far back to look (default 60 minutes)"
+              default: 60
+            - name: severity
+              type: string
+              description: "Filter by severity: LOW, MEDIUM, HIGH, or CRITICAL (optional)"
+              required: false
+            - name: limit
+              type: integer
+              description: "Maximum number of alerts to return (default 20)"
+              default: 20
+
+        # Get alert summary statistics
+        - tool_type: python
+          component_module: fleet_query_tools
+          component_base_path: src
+          function_name: get_alert_summary
+          tool_name: "get_alert_summary"
+          description: "Get a summary of alert activity. Use for statistics or overview questions."
+          parameters:
+            - name: minutes
+              type: integer
+              description: "Time window in minutes (default 60)"
+              default: 60
+
+        # Get current fleet status
+        - tool_type: python
+          component_module: fleet_query_tools
+          component_base_path: src
+          function_name: get_fleet_status
+          tool_name: "get_fleet_status"
+          description: "Get current fleet health status. Use when user asks about overall system status."
+
+        # Get fleet status history
+        - tool_type: python
+          component_module: fleet_query_tools
+          component_base_path: src
+          function_name: get_fleet_history
+          tool_name: "get_fleet_history"
+          description: "Get fleet status history over time. Use for trend questions."
+          parameters:
+            - name: minutes
+              type: integer
+              description: "Time window in minutes (default 60)"
+              default: 60
+
+        # Get sensor details
+        - tool_type: python
+          component_module: fleet_query_tools
+          component_base_path: src
+          function_name: get_sensor_details
+          tool_name: "get_sensor_details"
+          description: "Get detailed information about a specific sensor. Use when user asks about sensor-001, sensor-002, etc."
+          parameters:
+            - name: sensor_id
+              type: string
+              description: "The sensor identifier (e.g., sensor-001)"
+              required: true
+            - name: minutes
+              type: integer
+              description: "Time window in minutes (default 30)"
+              default: 30
+
+        # Get sketch summaries
+        - tool_type: python
+          component_module: fleet_query_tools
+          component_base_path: src
+          function_name: get_sketches
+          tool_name: "get_sketches"
+          description: "Get natural language summaries of sensor behavior. Use when user asks what's been happening."
+          parameters:
+            - name: minutes
+              type: integer
+              description: "Time window in minutes (default 30)"
+              default: 30
+            - name: zone
+              type: string
+              description: "Filter by zone: NORMAL, WARNING, or CRITICAL (optional)"
+              required: false
+            - name: limit
+              type: integer
+              description: "Maximum number of sketches to return (default 20)"
+              default: 20
+
+        # Get system statistics
+        - tool_type: python
+          component_module: fleet_query_tools
+          component_base_path: src
+          function_name: get_system_statistics
+          tool_name: "get_system_statistics"
+          description: "Get overall system statistics. Use for metrics or data volume questions."
+
+        # Acknowledge an alert
+        - tool_type: python
+          component_module: fleet_query_tools
+          component_base_path: src
+          function_name: acknowledge_alert
+          tool_name: "acknowledge_alert"
+          description: "Acknowledge an alert (mark as reviewed). Use when user wants to clear/acknowledge alerts."
+          parameters:
+            - name: alert_id
+              type: integer
+              description: "The ID of the alert to acknowledge"
+              required: true
+
+      session_service:
+        type: "sql"
+        database_url: "sqlite:///fleet_query_agent.db"
+        default_behavior: "PERSISTENT"
+      
+      artifact_service: *default_artifact_service
+      artifact_handling_mode: "embed"
+      enable_embed_resolution: true
+      
+      agent_card:
+        name: "FleetQueryAgent"
+        display_name: "Fleet Query Agent"
+        description: |
+          Query agent for the temperature sensor monitoring system.
+          Ask about alerts, fleet status, sensor readings, and trends.
+        skills:
+          - id: "query_alerts"
+            name: "Query Alerts"
+            description: "Get recent alerts, filter by severity or time"
+            tags: ["alerts", "query"]
+          - id: "fleet_status"
+            name: "Fleet Status"
+            description: "Check overall fleet health and sensor status"
+            tags: ["fleet", "status"]
+          - id: "sensor_details"
+            name: "Sensor Details"
+            description: "Get detailed info about specific sensors"
+            tags: ["sensor", "details"]
+          - id: "trends"
+            name: "Trend Analysis"
+            description: "Analyze patterns and trends over time"
+            tags: ["trends", "analysis"]
+      
+      agent_card_publishing:
+        interval_seconds: 10
+      
+      agent_discovery:
+        enabled: true
