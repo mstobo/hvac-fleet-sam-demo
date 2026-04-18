@@ -1,0 +1,128 @@
+# sketch_agent_sam.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# CORRECTED Sketch Summarizer Agent — SAM Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+log:
+  stdout_log_level: INFO
+  log_file_level: DEBUG
+  log_file: sketch-agent.log
+
+shared_config:
+  - broker_connection: &broker_connection
+      dev_mode: ${SOLACE_DEV_MODE, false}
+      broker_url: ${SOLACE_BROKER_URL, ws://localhost:8080}
+      broker_username: ${SOLACE_BROKER_USERNAME, default}
+      broker_password: ${SOLACE_BROKER_PASSWORD, default}
+      broker_vpn: ${SOLACE_BROKER_VPN, default}
+      temporary_queue: ${USE_TEMPORARY_QUEUES, true}
+
+  - models:
+    general: &general_model
+      model: ${LLM_SERVICE_GENERAL_MODEL_NAME}
+      api_base: ${LLM_SERVICE_ENDPOINT}
+      api_key: ${LLM_SERVICE_API_KEY}
+
+  - services:
+    artifact_service: &default_artifact_service
+      type: "filesystem"
+      base_path: "/tmp/samv2"
+      artifact_scope: namespace
+
+apps:
+  - name: sketch-agent-app
+    app_base_path: .
+    app_module: solace_agent_mesh.agent.sac.app
+    broker:
+      <<: *broker_connection
+
+    broker_request_response:
+      enabled: true
+      broker_config: *broker_connection
+      request_expiry_ms: 45000        # 45s — allow headroom for processing
+      payload_encoding: utf-8
+      payload_format: json
+      response_topic_prefix: ${NAMESPACE}solace-agent-mesh/v1
+      response_queue_prefix: ${NAMESPACE}solace-agent-mesh/v1
+
+    app_config:
+      namespace: ${NAMESPACE}
+      supports_streaming: true
+      agent_name: "SketchAgent"
+      display_name: "Sketch Summarizer Agent"
+      model: *general_model
+
+      instruction: |
+        You are the Sketch Summarizer Agent in a sensor monitoring pipeline.
+
+        You receive enriched sensor events from the Deadband Agent containing:
+        sensor_id, temperature, zone, delta_pct, forwarded_reason, timestamp, window stats.
+
+        Call the generate_sketch tool with the provided values to produce
+        a natural language summary of the event.
+
+        Then pass the full sketch result (sensor_id, zone, sketch, raw_value,
+        timestamp, window) to the AnomalyAgent for assessment.
+
+        Do not modify or interpret the data yourself. Just generate and forward.
+
+      tools:
+        - tool_type: builtin-group
+          group_name: artifact_management
+
+        - tool_type: python
+          component_module: sketch_agent_sam
+          component_base_path: src
+          function_name: generate_sketch
+          tool_name: "generate_sketch"
+          description: |
+            Convert a filtered sensor event into a natural language sketch
+            for downstream LLM anomaly detection. Supports TEMPLATE mode
+            (deterministic, zero LLM cost) and LLM mode (richer narrative).
+
+            Parameters:
+            - sensor_id [string|required]: Sensor identifier
+            - temperature [number|required]: Temperature reading in °C
+            - zone [string|required]: NORMAL | WARNING | CRITICAL
+            - delta_pct [number|required]: Fractional change (e.g. 0.15 = 15%)
+            - forwarded_reason [string|required]: delta | heartbeat | first-reading
+            - timestamp [string|required]: ISO8601 timestamp
+            - window [object|optional]: Rolling window stats (mean/min/max/count)
+          tool_config:
+            mode: TEMPLATE      # TEMPLATE (default) | LLM (Phase 4+)
+            window_secs: 30     # Default window duration for sketch text
+            baselines:
+              default:
+                weekly_mean: 46.0
+                weekly_std: 4.5
+
+      session_service:
+        type: "sql"
+        database_url: "sqlite:///sketch_agent.db"
+        default_behavior: "PERSISTENT"
+      artifact_service: *default_artifact_service
+
+      artifact_handling_mode: "embed"
+      enable_embed_resolution: true
+
+      agent_card:
+        description: "Converts filtered sensor delta events into concise natural language sketches for LLM consumption."
+        defaultInputModes: ["text"]
+        defaultOutputModes: ["text"]
+        skills:
+          - id: "generate_sketch"
+            name: "Generate Sketch"
+            description: "Produces a natural language summary of a sensor event."
+
+      agent_card_publishing:
+        interval_seconds: 10
+
+      agent_discovery:
+        enabled: true
+
+      inter_agent_communication:
+        allow_list:
+          - "AnomalyAgent"        # Per-sensor anomaly assessment
+          - "FleetAnomalyAgent"   # Fleet-wide pattern detection (parallel)
+        deny_list: []
+        request_timeout_seconds: 30

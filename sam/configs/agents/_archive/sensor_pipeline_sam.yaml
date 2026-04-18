@@ -1,0 +1,129 @@
+# sensor_pipeline_sam.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# Sensor Intelligence Pipeline
+# SAM Prescriptive Workflow Definition
+#
+# This defines the deterministic, ordered pipeline that the SAM Orchestrator
+# follows for every sensor event arriving via the MQTT Gateway.
+#
+# Register with:  sam add workflow --config sensor_pipeline_sam.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: sensor-pipeline
+display_name: "Sensor Intelligence Pipeline"
+description: >
+  End-to-end sensor event processing pipeline. Implements the
+  Filter-Trigger-Summarize-Act pattern using four chained SAM agents.
+  Includes fleet-wide anomaly detection for correlated patterns.
+  Schema validation (mqtt5SRDemo) is an optional upstream layer.
+
+type: prescriptive   # Deterministic — each step's output feeds the next
+
+# ── Trigger ────────────────────────────────────────────────────────────────
+trigger:
+  type: mqtt_gateway
+  topic_pattern: "sensors/temperature/#"
+  qos: 0
+  # Optional: schema validation pre-filter (requires mqtt5SRDemo + Schema Registry)
+  schema_validation:
+    enabled: false              # Set true when Schema Registry is deployed
+    registry_url: ""            # https://your-schema-registry/apis/registry/v3
+    schema_artifact_id: "solace/samples/tempsensor"
+    on_failure: drop            # drop | dlq | passthrough
+
+# ── Pipeline Steps ─────────────────────────────────────────────────────────
+steps:
+
+  - step: 1
+    name: filter
+    agent: deadband-agent
+    description: "Suppress noise, compute window stats, classify zone"
+    on_suppress:
+      action: terminate         # Pipeline ends here for suppressed events
+      publish_to: "sensors/pipeline/suppressed"   # Optional audit trail
+    on_success:
+      pass_fields: [sensorId, temperature, timestamp, zone, delta_pct,
+                    forwarded_reason, window, pipeline_ts]
+
+  - step: 2
+    name: summarize
+    agent: sketch-agent
+    description: "Generate natural language sketch from enriched event"
+    on_success:
+      pass_fields: [sensorId, zone, sketch, raw_value, timestamp,
+                    window, pipeline_ts]
+
+  - step: 3
+    name: assess
+    agent: anomaly-agent
+    description: "LLM reasoning — zone-gated to skip NORMAL events"
+    zone_routing:
+      NORMAL:
+        action: terminate_with_log
+        log: "NORMAL zone — LLM invocation skipped"
+      WARNING:
+        action: invoke
+      CRITICAL:
+        action: invoke
+        priority: high
+    on_alert:
+      publish_to: "sensors/alerts/active"
+      qos: 1                    # Guaranteed delivery for alerts
+
+  - step: 4
+    name: fleet-monitor
+    agent: fleet-anomaly-agent
+    description: "Detect fleet-wide correlated patterns across all sensors"
+    parallel: true              # Runs in parallel with step 3 (receives all sketches)
+    input_from: step_2          # Subscribes to sketch output, not anomaly output
+    patterns:
+      - correlated_drift        # Majority trending same direction
+      - simultaneous_escalation # Multiple zone transitions together
+      - sensor_silence          # Infrastructure/network issues
+      - zone_clustering         # Many sensors in WARNING/CRITICAL
+    on_fleet_alert:
+      publish_to: "sensors/alerts/fleet"
+      qos: 1
+
+# ── Output Topics ──────────────────────────────────────────────────────────
+outputs:
+  - topic: "sensors/pipeline/suppressed"
+    description: "Suppressed events (deadband filtered) — for ELK audit"
+    schema: { sensorId: string, temperature: number, reason: string }
+
+  - topic: "sensors/pipeline/normal"
+    description: "NORMAL forwarded events — logged, LLM skipped"
+
+  - topic: "sensors/alerts/active"
+    description: "WARNING / CRITICAL alerts with LLM assessment (per-sensor)"
+    schema:
+      sensorId:   string
+      zone:       string
+      assessment: string
+      confidence: number
+      action:     string
+      reasoning:  string
+
+  - topic: "sensors/alerts/fleet"
+    description: "Fleet-wide correlated anomaly alerts"
+    schema:
+      fleet_status:      string
+      patterns_detected: number
+      affected_sensors:  array
+      pattern_type:      string
+      correlation:       number
+      description:       string
+      hypothesis:        string
+
+# ── Observability ──────────────────────────────────────────────────────────
+observability:
+  metrics:
+    - suppression_rate
+    - llm_invocations
+    - llm_skipped
+    - pipeline_latency_ms
+    - alerts_raised
+    - fleet_patterns_detected
+    - fleet_correlation_alerts
+  log_level: info
+  elk_integration: true        # Publish metrics to ELK if configured
