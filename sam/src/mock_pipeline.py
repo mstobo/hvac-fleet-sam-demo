@@ -28,6 +28,14 @@ import paho.mqtt.client as mqtt
 # Import our database module
 import sensor_db
 
+# Import Slack notifier for critical alerts
+try:
+    import slack_notifier
+    SLACK_ENABLED = True
+except ImportError:
+    SLACK_ENABLED = False
+    print("[Pipeline] Slack notifier not available")
+
 # ── Broker config ────────────────────────────────────────────────────────────
 BROKER_HOST = os.getenv("SOLACE_HOST", "YOUR_BROKER.messaging.solace.cloud")
 BROKER_PORT = int(os.getenv("SOLACE_PORT", "8883"))
@@ -272,6 +280,17 @@ def generate_alert(sensor_id, zone, temperature, delta_pct, forwarded_reason):
         timestamp=timestamp
     )
     
+    # Send Slack notification for CRITICAL/HIGH severity
+    if SLACK_ENABLED and severity in ["CRITICAL", "HIGH"]:
+        slack_notifier.send_critical_alert(
+            sensor_id=sensor_id,
+            temperature=temperature,
+            description=description,
+            alert_type=alert_type,
+            severity=severity,
+            timestamp=timestamp
+        )
+    
     return {
         "sensorId": sensor_id,
         "zone": zone,
@@ -335,6 +354,16 @@ def update_fleet_status():
         correlation_detected=correlation,
         notes=notes
     )
+    
+    # Send Slack notification for fleet-wide critical events
+    if SLACK_ENABLED and fleet_status in ["FLEET_CRITICAL", "CRITICAL"]:
+        slack_notifier.send_fleet_alert(
+            fleet_status=fleet_status,
+            active_sensors=active_sensors,
+            critical_count=critical_count,
+            warning_count=warning_count,
+            notes=notes
+        )
     
     status_icon = {
         "NOMINAL": "🟢",
