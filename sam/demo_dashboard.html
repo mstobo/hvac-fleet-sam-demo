@@ -120,10 +120,10 @@
 </header>
 
 <div id="config-panel">
-  <div><label>WebSocket Host</label><br><input id="cfg-host" value="YOUR_BROKER.messaging.solace.cloud" /></div>
-  <div><label>WS Port</label><br><input id="cfg-port" value="8000" style="width:80px" /></div>
-  <div><label>Username</label><br><input id="cfg-user" value="YOUR_USERNAME" /></div>
-  <div><label>Password</label><br><input id="cfg-pass" type="password" value="YOUR_PASSWORD" style="width:140px" /></div>
+  <div><label>WebSocket Host</label><br><input id="cfg-host" value="mr-connection-ij528qgf39j.messaging.solace.cloud" /></div>
+  <div><label>WS Port</label><br><input id="cfg-port" value="443" style="width:80px" /></div>
+  <div><label>Username</label><br><input id="cfg-user" value="solace-cloud-client" /></div>
+  <div><label>Password</label><br><input id="cfg-pass" type="password" value="va197s27vonhhc1r3ujhf35t8i" style="width:140px" /></div>
   <div style="align-self:flex-end;"><button onclick="connectBroker()">Connect ▶</button></div>
 </div>
 
@@ -150,7 +150,7 @@
   <!-- Col 3: Anomaly Alerts -->
   <div class="pipeline-col" style="border-right:none;">
     <div class="col-header">
-      <h2>🚨 3 · Anomaly Alerts (LLM)</h2>
+      <h2>🚨 3 · Anomaly Alerts (Rules)</h2>
       <span class="badge" id="badge-alert">0 alerts</span>
     </div>
     <div class="col-body" id="col-alert"></div>
@@ -166,7 +166,7 @@
   <div class="stat"><div class="val" id="stat-forwarded">0</div><div class="lbl">Forwarded</div></div>
   <div class="stat"><div class="val yellow" id="stat-warnings">0</div><div class="lbl">Warnings</div></div>
   <div class="stat"><div class="val red" id="stat-alerts">0</div><div class="lbl">Critical Alerts</div></div>
-  <div class="stat"><div class="val" id="stat-llm-saved">0%</div><div class="lbl">LLM Calls Saved</div></div>
+  <div class="stat"><div class="val" id="stat-llm-saved">0%</div><div class="lbl">Noise Filtered</div></div>
 </div>
 
 <script>
@@ -320,7 +320,7 @@
             <div class="ev-temp ${zone}">${payload.raw_value}°C</div>
             <div class="ev-sketch">"${sketch}"</div>
             <div class="ev-body" style="margin-top:4px;">
-              ${zone === 'NORMAL' ? '💤 LLM skipped — cost saved' : '⚡ Routing to LLM...'}
+              ${zone === 'NORMAL' ? '💤 Normal — no alert' : '⚡ → Anomaly Detection'}
             </div>
           </div>`);
         document.getElementById('badge-sketch').textContent =
@@ -328,27 +328,30 @@
         updateStats();
       }
 
-      // ── Alerts (from anomaly agent) ───────────────────────────────────────
+      // ── Alerts (from anomaly detection - deterministic rules) ──────────────
       if (topic === 'sensors/pipeline/alerts') {
-        const assess = payload.assessment || 'advisory';
-        const zone   = payload.zone || 'WARNING';
-        if (zone === 'CRITICAL') stats.alerts++;
-        const aIcon  = {normal:'✅', advisory:'⚡', alert:'🚨'}[assess] || '❓';
-        const aClass = {normal:'NORMAL', advisory:'WARNING', alert:'CRITICAL'}[assess] || 'WARNING';
+        const severity = payload.severity || 'LOW';
+        const zone = payload.zone || 'WARNING';
+        const alertType = payload.alert_type || 'ELEVATED_READING';
+        
+        if (severity === 'CRITICAL' || severity === 'HIGH') stats.alerts++;
+        else stats.warnings++;
+        
+        const sIcon = {CRITICAL:'🚨', HIGH:'🔴', MEDIUM:'🟠', LOW:'🟡'}[severity] || '⚡';
+        const sClass = {CRITICAL:'CRITICAL', HIGH:'CRITICAL', MEDIUM:'WARNING', LOW:'WARNING'}[severity] || 'WARNING';
 
         prependCard('col-alert', `
-          <div class="event-card ${aClass} ALERT">
+          <div class="event-card ${sClass} ALERT">
             <div class="ev-header">
-              <span>${aIcon}</span>
+              <span>${sIcon}</span>
               <span class="ev-sensor">${payload.sensorId}</span>
-              <span class="zone-pill ${aClass}">${assess.toUpperCase()}</span>
+              <span class="zone-pill ${sClass}">${severity}</span>
               <span class="ev-time">${now()}</span>
             </div>
-            <div class="ev-body" style="margin-bottom:4px;">${payload.reasoning}</div>
-            <div class="ev-action">▶ ${payload.action}</div>
+            <div class="ev-body" style="margin-bottom:4px;">${payload.description}</div>
+            <div class="ev-action">▶ ${alertType.replace(/_/g, ' ')}</div>
             <div class="ev-body" style="margin-top:4px;">
-              confidence=${(payload.confidence*100).toFixed(0)}%
-              ${payload.llm_mock ? '| mock LLM' : '| GPT-4o-mini'}
+              ${payload.temperature.toFixed(1)}°C | Zone: ${zone} | Deterministic
             </div>
           </div>`);
         document.getElementById('badge-alert').textContent =
