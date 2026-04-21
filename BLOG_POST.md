@@ -203,8 +203,15 @@ Recommended: Investigate within 1 hour."
 
 ## Lessons Learned
 
-### 1. Never Put LLMs in the Ingestion Path
-This is the foundational architectural principle — everything else follows from it. The moment an LLM becomes part of your event ingestion flow, you've coupled your pipeline's reliability and cost to the latency and availability of an external AI service. For high-volume IoT, that coupling is fatal at scale. Deterministic code belongs in the ingestion path. LLMs belong in the query path.
+### 1. For High-Volume Streams, Keep LLMs Out of the Ingestion Path
+For high-throughput IoT telemetry, this is the foundational principle — everything else follows from it. The moment an LLM becomes part of your event ingestion flow, you've coupled your pipeline's reliability and cost to the latency and availability of an external AI service. At thousands of messages per second, that coupling becomes fatal. Deterministic code belongs in the ingestion path. LLMs belong in the query path.
+
+**But event-triggered AI still makes sense for:**
+- **Low-frequency, high-value events** — a support ticket, a contract signature, an approval request
+- **Workflow automation** — generating reports, summarizing meetings, routing requests
+- **Document or context generation** — drafting responses, enriching records, creating handoffs
+
+The distinction is **volume, not capability**. Event Mesh Gateways that trigger LLM calls are powerful — just not for firehose-scale telemetry where 99% of events are noise.
 
 ### 2. LLMs Require Explicit Tooling Contracts
 Our first version had the LLM calling `get_alerts` even for "what's happening" questions. We had to explicitly guide tool selection:
@@ -221,7 +228,7 @@ instruction: |
 ```
 
 ### 3. Separate Data Plane from Control Plane
-Event-driven gateways that trigger LLM calls are useful for **low-volume, high-value events** (like Jira tickets). For high-volume IoT, you need a deterministic pipeline that doesn't involve the LLM.
+The architecture splits cleanly: a **data plane** for high-throughput deterministic processing, and a **control plane** for on-demand AI reasoning. This separation is what makes the economics work — the expensive resource (LLM) is only invoked when a human needs insight, not when a sensor emits a reading.
 
 ### 4. Pre-compute Natural Language
 The sketch generator does the "translation" from numbers to words **at ingestion time**, not query time. This means:
