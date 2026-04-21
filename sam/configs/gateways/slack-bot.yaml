@@ -1,0 +1,100 @@
+# Slack Gateway for Sensor Fleet Monitoring
+# ─────────────────────────────────────────────────────────────────────────────
+# Enables bi-directional communication with Slack:
+#   - Users can query the fleet from Slack (@bot what's happening?)
+#   - Critical alerts can be pushed to Slack channels
+#
+# Required Environment Variables:
+#   SLACK_BOT_TOKEN - Your Slack Bot Token (starts with 'xoxb-')
+#   SLACK_APP_TOKEN - Your Slack App Token for Socket Mode (starts with 'xapp-')
+#
+# Setup Instructions:
+#   1. Go to https://api.slack.com/apps and create a new app
+#   2. Enable Socket Mode in the app settings
+#   3. Add required OAuth scopes (see below)
+#   4. Install app to your workspace
+#   5. Copy tokens to .env file
+#
+# Required OAuth Scopes:
+#   - app_mentions:read, chat:write, files:read, files:write
+#   - channels:history, groups:history, im:history, mpim:history
+#   - users:read, users:read.email
+#
+# Required Event Subscriptions:
+#   - app_mention, message.channels, message.groups, message.im
+# ─────────────────────────────────────────────────────────────────────────────
+
+log:
+  stdout_log_level: INFO
+  log_file_level: DEBUG
+  log_file: slack-bot.log
+
+!include ../shared_config.yaml
+
+apps:
+  - name: slack-gateway-app
+    app_module: solace_agent_mesh.gateway.generic.app
+    broker:
+      <<: *broker_connection
+
+    app_config:
+      namespace: "${NAMESPACE}"
+
+      # Gateway adapter for Slack
+      gateway_adapter: sam_slack_gateway_adapter.adapter.SlackAdapter
+
+      # Slack configuration
+      adapter_config:
+        slack_bot_token: ${SLACK_BOT_TOKEN}
+        slack_app_token: ${SLACK_APP_TOKEN}
+        slack_initial_status_message: "🔍 Querying fleet data..."
+        correct_markdown_formatting: true
+        slack_email_cache_ttl_seconds: 3600
+        feedback_enabled: true  # Enable thumbs up/down for responses
+
+      # Artifact service for file attachments
+      artifact_service: *default_artifact_service
+
+      # Route queries to our Fleet Query Agent
+      default_agent_name: "FleetQueryAgent"
+
+      # Embed resolution for artifacts
+      enable_embed_resolution: true
+      gateway_artifact_content_limit_bytes: 10000000
+      gateway_recursive_embed_depth: 3
+
+      # Authorization
+      authorization_service:
+        type: "none"
+
+      # System purpose - guides the bot's behavior
+      system_purpose: |
+        You are the Sensor Fleet Monitoring Bot.
+        
+        You help users monitor temperature sensors and investigate alerts.
+        You have access to:
+        - Real-time sensor data and historical readings
+        - Alert history and severity analysis
+        - Fleet health status and trends
+        - Natural language summaries (sketches) of sensor behavior
+        
+        Common queries you can handle:
+        - "What's the fleet status?"
+        - "Any critical alerts?"
+        - "Tell me about sensor-001"
+        - "What's been happening with the sensors?"
+        
+        Always provide clear, actionable information.
+        For critical issues, include recommended next steps.
+
+      response_format: |
+        Format responses in Slack-compatible markdown.
+        Use emoji for status indicators:
+        - 🟢 NOMINAL/NORMAL
+        - 🟡 WARNING
+        - 🔴 CRITICAL
+        - 📊 Statistics
+        - ⚠️ Alerts
+        
+        Keep responses concise but informative.
+        Include timestamps in UTC when relevant.
