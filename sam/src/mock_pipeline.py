@@ -2,7 +2,17 @@
 """
 mock_pipeline.py
 ================
-Deterministic sensor data pipeline (DATA PLANE - No LLM).
+COMBINED pipeline runner (all stages in one process).
+
+For microservices deployment, use the separate services instead:
+  - deadband_service.py  → sensors/pipeline/filtered
+  - sketch_service.py    → sensors/pipeline/sketched  
+  - anomaly_service.py   → sensors/pipeline/alerts
+
+This combined version is useful for:
+  - Local development/debugging
+  - Simple deployments where separate scaling isn't needed
+  - Demo purposes
 
 Subscribes to raw sensor events, processes them through:
   1. Deadband filter (suppresses noise)
@@ -478,13 +488,17 @@ def main():
         client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLS)
     
     print(f"\n{'='*65}")
-    print("  DATA PLANE PIPELINE  |  Deadband → Sketch → Anomaly → SQLite")
+    print("  DATA PLANE PIPELINE (COMBINED)")
+    print("  Deadband → Sketch → Anomaly → SQLite")
     print(f"{'='*65}")
     print(f"  Broker   : {BROKER_HOST}:{BROKER_PORT}")
     print(f"  Input    : {SUBSCRIBE_TOPIC}")
     print(f"  Database : {sensor_db.get_db_path()}")
     print(f"{'='*65}")
-    print("  SAM agents can now query this database for alerts & status")
+    print("  For microservices, run separately:")
+    print("    python deadband_service.py")
+    print("    python sketch_service.py")
+    print("    python anomaly_service.py")
     print(f"{'='*65}\n")
     
     try:
