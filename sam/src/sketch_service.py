@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""
+sketch_service.py
+=================
+Microservice 2/3: Sketch Generator
+
+Subscribes to: sensors/pipeline/filtered
+Publishes to:  sensors/pipeline/sketched
+Writes to:     SQLite (sketches table)
+
+Generates natural language summaries ("sketches") for each forwarded reading.
+These sketches are what the LLM reads when answering queries - not raw numbers.
+
+This is the second stage of the deterministic data plane - no LLM involved.
+The sketch generation is pure Python string formatting, not AI.
+"""
+
+import json
+from datetime import datetime
+
+import pipeline_config as config
+import sensor_db
+
+
+def generate_sketch(data):
+    """
+    Generate a natural language sketch from sensor data.
+    
+    Args:
+        data: dict with sensorId, temperature, zone, delta_pct, 
+              forwarded_reason, window, trend
+    
+    Returns:
+        dict with sketch text and metadata
+    """
+    sensor_id = data["sensorId"]
+    temperature = data["temperature"]
+    zone = data["zone"]
+    delta_pct = data["delta_pct"]
+    forwarded_reason = data["forwarded_reason"]
+    window = data.get("window", {})
+    trend = data.get("trend", "STABLE")
+    
+    win_mean = window.get("mean", temperature)
+    win_min = window.get("min", temperature)
+    win_max = window.get("max", temperature)
+    delta_pct_pct = delta_pct * 100
+    
+    timestamp = datetime.utcnow().isoformat() + "Z"
+    
+    # Generate natural language summary
+    if forwarded_reason == "heartbeat":
+        sketch = (
+            f"[HEARTBEAT] {sensor_id} stable at ~{win_mean:.1f}°C "
+            f"(range {win_min:.1f}–{win_max:.1f}°C) over last 30s. "
+            f"No significant change. Zone: {zone}."
+        )
+    else:
+        move = "spike" if temperature > win_mean else "drop"
+        sketch = (
+            f"{sensor_id} recorded a {delta_pct_pct:.1f}% {move} to "
+            f"{temperature:.1f}°C. 30s window: mean {win_mean:.1f}°C, "
+            f"range [{win_min:.1f}–{win_max:.1f}°C]. Zone: {zone}."
+        )
+        if zone == "CRITICAL":
+            sketch += " ⚠️ ANOMALY — immediate review required."
+        elif zone == "WARNING":
+            sketch += " ⚡ Elevated — monitoring advised."
+    
+    # Write to database
+    sensor_db.insert_sketch(
+        sensor_id=sensor_id,
+        temperature=temperature,
+        zone=zone,
+        sketch=sketch,
+        timestamp=timestamp,
+        trend=trend,
+        window_avg=win_mean,
+        window_min=win_min,
+        window_max=win_max
+    )
+    
+    return {
+        "sensorId": sensor_id,
+        "temperature": temperature,
+        "zone": zone,
+        "sketch": sketch,
+        "timestamp": timestamp,
+        "window": window,
+        "trend": trend,
+        "delta_pct": delta_pct,
+        "forwarded_reason": forwarded_reason
+    }
+
+
+def on_connect(client, userdata, flags, reason_code, properties=None):
+    if reason_code == 0:
+        print(f"[Sketch] ✅ Connected to {config.BROKER_HOST}")
+        client.subscribe(config.TOPIC_FILTERED)
+        print(f"[Sketch] 📡 Subscribed to {config.TOPIC_FILTERED}")
+    else:
+        print(f"[Sketch] ❌ Connection failed (rc={reason_code})")
+
+
+def on_message(client, userdata, msg):
+    """Process filtered reading and generate sketch."""
+    try:
+        data = json.loads(msg.payload.decode())
+        
+        # Only process forwarded readings
+        if data.get("action") != "forward":
+            return
+        
+        # Generate sketch
+        result = generate_sketch(data)
+        
+        # Log and publish
+        sketch_preview = result["sketch"][:60] + "..." if len(result["sketch"]) > 60 else result["sketch"]
+        print(f"[Sketch] ✍️  {result['sensorId']} | \"{sketch_preview}\"")
+        
+        client.publish(config.TOPIC_SKETCHED, json.dumps(result))
+        
+    except Exception as e:
+        print(f"[Sketch] ❌ Error: {e}")
+
+
+def main():
+    # Initialize the database
+    print("[Sketch] 📦 Initializing SQLite database...")
+    sensor_db.init_database()
+    
+    config.print_service_banner(
+        "Sketch Generator",
+        config.TOPIC_FILTERED,
+        config.TOPIC_SKETCHED
+    )
+    print(f"  Database : {sensor_db.get_db_path()}")
+    print(f"{'='*65}\n")
+    
+    client = config.create_mqtt_client("sketch")
+    client.on_connect = on_connect
+    client.on_message = on_message
+    
+    try:
+        client.connect(config.BROKER_HOST, config.BROKER_PORT, keepalive=60)
+        client.loop_forever()
+    except KeyboardInterrupt:
+        print("\n[Sketch] Stopped by user.")
+    finally:
+        client.disconnect()
+
+
+if __name__ == "__main__":
+    main()

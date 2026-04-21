@@ -99,6 +99,106 @@ We restructured into two distinct planes:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+### Detailed Data Plane Flow (Microservices Architecture)
+
+The pipeline is implemented as **three independent microservices** communicating via MQTT topics:
+
+```mermaid
+flowchart TD
+    subgraph SENSORS["Sensors"]
+        S1["sensor-001"]
+        S2["sensor-002"]
+        S3["sensor-003"]
+    end
+
+    subgraph BROKER["MQTT Broker (Solace PubSub+)"]
+        T1[/"sensors/temperature/#"/]
+        T2[/"sensors/pipeline/filtered"/]
+        T3[/"sensors/pipeline/sketched"/]
+        T4[/"sensors/pipeline/alerts"/]
+        T5[/"sensors/pipeline/suppressed"/]
+    end
+
+    subgraph SVC1["deadband_service.py"]
+        DB_SUB["Subscribe"]
+        DB_CHECK{{"Δ > 2% OR<br/>heartbeat due?"}}
+        DB_FWD["Forward"]
+        DB_SUP["Suppress"]
+    end
+
+    subgraph SVC2["sketch_service.py"]
+        SK_SUB["Subscribe"]
+        SK_GEN["Generate NL sketch:<br/>'sensor-001 spiked 38%<br/>to 65°C. Zone: CRITICAL.'"]
+        SK_DB[("SQLite:<br/>sketches")]
+    end
+
+    subgraph SVC3["anomaly_service.py"]
+        AN_SUB["Subscribe"]
+        AN_CHECK{{"Zone?"}}
+        AN_ALERT["Generate Alert"]
+        AN_SKIP["Skip (nominal)"]
+        AN_DB[("SQLite:<br/>alerts, readings,<br/>fleet_status")]
+        AN_SLACK{{"Slack?"}}
+        AN_NOTIFY["Push Notification"]
+    end
+
+    subgraph SAM["SAM Query Layer (LLM)"]
+        QUERY["User Query"]
+        TOOLS["Tools read SQLite"]
+        RESPONSE["AI Response"]
+    end
+
+    S1 & S2 & S3 -->|publish| T1
+    T1 --> DB_SUB
+    DB_SUB --> DB_CHECK
+    DB_CHECK -->|"Yes"| DB_FWD
+    DB_CHECK -->|"No (~70%)"| DB_SUP
+    DB_FWD -->|publish| T2
+    DB_SUP -->|publish| T5
+
+    T2 --> SK_SUB
+    SK_SUB --> SK_GEN
+    SK_GEN --> SK_DB
+    SK_GEN -->|publish| T3
+
+    T3 --> AN_SUB
+    AN_SUB --> AN_CHECK
+    AN_CHECK -->|"WARNING/CRITICAL"| AN_ALERT
+    AN_CHECK -->|"NOMINAL"| AN_SKIP
+    AN_ALERT --> AN_DB
+    AN_ALERT -->|publish| T4
+    AN_ALERT --> AN_SLACK
+    AN_SLACK -->|"Yes"| AN_NOTIFY
+    AN_SKIP --> AN_DB
+
+    AN_DB -.-> TOOLS
+    SK_DB -.-> TOOLS
+    QUERY --> TOOLS --> RESPONSE
+
+    style DB_SUP fill:#ffcccc
+    style DB_FWD fill:#ccffcc
+    style AN_ALERT fill:#ff6666
+    style AN_SKIP fill:#66ff66
+    style AN_NOTIFY fill:#4a90d9
+    style T2 fill:#e6f3ff
+    style T3 fill:#e6f3ff
+    style T4 fill:#ffe6e6
+```
+
+**MQTT Topics (Inter-Service Communication):**
+| Topic | Publisher | Subscriber | Purpose |
+|-------|-----------|------------|---------|
+| `sensors/temperature/#` | Sensors | deadband_service | Raw sensor readings |
+| `sensors/pipeline/filtered` | deadband_service | sketch_service | Readings that passed deadband |
+| `sensors/pipeline/sketched` | sketch_service | anomaly_service | Readings with NL sketches |
+| `sensors/pipeline/alerts` | anomaly_service | Dashboard | Generated alerts |
+| `sensors/pipeline/suppressed` | deadband_service | Dashboard | Filtered readings (monitoring) |
+
+**Key decision points:**
+1. **Deadband filter** — Suppresses ~70% of messages that show < 2% change (unless heartbeat is due)
+2. **Zone classification** — NOMINAL (< 58°C), WARNING (58-65°C), CRITICAL (≥ 65°C)
+3. **Alert routing** — CRITICAL/HIGH alerts trigger Slack notifications if configured
+
 ### Key Components
 
 **1. Deadband Filter (No LLM)**
