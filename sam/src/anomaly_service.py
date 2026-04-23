@@ -30,6 +30,14 @@ except ImportError:
     SLACK_ENABLED = False
     print("[Anomaly] Slack notifier not available")
 
+# Optional auto-analysis on FLEET_CRITICAL
+try:
+    import fleet_alert_analyzer
+    AUTO_ANALYSIS_ENABLED = True
+except ImportError:
+    AUTO_ANALYSIS_ENABLED = False
+    print("[Anomaly] Fleet alert analyzer not available")
+
 # ── Fleet Tracking State ─────────────────────────────────────────────────────
 _sensor_zones = {}        # sensor_id -> current zone
 _last_fleet_update = 0
@@ -130,6 +138,14 @@ def generate_alert(data):
             timestamp=timestamp
         )
     
+    # Collect critical sensor data for potential auto-analysis
+    if AUTO_ANALYSIS_ENABLED and zone == "CRITICAL":
+        fleet_alert_analyzer.on_sensor_critical(
+            sensor_id=sensor_id,
+            temperature=temperature,
+            zone=zone
+        )
+    
     return {
         "sensorId": sensor_id,
         "zone": zone,
@@ -201,6 +217,15 @@ def update_fleet_status():
             active_sensors=active_sensors,
             critical_count=critical_count,
             warning_count=warning_count,
+            notes=notes
+        )
+    
+    # Trigger auto-analysis for FLEET_CRITICAL (with debounce and rate limiting)
+    if AUTO_ANALYSIS_ENABLED and fleet_status == "FLEET_CRITICAL":
+        fleet_alert_analyzer.on_fleet_critical(
+            fleet_status=fleet_status,
+            critical_count=critical_count,
+            active_sensors=active_sensors,
             notes=notes
         )
     

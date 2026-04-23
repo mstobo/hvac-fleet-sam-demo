@@ -307,3 +307,27 @@ def send_fleet_alert(fleet_status: str, active_sensors: int, critical_count: int
     return get_notifier().send_fleet_alert(
         fleet_status, active_sensors, critical_count, warning_count, notes
     )
+
+
+def send_message(text: str, channel: str = None) -> bool:
+    """
+    Send a plain text message to Slack.
+    Used by fleet_alert_analyzer to push LLM analysis results.
+    """
+    notifier = get_notifier()
+    if not notifier.enabled or not notifier.client:
+        print("[SlackNotifier] Cannot send message - not enabled")
+        return False
+    
+    try:
+        target_channel = channel or notifier.channel
+        notifier.client.chat_postMessage(
+            channel=target_channel,
+            text=text,
+            mrkdwn=True
+        )
+        print(f"[SlackNotifier] 📤 Message sent to {target_channel}")
+        return True
+    except Exception as e:
+        print(f"[SlackNotifier] ❌ Failed to send message: {e}")
+        return False
