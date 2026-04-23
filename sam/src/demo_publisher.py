@@ -2,12 +2,27 @@
 """
 demo_publisher.py
 =================
-Simulates a sensor network publishing temperature readings over MQTT5.
-Produces three event types on a round-robin cycle to tell the full story:
+Simulates a factory floor with 3 machines, each having 3 temperature sensors.
 
-  - NORMAL   : Stable readings within expected range (most messages)
-  - NOISY    : Tiny random fluctuations — should be suppressed by deadband
-  - ANOMALY  : Sudden spike well outside normal range — must reach the LLM
+Machine/Sensor Hierarchy:
+  machine-001: m1-temp-inlet, m1-temp-outlet, m1-temp-motor
+  machine-002: m2-temp-inlet, m2-temp-outlet, m2-temp-motor
+  machine-003: m3-temp-inlet, m3-temp-outlet, m3-temp-motor
+
+Sensor Behaviors:
+  - Inlet temps: Coolest, affected by ambient/HVAC
+  - Outlet temps: Warmer than inlet, shows heat generation
+  - Motor temps: Hottest, most likely to spike
+
+Machine Profiles:
+  - Machine 1: Stable operation (baseline)
+  - Machine 2: Occasional anomalies (demonstrates spike detection)
+  - Machine 3: Running slightly hot (demonstrates sustained warnings)
+
+This structure enables realistic fleet monitoring scenarios:
+  - All inlet temps spike → Environmental issue (HVAC failure)
+  - All sensors on one machine spike → Machine issue
+  - Single sensor spikes → Sensor or component issue
 
 Usage:
     pip install paho-mqtt
@@ -15,10 +30,10 @@ Usage:
 
 Configure broker credentials via environment variables:
     SOLACE_HOST     - Broker hostname
-    SOLACE_PORT     - Broker port (default: 1883, or 8883 for TLS)
+    SOLACE_PORT     - Broker port (default: 8883 for TLS)
     SOLACE_USER     - Username
     SOLACE_PASS     - Password
-    SOLACE_TLS      - Set to "true" for TLS (default: false)
+    SOLACE_TLS      - Set to "true" for TLS (default: true)
     TOPIC_BASE      - Base topic (default: sensors/temperature)
 """
 
@@ -28,52 +43,212 @@ import os
 import random
 import ssl
 import time
+from dataclasses import dataclass
+from typing import Dict, List
 
 import paho.mqtt.client as mqtt
 
 # ── Broker config ────────────────────────────────────────────────────────────
 BROKER_HOST = os.getenv("SOLACE_HOST", "YOUR_BROKER.messaging.solace.cloud")
-BROKER_PORT = int(os.getenv("SOLACE_PORT", "1883"))
+BROKER_PORT = int(os.getenv("SOLACE_PORT", "8883"))
 USERNAME = os.getenv("SOLACE_USER", "YOUR_USERNAME")
 PASSWORD = os.getenv("SOLACE_PASS", "YOUR_PASSWORD")
-USE_TLS = os.getenv("SOLACE_TLS", "false").lower() in ("true", "1", "yes")
+USE_TLS = os.getenv("SOLACE_TLS", "true").lower() in ("true", "1", "yes")
 TOPIC_BASE = os.getenv("TOPIC_BASE", "sensors/temperature")
 
-# ── Sensor simulation config ─────────────────────────────────────────────────
-SENSORS = ["sensor-001", "sensor-002", "sensor-003"]
-BASELINE_TEMP = 45.0       # Normal operating temperature
-NOISE_AMPLITUDE = 0.4      # Tiny fluctuation (below deadband threshold)
-ANOMALY_SPIKE = 18.0       # Large spike (well above deadband + warning threshold)
-PUBLISH_INTERVAL = 2.0     # Seconds between messages
+# ── Timing ───────────────────────────────────────────────────────────────────
+PUBLISH_INTERVAL = 2.0     # Seconds between message batches
 RECONNECT_DELAY = 5        # Seconds to wait before reconnecting
 
-# Message cycle: 4 normal → 3 noisy → 1 anomaly (repeating)
-# This tells the story: most data is filtered, anomalies always get through
-CYCLE = [
-    "NORMAL", "NORMAL", "NORMAL", "NORMAL",
-    "NOISY", "NOISY", "NOISY",
-    "ANOMALY"
+
+@dataclass
+class SensorConfig:
+    """Configuration for a single sensor."""
+    sensor_id: str
+    machine_id: str
+    sensor_type: str  # inlet, outlet, motor
+    baseline_temp: float
+    noise_amplitude: float
+
+
+@dataclass
+class MachineConfig:
+    """Configuration for a machine with multiple sensors."""
+    machine_id: str
+    name: str
+    profile: str  # stable, spiky, hot
+    sensors: List[SensorConfig]
+
+
+# ── Machine and Sensor Definitions ───────────────────────────────────────────
+MACHINES = [
+    MachineConfig(
+        machine_id="machine-001",
+        name="CNC Mill #1",
+        profile="stable",
+        sensors=[
+            SensorConfig("m1-temp-inlet", "machine-001", "inlet", 38.0, 0.3),
+            SensorConfig("m1-temp-outlet", "machine-001", "outlet", 48.0, 0.4),
+            SensorConfig("m1-temp-motor", "machine-001", "motor", 52.0, 0.5),
+        ]
+    ),
+    MachineConfig(
+        machine_id="machine-002",
+        name="CNC Mill #2",
+        profile="spiky",  # This machine has occasional anomalies
+        sensors=[
+            SensorConfig("m2-temp-inlet", "machine-002", "inlet", 39.0, 0.3),
+            SensorConfig("m2-temp-outlet", "machine-002", "outlet", 49.0, 0.4),
+            SensorConfig("m2-temp-motor", "machine-002", "motor", 54.0, 0.6),
+        ]
+    ),
+    MachineConfig(
+        machine_id="machine-003",
+        name="CNC Mill #3",
+        profile="hot",  # This machine runs slightly hot
+        sensors=[
+            SensorConfig("m3-temp-inlet", "machine-003", "inlet", 42.0, 0.4),
+            SensorConfig("m3-temp-outlet", "machine-003", "outlet", 53.0, 0.5),
+            SensorConfig("m3-temp-motor", "machine-003", "motor", 58.0, 0.7),  # Near warning threshold
+        ]
+    ),
+]
+
+# Build flat sensor list for easy iteration
+ALL_SENSORS = [sensor for machine in MACHINES for sensor in machine.sensors]
+
+# ── Anomaly Scenarios ────────────────────────────────────────────────────────
+# These scenarios create realistic fleet events
+
+class AnomalyScenario:
+    """Defines an anomaly scenario that affects specific sensors."""
+    
+    def __init__(self, name: str, affected_sensors: List[str], spike_amount: float, 
+                 probability: float, duration_cycles: int, description: str):
+        self.name = name
+        self.affected_sensors = affected_sensors
+        self.spike_amount = spike_amount
+        self.probability = probability  # Chance per cycle to start
+        self.duration_cycles = duration_cycles
+        self.description = description
+        self.active_cycles_remaining = 0
+    
+    def should_start(self) -> bool:
+        """Check if this scenario should start (probabilistic)."""
+        if self.active_cycles_remaining > 0:
+            return False
+        return random.random() < self.probability
+    
+    def start(self):
+        """Start the scenario."""
+        self.active_cycles_remaining = self.duration_cycles
+        print(f"\n[Scenario] 🎬 STARTING: {self.name}")
+        print(f"           {self.description}")
+        print(f"           Affecting: {', '.join(self.affected_sensors)}")
+        print(f"           Duration: {self.duration_cycles} cycles\n")
+    
+    def tick(self) -> bool:
+        """Tick the scenario, return True if still active."""
+        if self.active_cycles_remaining > 0:
+            self.active_cycles_remaining -= 1
+            if self.active_cycles_remaining == 0:
+                print(f"\n[Scenario] 🏁 ENDED: {self.name}\n")
+            return True
+        return False
+    
+    def get_spike_for_sensor(self, sensor_id: str) -> float:
+        """Get spike amount for a sensor if affected by this scenario."""
+        if self.active_cycles_remaining > 0 and sensor_id in self.affected_sensors:
+            return self.spike_amount
+        return 0.0
+
+
+# Define anomaly scenarios
+SCENARIOS = [
+    # Machine-level failure (all sensors on machine-002 spike)
+    AnomalyScenario(
+        name="Machine-002 Overload",
+        affected_sensors=["m2-temp-inlet", "m2-temp-outlet", "m2-temp-motor"],
+        spike_amount=20.0,
+        probability=0.02,  # 2% chance per cycle
+        duration_cycles=3,
+        description="Machine-002 experiencing overload - all temps rising"
+    ),
+    
+    # Environmental event (all inlet sensors spike - HVAC failure)
+    AnomalyScenario(
+        name="HVAC Failure",
+        affected_sensors=["m1-temp-inlet", "m2-temp-inlet", "m3-temp-inlet"],
+        spike_amount=15.0,
+        probability=0.015,  # 1.5% chance per cycle
+        duration_cycles=5,
+        description="HVAC failure detected - all inlet temperatures rising"
+    ),
+    
+    # Single motor issue
+    AnomalyScenario(
+        name="Motor-003 Bearing Wear",
+        affected_sensors=["m3-temp-motor"],
+        spike_amount=18.0,
+        probability=0.03,  # 3% chance per cycle
+        duration_cycles=2,
+        description="Motor-003 showing signs of bearing wear"
+    ),
+    
+    # Fleet-wide event (simulates power surge affecting all machines)
+    AnomalyScenario(
+        name="Power Surge",
+        affected_sensors=[s.sensor_id for s in ALL_SENSORS],  # All sensors
+        spike_amount=12.0,
+        probability=0.008,  # 0.8% chance per cycle (rare but dramatic)
+        duration_cycles=2,
+        description="Power surge detected - all equipment affected"
+    ),
 ]
 
 
-def build_payload(sensor_id: str, event_type: str, seq: int) -> dict:
-    """Generate a sensor reading based on event type."""
-    base = BASELINE_TEMP + math.sin(seq * 0.1) * 2  # Gentle drift
+def get_active_spikes() -> Dict[str, float]:
+    """Get current spike amounts for all sensors from active scenarios."""
+    spikes = {}
+    for scenario in SCENARIOS:
+        if scenario.should_start():
+            scenario.start()
+        scenario.tick()
+        for sensor_id in scenario.affected_sensors:
+            spike = scenario.get_spike_for_sensor(sensor_id)
+            if spike > 0:
+                spikes[sensor_id] = spikes.get(sensor_id, 0) + spike
+    return spikes
 
-    if event_type == "NORMAL":
-        temp = round(base + random.uniform(-1.0, 1.0), 2)
-    elif event_type == "NOISY":
-        temp = round(base + random.uniform(-NOISE_AMPLITUDE, NOISE_AMPLITUDE), 2)
-    elif event_type == "ANOMALY":
-        temp = round(base + ANOMALY_SPIKE + random.uniform(0, 3.0), 2)
+
+def build_payload(sensor: SensorConfig, seq: int, spike: float = 0.0) -> dict:
+    """Generate a sensor reading."""
+    # Base temperature with gentle drift
+    base = sensor.baseline_temp + math.sin(seq * 0.05) * 1.5
+    
+    # Add noise
+    noise = random.uniform(-sensor.noise_amplitude, sensor.noise_amplitude)
+    
+    # Add any active spike
+    temp = round(base + noise + spike, 2)
+    
+    # Determine event type for logging
+    if spike > 15:
+        event_type = "ANOMALY"
+    elif spike > 0:
+        event_type = "ELEVATED"
+    elif abs(noise) < sensor.noise_amplitude * 0.3:
+        event_type = "NOISY"  # Will likely be suppressed
     else:
-        temp = round(base, 2)
-
+        event_type = "NORMAL"
+    
     return {
-        "sensorId": sensor_id,
+        "sensorId": sensor.sensor_id,
+        "machineId": sensor.machine_id,
+        "sensorType": sensor.sensor_type,
         "temperature": temp,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "eventType": event_type,  # Metadata for demo visibility only
+        "eventType": event_type,
         "sequence": seq
     }
 
@@ -102,7 +277,6 @@ def on_disconnect(client, userdata, flags, reason_code, properties=None):
 
 def create_client() -> mqtt.Client:
     """Create and configure the MQTT client."""
-    # Shared state for connection tracking
     userdata = {"connected": False}
 
     client = mqtt.Client(
@@ -115,36 +289,46 @@ def create_client() -> mqtt.Client:
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
 
-    # Configure TLS if enabled
     if USE_TLS:
         print(f"[Publisher] 🔒 TLS enabled")
         client.tls_set(
-            ca_certs=None,  # Use system CA bundle
+            ca_certs=None,
             certfile=None,
             keyfile=None,
             cert_reqs=ssl.CERT_REQUIRED,
             tls_version=ssl.PROTOCOL_TLS,
             ciphers=None
         )
-        # For self-signed certs in dev, uncomment:
-        # client.tls_insecure_set(True)
 
     return client
+
+
+def print_machine_summary():
+    """Print summary of machines and sensors."""
+    print(f"\n{'='*70}")
+    print("  FACTORY FLOOR SIMULATOR  |  3 Machines × 3 Sensors = 9 Total")
+    print(f"{'='*70}")
+    for machine in MACHINES:
+        print(f"\n  📦 {machine.machine_id} ({machine.name}) - Profile: {machine.profile.upper()}")
+        for sensor in machine.sensors:
+            print(f"      └─ {sensor.sensor_id}: {sensor.sensor_type} @ {sensor.baseline_temp}°C baseline")
+    print(f"\n{'='*70}")
+    print("  ANOMALY SCENARIOS (probabilistic):")
+    for scenario in SCENARIOS:
+        print(f"    • {scenario.name} ({scenario.probability*100:.1f}% per cycle)")
+    print(f"{'='*70}\n")
 
 
 def main():
     client = create_client()
     userdata = client._userdata
 
-    print(f"\n{'='*60}")
-    print("  SOLACE AGENT MESH  |  Sensor Data Demo Publisher")
-    print(f"{'='*60}")
-    print(f"  Host     : {BROKER_HOST}:{BROKER_PORT} {'(TLS)' if USE_TLS else ''}")
-    print(f"  Sensors  : {', '.join(SENSORS)}")
+    print_machine_summary()
+    
+    print(f"  Broker   : {BROKER_HOST}:{BROKER_PORT} {'(TLS)' if USE_TLS else ''}")
     print(f"  Topic    : {TOPIC_BASE}/<sensorId>")
-    print(f"  Cycle    : {CYCLE}")
-    print(f"  Interval : {PUBLISH_INTERVAL}s")
-    print(f"{'='*60}\n")
+    print(f"  Interval : {PUBLISH_INTERVAL}s per batch")
+    print(f"{'='*70}\n")
 
     # Connect to broker
     try:
@@ -166,36 +350,44 @@ def main():
         return
 
     seq = 0
-    cycle_pos = 0
 
     try:
         while True:
-            # Check connection before publishing
             if not userdata.get("connected"):
                 print("[Publisher] ⏳ Waiting for reconnection...")
                 time.sleep(RECONNECT_DELAY)
                 continue
 
-            for sensor_id in SENSORS:
-                event_type = CYCLE[cycle_pos % len(CYCLE)]
-                payload = build_payload(sensor_id, event_type, seq)
-                topic = f"{TOPIC_BASE}/{sensor_id}"
+            # Get active spikes from scenarios
+            spikes = get_active_spikes()
+            
+            # Publish readings for all sensors
+            for sensor in ALL_SENSORS:
+                spike = spikes.get(sensor.sensor_id, 0.0)
+                payload = build_payload(sensor, seq, spike)
+                topic = f"{TOPIC_BASE}/{sensor.sensor_id}"
 
-                result = client.publish(
-                    topic,
-                    json.dumps(payload),
-                    qos=0
-                )
+                result = client.publish(topic, json.dumps(payload), qos=0)
 
-                icon = {"NORMAL": "🟢", "NOISY": "🟡", "ANOMALY": "🔴"}.get(event_type, "⚪")
+                # Icon based on event type
+                icons = {
+                    "NORMAL": "🟢",
+                    "NOISY": "⚪",
+                    "ELEVATED": "🟡",
+                    "ANOMALY": "🔴"
+                }
+                icon = icons.get(payload["eventType"], "⚪")
                 status = "✓" if result.rc == 0 else "✗"
+                
+                # Compact logging
                 print(
-                    f"[{time.strftime('%H:%M:%S')}] {icon} {event_type:<8} "
-                    f"| {sensor_id} | {payload['temperature']:.2f}°C | seq={seq} {status}"
+                    f"[{time.strftime('%H:%M:%S')}] {icon} {sensor.machine_id} | "
+                    f"{sensor.sensor_type:6} | {payload['temperature']:5.1f}°C | "
+                    f"{payload['eventType']:8} {status}"
                 )
 
             seq += 1
-            cycle_pos = (cycle_pos + 1) % len(CYCLE)
+            print()  # Blank line between batches
             time.sleep(PUBLISH_INTERVAL)
 
     except KeyboardInterrupt:
