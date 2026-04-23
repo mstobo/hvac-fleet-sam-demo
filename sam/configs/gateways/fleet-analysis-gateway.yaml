@@ -1,0 +1,106 @@
+# Fleet Analysis Event Mesh Gateway
+# ─────────────────────────────────────────────────────────────────────────────
+# Triggers LLM analysis on FLEET_CRITICAL events published by the pipeline.
+#
+# This gateway:
+#   - Subscribes to: sensors/fleet/analysis-request
+#   - Routes to: FleetQueryAgent for analysis
+#   - Supports Slack output via the slack-bot gateway
+#
+# This is appropriate for LOW-FREQUENCY, HIGH-VALUE events only.
+# The deterministic pipeline handles high-volume processing.
+#
+# Setup:
+#   sam plugin add fleet-analysis --plugin sam-event-mesh-gateway
+#
+# Environment Variables:
+#   FLEET_ANALYSIS_SOLACE_BROKER_URL - Data plane broker URL
+#   FLEET_ANALYSIS_SOLACE_BROKER_VPN - VPN name
+#   FLEET_ANALYSIS_SOLACE_BROKER_USERNAME - Username
+#   FLEET_ANALYSIS_SOLACE_BROKER_PASSWORD - Password
+# ─────────────────────────────────────────────────────────────────────────────
+
+log:
+  stdout_log_level: INFO
+  log_file_level: DEBUG
+  log_file: fleet-analysis-gateway.log
+
+!include ../shared_config.yaml
+
+apps:
+  - name: fleet-analysis-gateway-app
+    app_module: solace_agent_mesh.gateway.event_mesh.app
+    broker:
+      <<: *broker_connection
+      # Override with data plane broker if different from control plane
+      # broker_url: ${FLEET_ANALYSIS_SOLACE_BROKER_URL}
+      # broker_vpn: ${FLEET_ANALYSIS_SOLACE_BROKER_VPN}
+      # broker_username: ${FLEET_ANALYSIS_SOLACE_BROKER_USERNAME}
+      # broker_password: ${FLEET_ANALYSIS_SOLACE_BROKER_PASSWORD}
+
+    app_config:
+      namespace: "${NAMESPACE}"
+      
+      # Event handlers define what events trigger the gateway
+      event_handlers:
+        - name: "fleet_critical_handler"
+          # Subscribe to analysis requests from the deterministic pipeline
+          subscriptions:
+            - topic: "sensors/fleet/analysis-request"
+              qos: 1
+          
+          # Transform the incoming JSON event into a prompt for the agent
+          input_expression: |
+            template:
+              FLEET CRITICAL EVENT - Automatic Analysis Triggered
+              
+              Event Details:
+              - Fleet Status: {{payload.fleet_status}}
+              - Critical Sensors: {{payload.critical_count}}/{{payload.active_sensors}}
+              - Affected Sensors: {{payload.sensors | join(', ') if payload.sensors else 'Unknown'}}
+              - Average Temperature: {{payload.average_temperature}}°C
+              - Notes: {{payload.notes}}
+              - Timestamp: {{payload.timestamp}}
+              - Events Collected: {{payload.events_collected}}
+              
+              Please analyze this fleet-wide critical event:
+              1. Use get_sketches() to see recent sensor behavior for affected sensors
+              2. Use get_recent_alerts() to see the alert pattern
+              3. Determine if this is a correlated event (shared cause like HVAC/power)
+                 or independent sensor failures
+              4. Provide root cause hypotheses ranked by likelihood
+              5. Recommend immediate actions for operators
+              
+              Format your response for Slack with emoji indicators.
+          
+          payload_encoding: "utf-8"
+          payload_format: "json"
+      
+      # Route to Fleet Query Agent
+      default_agent_name: "FleetQueryAgent"
+      
+      # Artifact service for any attachments
+      artifact_service: *default_artifact_service
+      
+      # System purpose for this gateway's context
+      system_purpose: |
+        You are an automated fleet analysis system responding to a FLEET_CRITICAL event.
+        
+        This analysis was automatically triggered because multiple sensors (50%+) entered 
+        critical state simultaneously, indicating a likely correlated event.
+        
+        Your job is to:
+        1. Analyze the pattern of critical events using the database tools
+        2. Determine the most likely cause (shared environmental vs independent failures)
+        3. Provide clear, actionable recommendations for operators
+        
+        Be concise - this is an automated alert, not a conversation.
+        Use emoji status indicators: 🔴 Critical, 🟡 Warning, 🟢 Normal, ⚠️ Action needed
+      
+      # Response handling - publish to response topic
+      # The Slack gateway or other consumers can subscribe to this
+      response_topic: "sensors/fleet/analysis-response"
+      
+      # Authorization (none for internal automated triggers)
+      authorization_service:
+        type: "none"

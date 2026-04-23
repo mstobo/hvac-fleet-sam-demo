@@ -10,38 +10,127 @@ Design principles:
   3. Fleet-level only: Only trigger on FLEET_CRITICAL (multiple sensors)
   4. Batch: Collect all criticals during debounce window into one query
 
-This module is called by anomaly_service.py when fleet status changes.
-It queries SAM's fleet_query_agent and pushes results to Slack.
+This module publishes to sensors/fleet/analysis-request topic.
+SAM's Event Mesh Gateway picks this up and routes to FleetQueryAgent.
+Response is delivered via Slack or response topic.
+
+This is the appropriate use of event-triggered AI:
+  - LOW frequency (maybe 1-5 per day)
+  - HIGH value (correlated failures need immediate analysis)
 """
 
 import json
 import os
+import ssl
 import threading
 import time
 from datetime import datetime
 from typing import Optional
 
-import requests
+import paho.mqtt.client as mqtt
 
-# Optional Slack integration
+# Import shared config
 try:
-    import slack_notifier
-    SLACK_ENABLED = True
+    import pipeline_config as config
+    CONFIG_AVAILABLE = True
 except ImportError:
-    SLACK_ENABLED = False
+    CONFIG_AVAILABLE = False
 
 # ── Configuration ────────────────────────────────────────────────────────────
-DEBOUNCE_SECONDS = 60.0        # Wait this long after first critical
-RATE_LIMIT_SECONDS = 300.0     # Min time between LLM analyses (5 minutes)
-SAM_API_URL = os.getenv("SAM_API_URL", "http://localhost:5001")
+DEBOUNCE_SECONDS = float(os.getenv("ANALYSIS_DEBOUNCE_SECONDS", "60.0"))
+RATE_LIMIT_SECONDS = float(os.getenv("ANALYSIS_RATE_LIMIT_SECONDS", "300.0"))
 ENABLE_AUTO_ANALYSIS = os.getenv("ENABLE_AUTO_ANALYSIS", "true").lower() in ("true", "1", "yes")
+
+# MQTT topic for analysis requests (Event Mesh Gateway subscribes to this)
+ANALYSIS_REQUEST_TOPIC = "sensors/fleet/analysis-request"
+ANALYSIS_RESPONSE_TOPIC = "sensors/fleet/analysis-response"
+
+# Broker config (use pipeline_config if available)
+if CONFIG_AVAILABLE:
+    BROKER_HOST = config.BROKER_HOST
+    BROKER_PORT = config.BROKER_PORT
+    USERNAME = config.USERNAME
+    PASSWORD = config.PASSWORD
+    USE_TLS = config.USE_TLS
+else:
+    BROKER_HOST = os.getenv("SOLACE_HOST", "localhost")
+    BROKER_PORT = int(os.getenv("SOLACE_PORT", "8883"))
+    USERNAME = os.getenv("SOLACE_USER", "")
+    PASSWORD = os.getenv("SOLACE_PASS", "")
+    USE_TLS = os.getenv("SOLACE_TLS", "true").lower() in ("true", "1", "yes")
 
 # ── State ────────────────────────────────────────────────────────────────────
 _last_analysis_time = 0.0
 _pending_analysis = False
 _pending_timer: Optional[threading.Timer] = None
 _collected_criticals = []
+_collected_sensors = []
 _lock = threading.Lock()
+_mqtt_client: Optional[mqtt.Client] = None
+_mqtt_connected = False
+
+
+def _get_mqtt_client() -> Optional[mqtt.Client]:
+    """Get or create MQTT client for publishing analysis requests."""
+    global _mqtt_client, _mqtt_connected
+    
+    if _mqtt_client is not None and _mqtt_connected:
+        return _mqtt_client
+    
+    try:
+        def on_connect(client, userdata, flags, reason_code, properties=None):
+            global _mqtt_connected
+            if reason_code == 0:
+                print(f"[AutoAnalysis] ✅ MQTT connected to {BROKER_HOST}")
+                _mqtt_connected = True
+                # Subscribe to response topic for logging
+                client.subscribe(ANALYSIS_RESPONSE_TOPIC)
+            else:
+                print(f"[AutoAnalysis] ❌ MQTT connection failed: {reason_code}")
+                _mqtt_connected = False
+        
+        def on_message(client, userdata, msg):
+            # Log responses (they also go to Slack via gateway)
+            print(f"[AutoAnalysis] 📥 Response received on {msg.topic}")
+            try:
+                response = json.loads(msg.payload.decode())
+                preview = str(response)[:200]
+                print(f"[AutoAnalysis] Response preview: {preview}...")
+            except:
+                print(f"[AutoAnalysis] Response: {msg.payload.decode()[:200]}...")
+        
+        def on_disconnect(client, userdata, reason_code, properties=None):
+            global _mqtt_connected
+            _mqtt_connected = False
+            print(f"[AutoAnalysis] MQTT disconnected: {reason_code}")
+        
+        _mqtt_client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+            client_id=f"fleet-analyzer-{int(time.time())}",
+            protocol=mqtt.MQTTv5
+        )
+        _mqtt_client.username_pw_set(USERNAME, PASSWORD)
+        _mqtt_client.on_connect = on_connect
+        _mqtt_client.on_message = on_message
+        _mqtt_client.on_disconnect = on_disconnect
+        
+        if USE_TLS:
+            _mqtt_client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLS)
+        
+        _mqtt_client.connect_async(BROKER_HOST, BROKER_PORT, keepalive=60)
+        _mqtt_client.loop_start()
+        
+        # Wait briefly for connection
+        for _ in range(10):
+            if _mqtt_connected:
+                break
+            time.sleep(0.1)
+        
+        return _mqtt_client
+        
+    except Exception as e:
+        print(f"[AutoAnalysis] ❌ Failed to create MQTT client: {e}")
+        return None
 
 
 def _should_analyze() -> bool:
@@ -54,137 +143,88 @@ def _should_analyze() -> bool:
     return True
 
 
-def _build_analysis_prompt(criticals: list) -> str:
-    """Build a prompt for the LLM to analyze the fleet critical event."""
-    sensor_list = ", ".join(set(c.get("sensor_id", "unknown") for c in criticals))
-    temps = [c.get("temperature", 0) for c in criticals if c.get("temperature")]
+def _build_analysis_event(criticals: list, sensors: list) -> dict:
+    """Build the event payload for the analysis request."""
+    # Extract unique sensor IDs
+    sensor_ids = list(set(
+        s.get("sensor_id") for s in sensors if s.get("sensor_id")
+    ))
+    
+    # Get latest fleet critical info
+    latest_critical = criticals[-1] if criticals else {}
+    
+    # Calculate average temperature from collected sensors
+    temps = [s.get("temperature", 0) for s in sensors if s.get("temperature")]
     avg_temp = sum(temps) / len(temps) if temps else 0
     
-    return f"""FLEET CRITICAL EVENT - Automatic Analysis Request
-
-Multiple sensors have entered critical state simultaneously.
-
-Affected sensors: {sensor_list}
-Number of critical readings: {len(criticals)}
-Average temperature: {avg_temp:.1f}°C
-Time window: Last 60 seconds
-
-Please analyze:
-1. What patterns do you see across these sensors?
-2. Is this likely a correlated event (shared cause) or independent failures?
-3. What are the most likely root causes?
-4. What immediate actions should operators take?
-
-Use get_sketches() and get_recent_alerts() to gather context before responding."""
+    return {
+        "event_type": "FLEET_CRITICAL_ANALYSIS_REQUEST",
+        "fleet_status": latest_critical.get("fleet_status", "FLEET_CRITICAL"),
+        "critical_count": latest_critical.get("critical_count", len(sensor_ids)),
+        "active_sensors": latest_critical.get("active_sensors", len(sensor_ids)),
+        "sensors": sensor_ids,
+        "average_temperature": round(avg_temp, 1),
+        "notes": latest_critical.get("notes", "Multiple sensors in critical state"),
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "debounce_window_seconds": DEBOUNCE_SECONDS,
+        "events_collected": len(criticals) + len(sensors)
+    }
 
 
 def _execute_analysis():
-    """Execute the LLM analysis (called after debounce period)."""
-    global _last_analysis_time, _pending_analysis, _collected_criticals
+    """Execute the LLM analysis by publishing to Event Mesh Gateway topic."""
+    global _last_analysis_time, _pending_analysis, _collected_criticals, _collected_sensors
     
     with _lock:
-        if not _collected_criticals:
-            print("[AutoAnalysis] No criticals collected, skipping analysis")
+        if not _collected_criticals and not _collected_sensors:
+            print("[AutoAnalysis] No events collected, skipping analysis")
             _pending_analysis = False
             return
         
         criticals = _collected_criticals.copy()
+        sensors = _collected_sensors.copy()
         _collected_criticals = []
+        _collected_sensors = []
         _pending_analysis = False
     
-    print(f"\n[AutoAnalysis] 🤖 Triggering LLM analysis for {len(criticals)} critical events...")
+    total_events = len(criticals) + len(sensors)
+    print(f"\n[AutoAnalysis] 🤖 Triggering LLM analysis for {total_events} collected events...")
     
-    prompt = _build_analysis_prompt(criticals)
+    # Build the analysis request event
+    event = _build_analysis_event(criticals, sensors)
+    
+    # Get MQTT client and publish
+    client = _get_mqtt_client()
+    if client is None:
+        print("[AutoAnalysis] ❌ No MQTT client available")
+        return
     
     try:
-        # Try to query SAM via REST API
-        response = _query_sam_agent(prompt)
+        # Publish to the analysis request topic
+        # SAM's Event Mesh Gateway subscribes to this and routes to FleetQueryAgent
+        payload = json.dumps(event)
+        result = client.publish(ANALYSIS_REQUEST_TOPIC, payload, qos=1)
         
-        if response:
+        if result.rc == mqtt.MQTT_ERR_SUCCESS:
             _last_analysis_time = time.time()
-            print(f"[AutoAnalysis] ✅ Analysis complete")
-            print(f"[AutoAnalysis] Response preview: {response[:200]}...")
-            
-            # Push to Slack if enabled
-            if SLACK_ENABLED:
-                _push_to_slack(response, len(criticals))
+            print(f"[AutoAnalysis] ✅ Published analysis request to {ANALYSIS_REQUEST_TOPIC}")
+            print(f"[AutoAnalysis] Payload: {json.dumps(event, indent=2)}")
+            print(f"[AutoAnalysis] SAM Event Mesh Gateway will route to FleetQueryAgent")
+            print(f"[AutoAnalysis] Response will be delivered to Slack (if configured)")
         else:
-            print("[AutoAnalysis] ❌ No response from SAM agent")
+            print(f"[AutoAnalysis] ❌ Publish failed with rc={result.rc}")
             
     except Exception as e:
-        print(f"[AutoAnalysis] ❌ Error during analysis: {e}")
-
-
-def _query_sam_agent(prompt: str) -> Optional[str]:
-    """
-    Query the SAM fleet_query_agent via REST API.
-    
-    SAM exposes agents via REST at /api/v1/agents/{agent_name}/chat
-    """
-    try:
-        # SAM REST API endpoint
-        url = f"{SAM_API_URL}/api/v1/request"
-        
-        payload = {
-            "prompt": prompt,
-            "stream": False
-        }
-        
-        headers = {
-            "Content-Type": "application/json"
-        }
-        
-        print(f"[AutoAnalysis] Querying SAM at {url}")
-        response = requests.post(url, json=payload, headers=headers, timeout=120)
-        
-        if response.status_code == 200:
-            result = response.json()
-            return result.get("response", result.get("content", str(result)))
-        else:
-            print(f"[AutoAnalysis] SAM API returned {response.status_code}: {response.text[:200]}")
-            return None
-            
-    except requests.exceptions.ConnectionError:
-        print(f"[AutoAnalysis] Could not connect to SAM at {SAM_API_URL}")
-        print("[AutoAnalysis] Make sure 'sam run' is running")
-        return None
-    except Exception as e:
-        print(f"[AutoAnalysis] Error querying SAM: {e}")
-        return None
-
-
-def _push_to_slack(analysis: str, critical_count: int):
-    """Push the LLM analysis to Slack."""
-    try:
-        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-        
-        message = f"""🤖 *Automatic Fleet Analysis*
-        
-*Trigger:* FLEET_CRITICAL ({critical_count} sensors)
-*Time:* {timestamp}
-
----
-
-{analysis}
-
----
-_This analysis was automatically triggered by the fleet alert system._"""
-        
-        # Use the slack_notifier module
-        slack_notifier.send_message(message)
-        print("[AutoAnalysis] 📤 Analysis pushed to Slack")
-        
-    except Exception as e:
-        print(f"[AutoAnalysis] Failed to push to Slack: {e}")
+        print(f"[AutoAnalysis] ❌ Error publishing analysis request: {e}")
 
 
 def on_fleet_critical(fleet_status: str, critical_count: int, active_sensors: int, 
                        notes: str, sensor_data: dict = None):
     """
-    Called by anomaly_service when fleet status is FLEET_CRITICAL or CRITICAL.
+    Called by anomaly_service when fleet status is FLEET_CRITICAL.
     
     Implements debounce: First call starts a timer, subsequent calls add to the batch.
-    After DEBOUNCE_SECONDS, triggers LLM analysis with all collected criticals.
+    After DEBOUNCE_SECONDS, publishes analysis request to Event Mesh Gateway.
     
     Args:
         fleet_status: Current fleet status (FLEET_CRITICAL, CRITICAL, etc.)
@@ -215,17 +255,19 @@ def on_fleet_critical(fleet_status: str, critical_count: int, active_sensors: in
         
         # If already pending, just add to batch
         if _pending_analysis:
-            print(f"[AutoAnalysis] 📥 Added to pending batch ({len(_collected_criticals)} events)")
+            print(f"[AutoAnalysis] 📥 Added to pending batch ({len(_collected_criticals)} fleet events, {len(_collected_sensors)} sensor events)")
             return
         
         # Check rate limit before starting debounce
         if not _should_analyze():
             _collected_criticals.clear()
+            _collected_sensors.clear()
             return
         
         # Start debounce timer
         _pending_analysis = True
         print(f"[AutoAnalysis] ⏱️  FLEET_CRITICAL detected. Starting {DEBOUNCE_SECONDS}s debounce...")
+        print(f"[AutoAnalysis] Will publish to: {ANALYSIS_REQUEST_TOPIC}")
         
         _pending_timer = threading.Timer(DEBOUNCE_SECONDS, _execute_analysis)
         _pending_timer.daemon = True
@@ -241,13 +283,15 @@ def on_sensor_critical(sensor_id: str, temperature: float, zone: str):
         return
     
     with _lock:
+        _collected_sensors.append({
+            "sensor_id": sensor_id,
+            "temperature": temperature,
+            "zone": zone,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        
         if _pending_analysis:
-            _collected_criticals.append({
-                "sensor_id": sensor_id,
-                "temperature": temperature,
-                "zone": zone,
-                "timestamp": datetime.utcnow().isoformat()
-            })
+            print(f"[AutoAnalysis] 📥 Collected sensor: {sensor_id} @ {temperature:.1f}°C")
 
 
 def get_status() -> dict:
@@ -260,28 +304,51 @@ def get_status() -> dict:
         return {
             "enabled": ENABLE_AUTO_ANALYSIS,
             "pending_analysis": _pending_analysis,
-            "collected_events": len(_collected_criticals),
+            "collected_fleet_events": len(_collected_criticals),
+            "collected_sensor_events": len(_collected_sensors),
             "last_analysis_ago_seconds": time_since_last,
             "next_analysis_allowed_in": time_until_allowed,
             "debounce_seconds": DEBOUNCE_SECONDS,
-            "rate_limit_seconds": RATE_LIMIT_SECONDS
+            "rate_limit_seconds": RATE_LIMIT_SECONDS,
+            "mqtt_connected": _mqtt_connected,
+            "request_topic": ANALYSIS_REQUEST_TOPIC,
+            "response_topic": ANALYSIS_RESPONSE_TOPIC
         }
+
+
+def shutdown():
+    """Clean shutdown of MQTT client."""
+    global _mqtt_client
+    if _mqtt_client:
+        _mqtt_client.loop_stop()
+        _mqtt_client.disconnect()
+        _mqtt_client = None
 
 
 # For testing
 if __name__ == "__main__":
-    print("Testing fleet_alert_analyzer...")
-    print(f"Status: {get_status()}")
+    print("Testing fleet_alert_analyzer (Event Mesh Gateway version)...")
+    print(f"Status: {json.dumps(get_status(), indent=2)}")
     
     # Simulate a FLEET_CRITICAL event
+    print("\nSimulating FLEET_CRITICAL event...")
+    on_sensor_critical("sensor-001", 68.5, "CRITICAL")
+    on_sensor_critical("sensor-002", 67.2, "CRITICAL")
+    on_sensor_critical("sensor-003", 69.1, "CRITICAL")
+    
     on_fleet_critical(
         fleet_status="FLEET_CRITICAL",
         critical_count=3,
         active_sensors=3,
-        notes="Test event"
+        notes="Test event - 3 sensors in critical state"
     )
     
+    print(f"\nStatus after trigger: {json.dumps(get_status(), indent=2)}")
+    
     # Wait for debounce
-    print(f"Waiting {DEBOUNCE_SECONDS}s for debounce...")
+    print(f"\nWaiting {DEBOUNCE_SECONDS}s for debounce...")
     time.sleep(DEBOUNCE_SECONDS + 5)
+    
+    print(f"\nFinal status: {json.dumps(get_status(), indent=2)}")
+    shutdown()
     print("Done")
