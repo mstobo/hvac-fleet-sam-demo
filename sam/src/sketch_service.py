@@ -16,6 +16,7 @@ The sketch generation is pure Python string formatting, not AI.
 """
 
 import json
+import time
 from datetime import datetime
 
 import pipeline_config as config
@@ -38,8 +39,11 @@ def generate_sketch(data):
     zone = data["zone"]
     delta_pct = data["delta_pct"]
     forwarded_reason = data["forwarded_reason"]
+    site = data.get("site", config.DEFAULT_SITE)
+    room = data.get("room", config.DEFAULT_ROOM)
     window = data.get("window", {})
     trend = data.get("trend", "STABLE")
+    incident_id = data.get("incidentId") or f"INC-{site.upper()}-{int(time.time())}-{sensor_id}"
     
     win_mean = window.get("mean", temperature)
     win_min = window.get("min", temperature)
@@ -63,9 +67,9 @@ def generate_sketch(data):
             f"range [{win_min:.1f}–{win_max:.1f}°C]. Zone: {zone}."
         )
         if zone == "CRITICAL":
-            sketch += " ⚠️ ANOMALY — immediate review required."
+            sketch += " Anomaly detected - immediate review required."
         elif zone == "WARNING":
-            sketch += " ⚡ Elevated — monitoring advised."
+            sketch += " Elevated condition - monitoring advised."
     
     # Write to database
     sensor_db.insert_sketch(
@@ -81,11 +85,16 @@ def generate_sketch(data):
     )
     
     return {
+        "schema": config.SCHEMA_SKETCH,
+        "schemaRevision": config.SCHEMA_REVISION,
         "sensorId": sensor_id,
         "temperature": temperature,
         "zone": zone,
         "sketch": sketch,
         "timestamp": timestamp,
+        "site": site,
+        "room": room,
+        "incidentId": incident_id,
         "window": window,
         "trend": trend,
         "delta_pct": delta_pct,
@@ -95,11 +104,11 @@ def generate_sketch(data):
 
 def on_connect(client, userdata, flags, reason_code, properties=None):
     if reason_code == 0:
-        print(f"[Sketch] ✅ Connected to {config.BROKER_HOST}")
+        print(f"[Sketch] Connected to {config.BROKER_HOST}")
         client.subscribe(config.TOPIC_FILTERED)
-        print(f"[Sketch] 📡 Subscribed to {config.TOPIC_FILTERED}")
+        print(f"[Sketch] Subscribed to {config.TOPIC_FILTERED}")
     else:
-        print(f"[Sketch] ❌ Connection failed (rc={reason_code})")
+        print(f"[Sketch] Connection failed (rc={reason_code})")
 
 
 def on_message(client, userdata, msg):
@@ -116,17 +125,25 @@ def on_message(client, userdata, msg):
         
         # Log and publish
         sketch_preview = result["sketch"][:60] + "..." if len(result["sketch"]) > 60 else result["sketch"]
-        print(f"[Sketch] ✍️  {result['sensorId']} | \"{sketch_preview}\"")
+        print(f"[Sketch] GENERATED {result['sensorId']} | \"{sketch_preview}\"")
         
         client.publish(config.TOPIC_SKETCHED, json.dumps(result))
+        client.publish(
+            config.build_sketch_topic(
+                result["site"],
+                result["room"],
+                result["incidentId"],
+            ),
+            json.dumps(result),
+        )
         
     except Exception as e:
-        print(f"[Sketch] ❌ Error: {e}")
+        print(f"[Sketch] Error: {e}")
 
 
 def main():
     # Initialize the database
-    print("[Sketch] 📦 Initializing SQLite database...")
+    print("[Sketch] Initializing SQLite database...")
     sensor_db.init_database()
     
     config.print_service_banner(

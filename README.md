@@ -105,6 +105,7 @@ export SOLACE_PORT="8883"
 export SOLACE_USER="your-username"
 export SOLACE_PASS="your-password"
 export SOLACE_TLS="true"
+export TOPIC_BASE="dc/v1/raw/dc1/hall-a/row-a3/rack-12"
 
 python src/demo_publisher.py
 ```
@@ -121,6 +122,12 @@ You should see output like:
 [Sketch]   ✍️  sensor-002 | "sensor-002 recorded a 5.2% spike..."
 [Anomaly]  💤 SKIP | sensor-002 zone=NORMAL
 ```
+
+Topic namespaces used by the updated pipeline:
+
+- Raw ingest: `dc/v1/raw/{site}/{room}/{row}/{rack}/{asset}/{metric}`
+- Routed events: `dc/v1/event/{site}/{severity}/{eventType}`
+- AI sketches: `dc/v1/sketch/{site}/{room}/{incidentId}`
 
 ### 4. Start the Control Plane (SAM)
 
@@ -256,6 +263,20 @@ WARNING_TEMP = 58.0      # Warning zone threshold
 CRITICAL_TEMP = 65.0     # Critical zone threshold
 ```
 
+### Topic and Schema Versioning
+
+The pipeline now supports versioned topic namespaces and schema metadata.
+
+```bash
+# Optional namespace overrides
+export DC_NAMESPACE="dc"
+export DC_TOPIC_VERSION="v1"
+export DC_DEFAULT_SITE="dc1"
+export DC_DEFAULT_ROOM="hall-a"
+```
+
+For full contract details (event types, payload schemas, migration policy), see [DC_TOPIC_VERSIONING_README.md](DC_TOPIC_VERSIONING_README.md).
+
 ### Agent Instructions (fleet_query_agent.yaml)
 
 The agent instructions guide tool selection:
@@ -353,6 +374,7 @@ For complete Schema Registry documentation, see [DEPLOYMENT.md](DEPLOYMENT.md).
 |----------|-------------|
 | [BLOG_POST.md](BLOG_POST.md) | Technical deep-dive into the architecture |
 | [BLOG_POST_EXECUTIVE.md](BLOG_POST_EXECUTIVE.md) | Business-focused overview for architects/executives |
+| [DC_TOPIC_VERSIONING_README.md](DC_TOPIC_VERSIONING_README.md) | Data center HVAC MQTT topic taxonomy and versioning policy |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | AWS EKS deployment guide for Schema Registry |
 
 ---

@@ -1,61 +1,46 @@
-# Reducing MQTT Noise for LLM-Powered IoT Analytics
+# Why Your IIoT AI Project Will Fail (And How to Fix It)
 
-**How we built an event-driven architecture that processes thousands of sensor readings without bankrupting our AI budget**
+**The architecture mistake burning through enterprise AI budgets — and the pattern that cuts costs by 99%**
 
 ---
 
 > 📖 **This is Part 2 of a two-part series.**
-> - **Part 1 (Business Case):** [The AI-Powered IoT Trap — Why Most Enterprises Are Paying Millions for Noise](BLOG_POST_EXECUTIVE.md) — economics, strategic implications, and leadership considerations
+> - **Part 1 (Business Case):** [The Token Burn Problem](BLOG_POST_EXECUTIVE.md) — economics, strategic implications, and leadership considerations
 > - **Part 2 (You are here):** Technical implementation — architecture, code, and lessons learned
 
 ---
 
-## Technical Thesis
+## The Pattern That Kills IIoT AI Projects
 
-**Move AI out of the event ingestion path and into the query/decision path — and replace raw telemetry with deterministic semantic summaries.**
+Many IIoT AI projects fail within months of deployment. Not because the AI doesn't work — it works fine. They fail because the costs spiral out of control the moment real sensor data starts flowing.
 
-This single architectural shift transforms two things simultaneously:
+The pattern is always the same:
 
-- **System behavior** — LLM latency is removed from the ingestion path, eliminating backpressure risk
-- **Cost structure** — AI spend scales with user queries, not sensor event volume
+1. Team builds a promising proof-of-concept with a few sensors
+2. POC shows impressive AI-generated insights
+3. Project scales to production sensor counts
+4. Finance calls an emergency meeting about the AI bill
+5. Project gets shelved or lobotomized
 
-Everything that follows is an implementation of this principle.
+The root cause is architectural, and it's almost always this:
+
+```
+Sensor Event → LLM → Response
+```
+
+Every reading, every fluctuation, every unremarkable data point — sent to an LLM for analysis. The AI dutifully processes each one, mostly concluding "nothing interesting here," at full token cost.
+
+**The math is brutal.** A single sensor publishing every 2 seconds generates 43,200 messages per day. At $0.01 per 1K tokens, that's roughly $8.60/day per sensor — just for input tokens. Scale to 100 sensors and you're burning **$860/day**. A thousand sensors? **$8,600/day — over $3.1M/year**.
+
+For what? A system that's 70-80% dedicated to confirming normalcy.
 
 ---
 
-## The Problem: IoT Data Firehose Meets Expensive AI
+## The Fix: Stop Using AI as a Data Processor
 
-We had a common challenge: a fleet of temperature sensors publishing readings every 2 seconds via MQTT. That's **1,800 messages per sensor per hour**. With just 3 sensors, we're looking at 5,400 messages/hour. Scale to 100 sensors? **180,000 messages/hour**.
+LLMs are reasoning engines, not data processors. When you route every sensor event through an LLM, you're using a specialist to do clerical work — at specialist prices, millions of times per day.
 
-Our goal was to use an LLM to provide intelligent fleet monitoring—detecting anomalies, correlating patterns across sensors, and generating actionable recommendations. The naive approach would be:
-
-```
-MQTT Message → LLM → Response
-```
-
-**The math doesn't work.** At $0.01 per 1K tokens, processing 180K messages/hour would cost ~$43/hour just for the input tokens. That's over **$1,000/day** for a simple monitoring system with just 3 sensors. Scale to 100 sensors and that figure climbs to **$8,640/day — over $3.1M/year** (see the [business case breakdown](BLOG_POST_EXECUTIVE.md) for the full cost analysis at scale).
-
-## The Wrong Architecture: Event Mesh Gateway → LLM
-
-Our first attempt used Solace Agent Mesh's Event Mesh Gateway to trigger LLM calls directly from MQTT events:
-
-```
-MQTT Event → Event Mesh Gateway → Generate Prompt → LLM → Response
-```
-
-This architecture has a fundamental flaw: **every sensor reading triggers an LLM call**, regardless of whether the data is interesting. Most IoT data is noise—tiny fluctuations that don't require AI analysis.
-
-The consequences compound at scale:
-
-- **LLM latency enters the ingestion path** — any slowdown or throttling in the LLM creates backpressure across the entire sensor pipeline
-- **Backpressure risk grows with sensor count** — what's survivable at 3 sensors becomes a reliability problem at 100+
-- **Most calls process non-events** — the LLM repeatedly concludes "everything is normal," at full token cost
-
-This is not a model problem. It is a **system design problem** — and a better model won't fix it.
-
-## The Right Architecture: Deterministic Pipeline + LLM Query Layer
-
-We restructured into two distinct planes:
+The architecture that works:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -74,10 +59,7 @@ We restructured into two distinct planes:
 │   └──────────────┘   └──────────────┘   └──────────────┘       │
 │         │                   │                  │                │
 │         ▼                   ▼                  ▼                │
-│   ┌─────────────────────────────────────────────────────┐      │
-│   │                    SQLite                            │      │
-│   │   • sensor_readings  • sketches  • alerts           │      │
-│   └─────────────────────────────────────────────────────┘      │
+│                         SQLite                                  │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
@@ -85,325 +67,301 @@ We restructured into two distinct planes:
 │              On-demand queries, natural language                │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│   User: "What's been happening with the sensors?"              │
+│   User: "What's happening with the sensors?"                   │
 │        │                                                        │
 │        ▼                                                        │
-│   ┌──────────────┐         ┌─────────────────────────┐         │
-│   │  SAM Agent   │────────▶│  Tool: get_sketches()   │         │
-│   │  (with LLM)  │         │  → SELECT * FROM sketch │         │
-│   └──────────────┘         └─────────────────────────┘         │
-│        │                                                        │
-│        ▼                                                        │
-│   "Correlated spike across all 3 sensors at 15:24 UTC.         │
-│    Pattern suggests shared cause—check HVAC/power logs."       │
+│   LLM reads pre-computed sketches → Synthesizes → Responds     │
 └─────────────────────────────────────────────────────────────────┘
-```
-
-### Detailed Data Plane Flow (Microservices Architecture)
-
-The pipeline is implemented as **three independent microservices** communicating via MQTT topics:
-
-```mermaid
-flowchart TD
-    subgraph SENSORS["Sensors"]
-        S1["sensor-001"]
-        S2["sensor-002"]
-        S3["sensor-003"]
-    end
-
-    subgraph BROKER["MQTT Broker (Solace PubSub+)"]
-        T1[/"sensors/temperature/#"/]
-        T2[/"sensors/pipeline/filtered"/]
-        T3[/"sensors/pipeline/sketched"/]
-        T4[/"sensors/pipeline/alerts"/]
-        T5[/"sensors/pipeline/suppressed"/]
-    end
-
-    subgraph SVC1["deadband_service.py"]
-        DB_SUB["Subscribe"]
-        DB_CHECK{{"Δ > 2% OR<br/>heartbeat due?"}}
-        DB_FWD["Forward"]
-        DB_SUP["Suppress"]
-    end
-
-    subgraph SVC2["sketch_service.py"]
-        SK_SUB["Subscribe"]
-        SK_GEN["Generate NL sketch:<br/>'sensor-001 spiked 38%<br/>to 65°C. Zone: CRITICAL.'"]
-        SK_DB[("SQLite:<br/>sketches")]
-    end
-
-    subgraph SVC3["anomaly_service.py"]
-        AN_SUB["Subscribe"]
-        AN_CHECK{{"Zone?"}}
-        AN_ALERT["Generate Alert"]
-        AN_SKIP["Skip (nominal)"]
-        AN_DB[("SQLite:<br/>alerts, readings,<br/>fleet_status")]
-        AN_SLACK{{"Slack?"}}
-        AN_NOTIFY["Push Notification"]
-    end
-
-    subgraph SAM["SAM Query Layer (LLM)"]
-        QUERY["User Query"]
-        TOOLS["Tools read SQLite"]
-        RESPONSE["AI Response"]
-    end
-
-    S1 & S2 & S3 -->|publish| T1
-    T1 --> DB_SUB
-    DB_SUB --> DB_CHECK
-    DB_CHECK -->|"Yes"| DB_FWD
-    DB_CHECK -->|"No (~70%)"| DB_SUP
-    DB_FWD -->|publish| T2
-    DB_SUP -->|publish| T5
-
-    T2 --> SK_SUB
-    SK_SUB --> SK_GEN
-    SK_GEN --> SK_DB
-    SK_GEN -->|publish| T3
-
-    T3 --> AN_SUB
-    AN_SUB --> AN_CHECK
-    AN_CHECK -->|"WARNING/CRITICAL"| AN_ALERT
-    AN_CHECK -->|"NOMINAL"| AN_SKIP
-    AN_ALERT --> AN_DB
-    AN_ALERT -->|publish| T4
-    AN_ALERT --> AN_SLACK
-    AN_SLACK -->|"Yes"| AN_NOTIFY
-    AN_SKIP --> AN_DB
-
-    AN_DB -.-> TOOLS
-    SK_DB -.-> TOOLS
-    QUERY --> TOOLS --> RESPONSE
-
-    style DB_SUP fill:#ffcccc
-    style DB_FWD fill:#ccffcc
-    style AN_ALERT fill:#ff6666
-    style AN_SKIP fill:#66ff66
-    style AN_NOTIFY fill:#4a90d9
-    style T2 fill:#e6f3ff
-    style T3 fill:#e6f3ff
-    style T4 fill:#ffe6e6
-```
-
-**MQTT Topics (Inter-Service Communication):**
-| Topic | Publisher | Subscriber | Purpose |
-|-------|-----------|------------|---------|
-| `sensors/temperature/#` | Sensors | deadband_service | Raw sensor readings |
-| `sensors/pipeline/filtered` | deadband_service | sketch_service | Readings that passed deadband |
-| `sensors/pipeline/sketched` | sketch_service | anomaly_service | Readings with NL sketches |
-| `sensors/pipeline/alerts` | anomaly_service | Dashboard | Generated alerts |
-| `sensors/pipeline/suppressed` | deadband_service | Dashboard | Filtered readings (monitoring) |
-
-**Key decision points:**
-1. **Deadband filter** — Suppresses ~70% of messages that show < 2% change (unless heartbeat is due)
-2. **Zone classification** — NOMINAL (< 58°C), WARNING (58-65°C), CRITICAL (≥ 65°C)
-3. **Alert routing** — CRITICAL/HIGH alerts trigger Slack notifications if configured
-
-### Key Components
-
-**1. Deadband Filter (No LLM)**
-Suppresses readings that haven't changed significantly from the last forwarded value:
-```python
-if delta_pct < 0.02 and not heartbeat_due:  # 2% threshold
-    return "suppress"  # Don't process further
-```
-Result: **~70% of messages filtered out** before any further processing.
-
-**2. Sketch Generator (No LLM)**
-Creates natural language summaries for each significant reading:
-```python
-sketch = f"{sensor_id} recorded a {delta_pct:.1f}% spike to {temp:.1f}°C. "
-sketch += f"30s window: mean {mean:.1f}°C, range [{min:.1f}–{max:.1f}°C]. "
-sketch += f"Zone: {zone}."
-if zone == "CRITICAL":
-    sketch += " ⚠️ ANOMALY — immediate review required."
-```
-These sketches are **pre-computed** and stored. The LLM doesn't generate them—it reads them.
-
-**3. Rule-Based Anomaly Detection (No LLM)**
-Simple threshold logic for alerts:
-```python
-if temperature >= 65.0:
-    zone = "CRITICAL"
-    insert_alert(sensor_id, "SPIKE", "HIGH", description)
-elif temperature >= 58.0:
-    zone = "WARNING"
-```
-
-**4. SAM Query Agent (With LLM)**
-The LLM is only invoked when a human asks a question. It uses tools to query the pre-processed data:
-
-```yaml
-tools:
-  - get_sketches      # "What's been happening?"
-  - get_recent_alerts # "Any critical alerts?"
-  - get_fleet_status  # "How's the fleet?"
-  - get_sensor_details # "Tell me about sensor-001"
-```
-
-## The Magic: Sketches Enable Pattern Recognition
-
-The key insight is that **sketches are the bridge** between high-volume IoT data and LLM reasoning.
-
-Without sketches, the LLM would need to:
-1. Receive raw numbers: `[43.2, 43.5, 43.1, 65.8, 43.4, ...]`
-2. Compute statistics
-3. Detect patterns
-4. Generate natural language
-
-With sketches, the LLM receives:
-```
-"sensor-001 recorded a 38.4% spike to 65.8°C. Zone: CRITICAL."
-"sensor-002 recorded a 37.1% spike to 64.2°C. Zone: CRITICAL."
-"sensor-003 recorded a 39.2% spike to 66.1°C. Zone: CRITICAL."
-```
-
-Now the LLM can **reason across pre-digested summaries**:
-
-> "Strongly correlated, near-simultaneous SPIKE/CRITICAL events across all three sensors. Pattern suggests a common cause (shared environmental event) rather than independent sensor drift."
-
-This is what LLMs are good at—synthesis, hypothesis generation, and natural language output. Not number crunching.
-
-> **📌 Pattern Note:** What we're calling "sketches" maps directly onto the **Sketch-of-Thought (SoT)** pattern in the AI literature — where raw data is compressed into a plain-language intermediate representation before being passed to the primary LLM. The key difference in our implementation: the sketch generator is **deterministic Python code**, not a secondary LLM. For structured sensor telemetry, this eliminates narrator-LLM cost entirely while producing more consistent, auditable output than a model-generated sketch would. Every sketch is stored in SQLite — making it inspectable, replayable, and explainable by design.
-
-## Results
-
-### System Behavior at Scale
-
-| Dimension | Behavior |
-|-----------|----------|
-| Sensor volume | Scales linearly in the data plane — no LLM involvement |
-| LLM usage | Scales with user query volume, not event volume |
-| Cost | Fully decoupled from ingestion rate |
-| Ingestion reliability | No LLM latency or backpressure in the data path |
-
-### Cost Comparison
-
-| Approach | Messages/Hour | LLM Calls/Hour | Est. Cost/Day |
-|----------|---------------|----------------|---------------|
-| Every message → LLM | 180,000 | 180,000 | $1,000+ |
-| **Our approach** | 180,000 | **~10** (user queries) | **$0.01** |
-
-### Quality Comparison
-
-**Before (alert-only response):**
-```
-Total alerts: 1,758
-CRITICAL: 725
-WARNING: 1,033
-```
-
-**After (sketch-powered response):**
-```
-"Strongly correlated spike cluster at 15:24-15:27 UTC across all sensors.
-Peak: sensor-002 dropped 21°C in 12 seconds.
-Hypothesis: Shared cause—check HVAC/power logs.
-Recommended: Investigate within 1 hour."
-```
-
-## Lessons Learned
-
-### 1. For High-Volume Streams, Keep LLMs Out of the Ingestion Path
-For high-throughput IoT telemetry, this is the foundational principle — everything else follows from it. The moment an LLM becomes part of your event ingestion flow, you've coupled your pipeline's reliability and cost to the latency and availability of an external AI service. At thousands of messages per second, that coupling becomes fatal. Deterministic code belongs in the ingestion path. LLMs belong in the query path.
-
-**But event-triggered AI still makes sense for:**
-- **Low-frequency, high-value events** — a support ticket, a contract signature, an approval request
-- **Workflow automation** — generating reports, summarizing meetings, routing requests
-- **Document or context generation** — drafting responses, enriching records, creating handoffs
-
-The distinction is **volume, not capability**. Event Mesh Gateways that trigger LLM calls are powerful — just not for firehose-scale telemetry where 99% of events are noise.
-
-### 2. LLMs Require Explicit Tooling Contracts
-Our first version had the LLM calling `get_alerts` even for "what's happening" questions. We had to explicitly guide tool selection:
-
-```yaml
-instruction: |
-  TOOL SELECTION GUIDE:
-  
-  "What's been happening?" / "Recent activity?"
-  → USE get_sketches FIRST - these are pre-written summaries
-  
-  "Any alerts?" / "Critical events?"
-  → USE get_recent_alerts
-```
-
-### 3. Separate Data Plane from Control Plane
-The architecture splits cleanly: a **data plane** for high-throughput deterministic processing, and a **control plane** for on-demand AI reasoning. This separation is what makes the economics work — the expensive resource (LLM) is only invoked when a human needs insight, not when a sensor emits a reading.
-
-### 4. Pre-compute Natural Language
-The sketch generator does the "translation" from numbers to words **at ingestion time**, not query time. This means:
-- Consistent formatting across all events
-- No LLM cost for the translation
-- LLM can focus on synthesis, not description
-
-### 5. Sketches Are Auditable by Design
-Because sketches are plain language stored in SQLite — not ephemeral LLM reasoning — you can always inspect exactly what the LLM saw before it gave an answer. Query `SELECT * FROM sketches WHERE sensor_id = 'sensor-001'` and you have a complete, human-readable record of every pre-processed event the AI could have drawn on. This is critical for regulated environments where AI-generated recommendations must be explainable and defensible. The sketch is your audit trail.
-
-## Trade-offs and Limitations
-
-No architecture pattern is universally applicable. This one has real constraints worth understanding before you adopt it:
-
-| Limitation | Detail |
-|------------|--------|
-| **Loss of raw-data fidelity at query time** | The LLM can only reason about what was captured in the sketch. If your summary format omits a dimension (e.g., vibration), the AI cannot infer it — even if the raw reading was significant. |
-| **Summary design is load-bearing** | A poorly structured sketch format limits AI reasoning quality. The schema you choose at implementation time becomes a long-lived contract. Get it wrong and the AI's answers will be consistently shallow. |
-| **Not suitable for ultra-low-latency control loops** | This pattern is designed for operator-query workloads, not real-time closed-loop control. If you need sub-second automated response, deterministic rule systems remain the right tool — AI is advisory here, not actuation. |
-| **Summary format versioning required** | As your monitoring requirements evolve, sketch schemas will need to change. Without a versioning strategy, historical sketches and new sketches become incompatible, breaking query continuity. Plan for this from day one. |
-
-These are manageable constraints — not reasons to avoid the pattern — but they should inform your implementation design decisions.
-
-## Architecture Summary
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  MQTT (1000s/sec) → Deterministic Pipeline → SQLite    │
-│                            (no LLM cost)               │
-└────────────────────────────┬────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────┐
-│  User Question → LLM → Tools → SQLite → LLM → Answer   │
-│                     (~10 calls/day)                    │
-└─────────────────────────────────────────────────────────┘
 ```
 
 **The LLM doesn't process events. It answers questions about pre-processed data.**
 
 ---
 
-## Tech Stack
+## The Implementation: Three Microservices, Zero LLM Tokens
 
-- **Event Broker**: Solace PubSub+ Cloud
-- **Pipeline**: Python + Paho MQTT
-- **Database**: SQLite (demo) / TimescaleDB (production)
-- **AI Framework**: Solace Agent Mesh (SAM)
-- **LLM**: Azure OpenAI via LiteLLM
+The data plane is three independent Python services communicating via MQTT:
 
-## Try It Yourself
+### 1. Deadband Service (`deadband_service.py`)
 
-The full source code is available in this repository. To run:
+Filters noise before it propagates:
 
-```bash
-# Start the data plane
-cd sam && source .venv/bin/activate
-python src/demo_publisher.py &   # Simulates sensors
-python src/mock_pipeline.py &    # Processes → SQLite
+```python
+if delta_pct < 0.02 and not heartbeat_due:  # 2% threshold
+    return "suppress"
+```
 
-# Start the control plane
-sam run                          # SAM agents + WebUI
+Result: **~70% of messages filtered** before any further processing.
 
-# Open http://localhost:8000 and ask:
-# "What's been happening with the sensors lately?"
+Also maintains a rolling 30-second window for context:
+
+```python
+window = {
+    "mean": 48.3,
+    "min": 47.1,
+    "max": 52.8,
+    "trend": "STABLE"
+}
+```
+
+### 2. Sketch Service (`sketch_service.py`)
+
+Converts filtered readings into natural language summaries:
+
+```python
+sketch = f"{sensor_id} recorded a {delta_pct:.1f}% spike to {temp:.1f}°C. "
+sketch += f"30s window: mean {mean:.1f}°C, range [{min:.1f}–{max:.1f}°C]. "
+sketch += f"Zone: {zone}."
+```
+
+Output stored in SQLite:
+```
+"m1-temp-motor recorded a 30.7% spike to 77.1°C. Zone: CRITICAL. ⚠️ ANOMALY"
+```
+
+**This is the key insight:** The sketch is computed once at ingestion time, not at query time. The LLM reads pre-written summaries — it doesn't generate them.
+
+### 3. Anomaly Service (`anomaly_service.py`)
+
+Rule-based detection and fleet status tracking:
+
+```python
+if temperature >= 65.0:
+    zone = "CRITICAL"
+    generate_alert(sensor_id, "SPIKE", "HIGH")
+```
+
+Also tracks fleet-wide status for multi-sensor correlation.
+
+### Inter-Service Communication (MQTT Topics)
+
+| Topic | Publisher | Subscriber | Purpose |
+|-------|-----------|------------|---------|
+| `sensors/temperature/#` | Sensors | deadband_service | Raw readings |
+| `sensors/pipeline/filtered` | deadband_service | sketch_service | Passed deadband |
+| `sensors/pipeline/sketched` | sketch_service | anomaly_service | With NL summaries |
+| `sensors/pipeline/alerts` | anomaly_service | Dashboard | Generated alerts |
+
+### Data Center HVAC Variant (BACnet/Modbus/MQTT)
+
+For data centers, apply the same architecture to cooling and environmental telemetry (temperature, humidity, differential pressure), with BACnet and Modbus points normalized into MQTT topics.
+
+Use broker-level event gating before AI:
+- deadband filtering for minor oscillations
+- rate-of-change detection for fast thermal/pressure drift
+- state transition events (`NORMAL -> WARNING -> CRITICAL`)
+- dedupe/cooldown to prevent duplicate incident floods
+- multi-signal correlation across room/row/rack windows
+
+Example topic model:
+- `dc/raw/{site}/{room}/{row}/{rack}/{asset}/{metric}`
+- `dc/event/{site}/{severity}/{eventType}`
+- `dc/sketch/{site}/{room}/{incidentId}`
+
+Recommended routed event types:
+- `CoolingDriftDetected`
+- `HumidityRiskDetected`
+- `PressureContainmentRiskDetected`
+- `MultiSignalHotspotDetected`
+- `IncidentOpened`
+- `IncidentUpdated`
+- `IncidentClosed`
+
+The result is the same economic outcome: deterministic services absorb high-volume telemetry, while the LLM is invoked only for operator queries against pre-computed sketches and incident timelines.
+
+---
+
+## The Query Layer: Efficient by Default, Thorough on Demand
+
+The LLM is invoked only when a human asks a question. But even here, we learned efficiency matters.
+
+### The Problem We Discovered
+
+Our first version produced thorough responses to every question — executive summaries, per-sensor breakdowns, root cause analysis, prioritized recommendations. Impressive, but wasteful for simple status checks.
+
+A question like "What's happening with m1?" triggered:
+- 6+ tool calls
+- Multiple agent round-trips
+- Artifact generation
+- Multi-paragraph forensic reports
+
+### The Fix: Tiered Response Depth
+
+We tuned the agent to match response depth to question intent:
+
+**Simple query** → Brief answer
+```
+User: "What's happening with m1?"
+Agent: get_sketches(sensor_filter="m1") → 2 sentences
+```
+
+Output:
+```
+m1 is operating normally: inlet ~38°C, motor ~52°C, outlet ~47°C. 
+All sensors in NORMAL zone with stable trends.
+```
+
+**Detailed analysis request** → Thorough investigation
+```
+User: "Analyze the m2 critical events in detail"
+Agent: get_sensor_details() + get_recent_alerts() → Full report
+```
+
+Output: Executive summary, timeline analysis, cross-machine correlation, ranked root causes, prioritized recommendations.
+
+**The user controls the depth by how they phrase the question.**
+
+### Agent Instructions That Actually Work
+
+```yaml
+instruction: |
+  ⚠️ EFFICIENCY MODE:
+  - Give SHORT answers (2-4 sentences) unless user asks for detail
+  - ONE tool call per question
+  - NO artifacts for simple status questions
+  
+  TOOL SELECTION (pick ONE):
+  | Question | Tool | Response |
+  |----------|------|----------|
+  | "What's happening with m1?" | get_sketches | Brief summary |
+  | "Analyze in detail" | Multiple tools | Full report |
 ```
 
 ---
 
+## The Results
+
+### Cost Comparison
+
+| Approach | Messages/Hour | LLM Calls/Hour | Est. Cost/Day |
+|----------|---------------|----------------|---------------|
+| Every message → LLM | 180,000 | 180,000 | $1,000+ |
+| **This architecture** | 180,000 | **~10** (queries) | **$0.01** |
+
+### Quality Comparison
+
+**Before (LLM on every event):**
+```
+Total alerts processed: 180,000
+"Everything normal" responses: 178,000 (99%)
+Actual insights: 2,000
+Cost: $1,000/day
+```
+
+**After (query layer only):**
+```
+User: "What's happening with m1, m2, and m3?"
+
+Response:
+- m1: Normal and stable — inlet ~38°C, motor ~52°C, outlet ~47°C
+- m2: Multiple critical events — motor peaked ~75°C (CRITICAL); warrants review
+- m3: Motor spiked to ~77°C earlier, now in WARNING zone (~58-60°C)
+
+Tool calls: 1 (get_sketches)
+Cost: ~$0.001
+```
+
 ---
 
-> *If your LLM is seeing every event, your architecture is doing too little before it. The goal is not to make AI cheaper. It is to make AI **necessary only where it adds value**.*
+## Why Sketches Are the Key
+
+The sketch pattern (sometimes called "Sketch-of-Thought" in AI literature) is what makes this work:
+
+**Without sketches**, the LLM must:
+1. Parse raw numbers: `[43.2, 43.5, 43.1, 65.8, 43.4, ...]`
+2. Compute baselines and deviations
+3. Assess statistical significance
+4. Translate to natural language
+5. Then finally reason about patterns
+
+**With sketches**, the LLM receives:
+```
+"m1-temp-motor recorded a 30.7% spike to 77.1°C. Zone: CRITICAL."
+"m2-temp-motor recorded a 38.4% spike to 75.2°C. Zone: CRITICAL."
+```
+
+Now it can immediately reason: *"Near-simultaneous critical events on m1 and m2 motors suggest a shared cause — cooling failure or power transient — not independent sensor drift."*
+
+The sketch is computed once by deterministic Python code. The LLM reads it many times. That's the economics that work.
+
+---
+
+## Lessons Learned
+
+### 1. Keep LLMs Out of the Ingestion Path
+
+For high-throughput telemetry, this is the foundational rule. The moment an LLM becomes part of your event flow, you've coupled reliability and cost to an external AI service. At thousands of messages per second, that coupling kills projects.
+
+**Event-triggered AI still makes sense for:**
+- Low-frequency, high-value events (support tickets, approvals)
+- Workflow automation (reports, summaries, routing)
+- Document generation
+
+The distinction is **volume, not capability**.
+
+### 2. Pre-compute Natural Language at Ingestion
+
+The sketch generator does translation from numbers to words **once, at ingestion time**. Benefits:
+- Consistent formatting
+- Zero LLM cost for translation
+- LLM focuses on synthesis, not description
+
+### 3. Tune Agent Responses for Efficiency
+
+Default to brief. Let users explicitly request depth. This cut our average query cost by 80% while maintaining quality when it matters.
+
+### 4. Sketches Are Your Audit Trail
+
+Because sketches are plain language stored in SQLite, you can always inspect exactly what the LLM saw. Query `SELECT * FROM sketches WHERE sensor_id = 'm1-temp-motor'` and you have a complete record. Critical for regulated environments.
+
+---
+
+## Trade-offs
+
+| Limitation | Detail |
+|------------|--------|
+| Loss of raw-data fidelity | The LLM only sees what's in the sketch. Design your sketch format carefully. |
+| Summary design is load-bearing | A poorly structured sketch limits AI reasoning. Get the schema right upfront. |
+| Not for real-time control loops | This is for operator queries, not sub-second automated responses. |
+
+---
+
+## Try It
+
+```bash
+# Start the data plane microservices
+cd sam && source .venv/bin/activate
+python src/demo_publisher.py &      # Simulates 9 sensors (3 machines × 3 sensors)
+python src/deadband_service.py &    # Filters noise
+python src/sketch_service.py &      # Generates NL summaries
+python src/anomaly_service.py &     # Rule-based alerts
+
+# Start the query layer
+sam run
+
+# Open http://localhost:8000 and ask:
+# "What's happening with m1?" → Brief status (1 tool call)
+# "Analyze m2 critical events in detail" → Full forensic report
+```
+
+---
+
+## Tech Stack
+
+- **Event Broker**: Solace PubSub+ Cloud
+- **Pipeline**: Python microservices + Paho MQTT
+- **Database**: SQLite
+- **AI Framework**: Solace Agent Mesh (SAM)
+- **LLM**: Azure OpenAI via LiteLLM
+
+---
+
+> *If your LLM is seeing every event, your architecture is doing too little before it. The goal is not cheaper AI. It's AI only where it adds value.*
 
 ---
 
 ## Read Next
 
-**Missed Part 1?** [The AI-Powered IoT Trap: Why Most Enterprises Are Paying Millions for Noise](BLOG_POST_EXECUTIVE.md) covers the business case, cost economics at scale (100–10,000 sensors), strategic implications for leadership, and implementation roadmap — no code required.
+**Missed Part 1?** [The Token Burn Problem](BLOG_POST_EXECUTIVE.md) covers the business case, cost economics at scale, and strategic implications — no code required.
+
+**Need implementation contracts?** [DC_TOPIC_VERSIONING_README.md](DC_TOPIC_VERSIONING_README.md) defines versioned MQTT topics, event types, and schema evolution policy for data center HVAC streams.

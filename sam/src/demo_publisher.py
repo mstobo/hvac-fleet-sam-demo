@@ -2,9 +2,9 @@
 """
 demo_publisher.py
 =================
-Simulates a factory floor with 3 machines, each having 3 temperature sensors.
+Simulates a data center row with 3 cooling assets, each having 3 temperature sensors.
 
-Machine/Sensor Hierarchy:
+Asset/Sensor Hierarchy:
   machine-001: m1-temp-inlet, m1-temp-outlet, m1-temp-motor
   machine-002: m2-temp-inlet, m2-temp-outlet, m2-temp-motor
   machine-003: m3-temp-inlet, m3-temp-outlet, m3-temp-motor
@@ -14,14 +14,14 @@ Sensor Behaviors:
   - Outlet temps: Warmer than inlet, shows heat generation
   - Motor temps: Hottest, most likely to spike
 
-Machine Profiles:
-  - Machine 1: Stable operation (baseline)
-  - Machine 2: Occasional anomalies (demonstrates spike detection)
-  - Machine 3: Running slightly hot (demonstrates sustained warnings)
+Asset Profiles:
+  - Asset 1: Stable operation (baseline)
+  - Asset 2: Occasional anomalies (demonstrates spike detection)
+  - Asset 3: Running slightly hot (demonstrates sustained warnings)
 
 This structure enables realistic fleet monitoring scenarios:
   - All inlet temps spike → Environmental issue (HVAC failure)
-  - All sensors on one machine spike → Machine issue
+  - All sensors on one asset spike → Asset-level issue
   - Single sensor spikes → Sensor or component issue
 
 Usage:
@@ -34,7 +34,7 @@ Configure broker credentials via environment variables:
     SOLACE_USER     - Username
     SOLACE_PASS     - Password
     SOLACE_TLS      - Set to "true" for TLS (default: true)
-    TOPIC_BASE      - Base topic (default: sensors/temperature)
+    TOPIC_BASE      - Base topic (default: dc/v1/raw/dc1/hall-a/row-a3/rack-12)
 """
 
 import json
@@ -54,7 +54,9 @@ BROKER_PORT = int(os.getenv("SOLACE_PORT", "8883"))
 USERNAME = os.getenv("SOLACE_USER", "YOUR_USERNAME")
 PASSWORD = os.getenv("SOLACE_PASS", "YOUR_PASSWORD")
 USE_TLS = os.getenv("SOLACE_TLS", "true").lower() in ("true", "1", "yes")
-TOPIC_BASE = os.getenv("TOPIC_BASE", "sensors/temperature")
+TOPIC_BASE = os.getenv("TOPIC_BASE", "dc/v1/raw/dc1/hall-a/row-a3/rack-12")
+SCHEMA_RAW = os.getenv("RAW_SCHEMA_NAME", "dc.raw.v1")
+SCHEMA_REVISION = os.getenv("RAW_SCHEMA_REVISION", "1.0.0")
 
 # ── Timing ───────────────────────────────────────────────────────────────────
 PUBLISH_INTERVAL = 2.0     # Seconds between message batches
@@ -73,7 +75,7 @@ class SensorConfig:
 
 @dataclass
 class MachineConfig:
-    """Configuration for a machine with multiple sensors."""
+    """Configuration for a cooling asset with multiple sensors."""
     machine_id: str
     name: str
     profile: str  # stable, spiky, hot
@@ -142,7 +144,7 @@ class AnomalyScenario:
     def start(self):
         """Start the scenario."""
         self.active_cycles_remaining = self.duration_cycles
-        print(f"\n[Scenario] 🎬 STARTING: {self.name}")
+        print(f"\n[Scenario] STARTING: {self.name}")
         print(f"           {self.description}")
         print(f"           Affecting: {', '.join(self.affected_sensors)}")
         print(f"           Duration: {self.duration_cycles} cycles\n")
@@ -152,7 +154,7 @@ class AnomalyScenario:
         if self.active_cycles_remaining > 0:
             self.active_cycles_remaining -= 1
             if self.active_cycles_remaining == 0:
-                print(f"\n[Scenario] 🏁 ENDED: {self.name}\n")
+                print(f"\n[Scenario] ENDED: {self.name}\n")
             return True
         return False
     
@@ -243,9 +245,21 @@ def build_payload(sensor: SensorConfig, seq: int, spike: float = 0.0) -> dict:
         event_type = "NORMAL"
     
     return {
+        "schema": SCHEMA_RAW,
+        "schemaRevision": SCHEMA_REVISION,
         "sensorId": sensor.sensor_id,
         "machineId": sensor.machine_id,
         "sensorType": sensor.sensor_type,
+        "site": "dc1",
+        "room": "hall-a",
+        "row": "row-a3",
+        "rack": "rack-12",
+        "asset": sensor.machine_id,
+        "metric": "supply_temp_c",
+        "sourceProtocol": "MQTT",
+        "value": temp,
+        "unit": "C",
+        "quality": "GOOD",
         "temperature": temp,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "eventType": event_type,
@@ -256,10 +270,10 @@ def build_payload(sensor: SensorConfig, seq: int, spike: float = 0.0) -> dict:
 def on_connect(client, userdata, flags, reason_code, properties=None):
     """Handle connection result."""
     if reason_code == 0:
-        print(f"[Publisher] ✅ Connected to {BROKER_HOST}")
+        print(f"[Publisher] Connected to {BROKER_HOST}")
         userdata["connected"] = True
     else:
-        print(f"[Publisher] ❌ Connection failed (rc={reason_code})")
+        print(f"[Publisher] Connection failed (rc={reason_code})")
         userdata["connected"] = False
 
 
@@ -267,12 +281,12 @@ def on_disconnect(client, userdata, flags, reason_code, properties=None):
     """Handle disconnection with reconnect logic."""
     userdata["connected"] = False
     if reason_code != 0:
-        print(f"[Publisher] ⚠️ Unexpected disconnect (rc={reason_code}). Reconnecting in {RECONNECT_DELAY}s...")
+        print(f"[Publisher] Unexpected disconnect (rc={reason_code}). Reconnecting in {RECONNECT_DELAY}s...")
         time.sleep(RECONNECT_DELAY)
         try:
             client.reconnect()
         except Exception as e:
-            print(f"[Publisher] ❌ Reconnect failed: {e}")
+            print(f"[Publisher] Reconnect failed: {e}")
 
 
 def create_client() -> mqtt.Client:
@@ -290,7 +304,7 @@ def create_client() -> mqtt.Client:
     client.on_disconnect = on_disconnect
 
     if USE_TLS:
-        print(f"[Publisher] 🔒 TLS enabled")
+        print(f"[Publisher] TLS enabled")
         client.tls_set(
             ca_certs=None,
             certfile=None,
@@ -304,12 +318,12 @@ def create_client() -> mqtt.Client:
 
 
 def print_machine_summary():
-    """Print summary of machines and sensors."""
+    """Print summary of cooling assets and sensors."""
     print(f"\n{'='*70}")
-    print("  FACTORY FLOOR SIMULATOR  |  3 Machines × 3 Sensors = 9 Total")
+    print("  DATA CENTER HVAC SIMULATOR  |  3 Assets x 3 Sensors = 9 Total")
     print(f"{'='*70}")
     for machine in MACHINES:
-        print(f"\n  📦 {machine.machine_id} ({machine.name}) - Profile: {machine.profile.upper()}")
+        print(f"\n  - {machine.machine_id} ({machine.name}) - Profile: {machine.profile.upper()}")
         for sensor in machine.sensors:
             print(f"      └─ {sensor.sensor_id}: {sensor.sensor_type} @ {sensor.baseline_temp}°C baseline")
     print(f"\n{'='*70}")
@@ -335,7 +349,7 @@ def main():
         client.connect(BROKER_HOST, BROKER_PORT, keepalive=60)
         client.loop_start()
     except Exception as e:
-        print(f"[Publisher] ❌ Failed to connect: {e}")
+        print(f"[Publisher] Failed to connect: {e}")
         return
 
     # Wait for connection
@@ -345,7 +359,7 @@ def main():
         time.sleep(0.5)
 
     if not userdata.get("connected"):
-        print("[Publisher] ❌ Connection timeout. Check credentials and network.")
+        print("[Publisher] Connection timeout. Check credentials and network.")
         client.loop_stop()
         return
 
@@ -354,7 +368,7 @@ def main():
     try:
         while True:
             if not userdata.get("connected"):
-                print("[Publisher] ⏳ Waiting for reconnection...")
+                print("[Publisher] Waiting for reconnection...")
                 time.sleep(RECONNECT_DELAY)
                 continue
 
@@ -365,23 +379,16 @@ def main():
             for sensor in ALL_SENSORS:
                 spike = spikes.get(sensor.sensor_id, 0.0)
                 payload = build_payload(sensor, seq, spike)
-                topic = f"{TOPIC_BASE}/{sensor.sensor_id}"
+                topic = f"{TOPIC_BASE}/{sensor.machine_id}/supply_temp_c"
 
                 result = client.publish(topic, json.dumps(payload), qos=0)
 
                 # Icon based on event type
-                icons = {
-                    "NORMAL": "🟢",
-                    "NOISY": "⚪",
-                    "ELEVATED": "🟡",
-                    "ANOMALY": "🔴"
-                }
-                icon = icons.get(payload["eventType"], "⚪")
                 status = "✓" if result.rc == 0 else "✗"
                 
                 # Compact logging
                 print(
-                    f"[{time.strftime('%H:%M:%S')}] {icon} {sensor.machine_id} | "
+                    f"[{time.strftime('%H:%M:%S')}] {sensor.machine_id} | "
                     f"{sensor.sensor_type:6} | {payload['temperature']:5.1f}°C | "
                     f"{payload['eventType']:8} {status}"
                 )

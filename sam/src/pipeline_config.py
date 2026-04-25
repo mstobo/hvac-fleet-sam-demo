@@ -15,6 +15,7 @@ Environment variables:
 import os
 import ssl
 import time
+from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 
@@ -25,17 +26,31 @@ USERNAME = os.getenv("SOLACE_USER", "YOUR_USERNAME")
 PASSWORD = os.getenv("SOLACE_PASS", "YOUR_PASSWORD")
 USE_TLS = os.getenv("SOLACE_TLS", "true").lower() in ("true", "1", "yes")
 
+# ── Topic Namespace and Schemas ──────────────────────────────────────────────
+DC_NAMESPACE = os.getenv("DC_NAMESPACE", "dc")
+DC_TOPIC_VERSION = os.getenv("DC_TOPIC_VERSION", "v1")
+DEFAULT_SITE = os.getenv("DC_DEFAULT_SITE", "dc1")
+DEFAULT_ROOM = os.getenv("DC_DEFAULT_ROOM", "hall-a")
+
+SCHEMA_RAW = f"{DC_NAMESPACE}.raw.{DC_TOPIC_VERSION}"
+SCHEMA_FILTERED = f"{DC_NAMESPACE}.filtered.{DC_TOPIC_VERSION}"
+SCHEMA_SKETCH = f"{DC_NAMESPACE}.sketch.{DC_TOPIC_VERSION}"
+SCHEMA_EVENT = f"{DC_NAMESPACE}.event.{DC_TOPIC_VERSION}"
+SCHEMA_REVISION = "1.0.0"
+
 # ── Pipeline Topics ──────────────────────────────────────────────────────────
 # Input from sensors
-TOPIC_SENSOR_RAW = "sensors/temperature/#"
+TOPIC_SENSOR_RAW = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/raw/#"
 
 # Inter-service communication
-TOPIC_FILTERED = "sensors/pipeline/filtered"      # Deadband → Sketch
-TOPIC_SKETCHED = "sensors/pipeline/sketched"      # Sketch → Anomaly
+TOPIC_FILTERED = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/pipeline/filtered"     # Deadband → Sketch
+TOPIC_SKETCHED = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/pipeline/sketched"     # Sketch → Anomaly
 
-# Output topics (for dashboard/monitoring)
-TOPIC_SUPPRESSED = "sensors/pipeline/suppressed"  # Filtered out readings
-TOPIC_ALERTS = "sensors/pipeline/alerts"          # Generated alerts
+# Output topics
+TOPIC_SUPPRESSED = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/pipeline/suppressed" # Filtered out readings
+TOPIC_ALERTS = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/pipeline/alerts"         # Legacy flat alerts
+TOPIC_EVENT_BASE = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/event"
+TOPIC_SKETCH_BASE = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/sketch"
 
 # ── Processing Thresholds ────────────────────────────────────────────────────
 DEADBAND_PCT = 0.02       # 2% change threshold
@@ -55,6 +70,35 @@ def classify_zone(temp):
     if temp >= WARNING_TEMP:
         return "WARNING"
     return "NORMAL"
+
+
+def parse_raw_topic(topic: str):
+    """
+    Parse: dc/v1/raw/{site}/{room}/{row}/{rack}/{asset}/{metric}
+    Returns dict with available fields (missing fields become None).
+    """
+    parts = topic.split("/")
+    raw_idx = parts.index("raw") if "raw" in parts else -1
+    if raw_idx == -1:
+        return {}
+    suffix = parts[raw_idx + 1 :]
+    fields = ["site", "room", "row", "rack", "asset", "metric"]
+    out = {}
+    for idx, key in enumerate(fields):
+        out[key] = suffix[idx] if idx < len(suffix) else None
+    return out
+
+
+def build_event_topic(site: str, severity: str, event_type: str) -> str:
+    return f"{TOPIC_EVENT_BASE}/{site}/{severity.lower()}/{event_type}"
+
+
+def build_sketch_topic(site: str, room: str, incident_id: str) -> str:
+    return f"{TOPIC_SKETCH_BASE}/{site}/{room}/{incident_id}"
+
+
+def now_utc_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def create_mqtt_client(service_name: str, userdata: dict = None):
