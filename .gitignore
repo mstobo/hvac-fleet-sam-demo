@@ -71,3 +71,11 @@ run-subscriber.sh
 
 # Log directories
 logs/
+
+# Local environment and runtime (do not commit)
+sam/.env
+*.db
+**/__pycache__/
+
+# Deprecated agent backups (local only)
+sam/_deprecated_agents/
