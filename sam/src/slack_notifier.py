@@ -70,11 +70,11 @@ class SlackNotifier:
             # Test the connection
             auth_response = self.client.auth_test()
             bot_name = auth_response.get("user", "unknown")
-            print(f"[SlackNotifier] ✅ Connected as @{bot_name}")
-            print(f"[SlackNotifier] 📢 Alerts will be sent to {self.channel}")
+            print(f"[SlackNotifier] Connected as @{bot_name}")
+            print(f"[SlackNotifier] Alerts will be sent to {self.channel}")
             self.enabled = True
         except Exception as e:
-            print(f"[SlackNotifier] ❌ Failed to connect: {e}")
+            print(f"[SlackNotifier] Failed to connect: {e}")
             self.enabled = False
     
     def _is_rate_limited(self, sensor_id: str) -> bool:
@@ -122,13 +122,13 @@ class SlackNotifier:
         
         # Rate limiting
         if self._is_rate_limited(sensor_id):
-            print(f"[SlackNotifier] ⏳ Rate limited: {sensor_id}")
+            print(f"[SlackNotifier] Rate limited: {sensor_id}")
             return False
         
         # Deduplication
         alert_key = f"{sensor_id}:{temperature:.1f}:{alert_type}"
         if self._is_duplicate(alert_key):
-            print(f"[SlackNotifier] 🔁 Duplicate skipped: {sensor_id}")
+            print(f"[SlackNotifier] Duplicate skipped: {sensor_id}")
             return False
         
         if timestamp is None:
@@ -140,7 +140,7 @@ class SlackNotifier:
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": f"🚨 {severity} ALERT: {sensor_id}",
+                    "text": f"{severity} ALERT: {sensor_id}",
                     "emoji": True
                 }
             },
@@ -180,7 +180,7 @@ class SlackNotifier:
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": "💡 Reply to this thread or mention @sensor-bot for more details"
+                        "text": "Reply to this thread or mention @sensor-bot for more details"
                     }
                 ]
             }
@@ -189,17 +189,17 @@ class SlackNotifier:
         try:
             response = self.client.chat_postMessage(
                 channel=self.channel,
-                text=f"🚨 {severity}: {sensor_id} at {temperature:.1f}°C - {description}",
+                text=f"{severity}: {sensor_id} at {temperature:.1f}°C - {description}",
                 blocks=blocks
             )
-            print(f"[SlackNotifier] 📤 Alert sent: {sensor_id} ({severity})")
+            print(f"[SlackNotifier] Alert sent: {sensor_id} ({severity})")
             return True
             
         except SlackApiError as e:
-            print(f"[SlackNotifier] ❌ Failed to send: {e.response['error']}")
+            print(f"[SlackNotifier] Failed to send: {e.response['error']}")
             return False
         except Exception as e:
-            print(f"[SlackNotifier] ❌ Error: {e}")
+            print(f"[SlackNotifier] Error: {e}")
             return False
     
     def send_fleet_alert(
@@ -218,7 +218,6 @@ class SlackNotifier:
         if fleet_status not in ["FLEET_CRITICAL", "CRITICAL"]:
             return False
         
-        emoji = "🔴🔴" if fleet_status == "FLEET_CRITICAL" else "🔴"
         timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
         
         blocks = [
@@ -226,7 +225,7 @@ class SlackNotifier:
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": f"{emoji} FLEET STATUS: {fleet_status}",
+                    "text": f"FLEET STATUS: {fleet_status}",
                     "emoji": True
                 }
             },
@@ -266,7 +265,7 @@ class SlackNotifier:
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": "⚡ Multiple sensors affected - possible correlated event"
+                        "text": "Multiple sensors affected - possible correlated event"
                     }
                 ]
             }
@@ -275,13 +274,13 @@ class SlackNotifier:
         try:
             self.client.chat_postMessage(
                 channel=self.channel,
-                text=f"{emoji} FLEET {fleet_status}: {critical_count} critical, {warning_count} warning",
+                text=f"FLEET {fleet_status}: {critical_count} critical, {warning_count} warning",
                 blocks=blocks
             )
-            print(f"[SlackNotifier] 📤 Fleet alert sent: {fleet_status}")
+            print(f"[SlackNotifier] Fleet alert sent: {fleet_status}")
             return True
         except Exception as e:
-            print(f"[SlackNotifier] ❌ Fleet alert failed: {e}")
+            print(f"[SlackNotifier] Fleet alert failed: {e}")
             return False
 
 
@@ -326,8 +325,8 @@ def send_message(text: str, channel: str = None) -> bool:
             text=text,
             mrkdwn=True
         )
-        print(f"[SlackNotifier] 📤 Message sent to {target_channel}")
+        print(f"[SlackNotifier] Message sent to {target_channel}")
         return True
     except Exception as e:
-        print(f"[SlackNotifier] ❌ Failed to send message: {e}")
+        print(f"[SlackNotifier] Failed to send message: {e}")
         return False

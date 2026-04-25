@@ -123,38 +123,50 @@ def apply_deadband(sensor_id, temperature, timestamp):
 
 def on_connect(client, userdata, flags, reason_code, properties=None):
     if reason_code == 0:
-        print(f"[Deadband] ✅ Connected to {config.BROKER_HOST}")
+        print(f"[Deadband] Connected to {config.BROKER_HOST}")
         client.subscribe(config.TOPIC_SENSOR_RAW)
-        print(f"[Deadband] 📡 Subscribed to {config.TOPIC_SENSOR_RAW}")
+        print(f"[Deadband] Subscribed to {config.TOPIC_SENSOR_RAW}")
     else:
-        print(f"[Deadband] ❌ Connection failed (rc={reason_code})")
+        print(f"[Deadband] Connection failed (rc={reason_code})")
 
 
 def on_message(client, userdata, msg):
     """Process incoming sensor message through deadband filter."""
     try:
         payload = json.loads(msg.payload.decode())
-        sensor_id = payload.get("sensorId")
-        temperature = payload.get("temperature")
-        timestamp = payload.get("timestamp", datetime.utcnow().isoformat() + "Z")
+        topic_meta = config.parse_raw_topic(msg.topic)
+        sensor_id = payload.get("sensorId") or topic_meta.get("asset")
+        temperature = payload.get("temperature", payload.get("value"))
+        timestamp = payload.get("timestamp", payload.get("ts", datetime.utcnow().isoformat() + "Z"))
         
         if not sensor_id or temperature is None:
             return
         
         # Apply deadband filter
         action, result = apply_deadband(sensor_id, temperature, timestamp)
+        result.update(
+            {
+                "schema": config.SCHEMA_FILTERED,
+                "schemaRevision": config.SCHEMA_REVISION,
+                "site": payload.get("site", topic_meta.get("site", config.DEFAULT_SITE)),
+                "room": payload.get("room", topic_meta.get("room", config.DEFAULT_ROOM)),
+                "row": payload.get("row", topic_meta.get("row")),
+                "rack": payload.get("rack", topic_meta.get("rack")),
+                "asset": payload.get("asset", topic_meta.get("asset")),
+                "metric": payload.get("metric", topic_meta.get("metric", "supply_temp_c")),
+            }
+        )
         
         if action == "suppress":
-            print(f"[Deadband] 🔇 SUPPRESS {sensor_id} | {result['reason']}")
+            print(f"[Deadband] SUPPRESS {sensor_id} | {result['reason']}")
             client.publish(config.TOPIC_SUPPRESSED, json.dumps(result))
         else:
             zone = result["zone"]
-            zone_icon = {"NORMAL": "🟢", "WARNING": "🟡", "CRITICAL": "🔴"}.get(zone, "⚪")
-            print(f"[Deadband] {zone_icon} FORWARD {sensor_id} | {temperature:.1f}°C | zone={zone}")
+            print(f"[Deadband] FORWARD {sensor_id} | {temperature:.1f}°C | zone={zone}")
             client.publish(config.TOPIC_FILTERED, json.dumps(result))
         
     except Exception as e:
-        print(f"[Deadband] ❌ Error: {e}")
+        print(f"[Deadband] Error: {e}")
 
 
 def main():

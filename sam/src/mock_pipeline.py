@@ -31,7 +31,7 @@ import json
 import os
 import ssl
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 
@@ -53,12 +53,24 @@ USERNAME = os.getenv("SOLACE_USER", "YOUR_USERNAME")
 PASSWORD = os.getenv("SOLACE_PASS", "YOUR_PASSWORD")
 USE_TLS = os.getenv("SOLACE_TLS", "true").lower() in ("true", "1", "yes")
 
-# ── Topics ───────────────────────────────────────────────────────────────────
-SUBSCRIBE_TOPIC = "sensors/temperature/#"
-SUPPRESSED_TOPIC = "sensors/pipeline/suppressed"
-SKETCH_TOPIC = "sensors/pipeline/sketch-input"
-ORCHESTRATOR_TOPIC = "sensors/pipeline/orchestrator-input"
-ALERTS_TOPIC = "sensors/pipeline/alerts"
+# ── Topics / Schemas ─────────────────────────────────────────────────────────
+DC_NAMESPACE = os.getenv("DC_NAMESPACE", "dc")
+DC_TOPIC_VERSION = os.getenv("DC_TOPIC_VERSION", "v1")
+DEFAULT_SITE = os.getenv("DC_DEFAULT_SITE", "dc1")
+DEFAULT_ROOM = os.getenv("DC_DEFAULT_ROOM", "hall-a")
+
+SCHEMA_FILTERED = f"{DC_NAMESPACE}.filtered.{DC_TOPIC_VERSION}"
+SCHEMA_SKETCH = f"{DC_NAMESPACE}.sketch.{DC_TOPIC_VERSION}"
+SCHEMA_EVENT = f"{DC_NAMESPACE}.event.{DC_TOPIC_VERSION}"
+SCHEMA_REVISION = "1.0.0"
+
+SUBSCRIBE_TOPIC = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/raw/#"
+SUPPRESSED_TOPIC = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/pipeline/suppressed"
+SKETCH_TOPIC = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/pipeline/sketch-input"
+ORCHESTRATOR_TOPIC = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/pipeline/orchestrator-input"
+ALERTS_TOPIC = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/pipeline/alerts"
+EVENT_TOPIC_BASE = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/event"
+SKETCH_TOPIC_BASE = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/sketch"
 
 # ── Deadband state ───────────────────────────────────────────────────────────
 _last_value = {}
@@ -84,6 +96,19 @@ def classify_zone(temp):
     if temp >= WARNING_TEMP:
         return "WARNING"
     return "NORMAL"
+
+
+def parse_raw_topic(topic):
+    parts = topic.split("/")
+    raw_idx = parts.index("raw") if "raw" in parts else -1
+    if raw_idx == -1:
+        return {}
+    suffix = parts[raw_idx + 1 :]
+    fields = ["site", "room", "row", "rack", "asset", "metric"]
+    out = {}
+    for idx, key in enumerate(fields):
+        out[key] = suffix[idx] if idx < len(suffix) else None
+    return out
 
 
 def classify_severity(zone, delta_pct, temperature):
@@ -201,7 +226,7 @@ def generate_sketch(sensor_id, temperature, zone, delta_pct, forwarded_reason, w
     win_max = window.get("max", temperature)
     delta_pct_pct = delta_pct * 100
     
-    timestamp = datetime.utcnow().isoformat() + "Z"
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     
     if forwarded_reason == "heartbeat":
         sketch = (
@@ -217,9 +242,9 @@ def generate_sketch(sensor_id, temperature, zone, delta_pct, forwarded_reason, w
             f"range [{win_min:.1f}–{win_max:.1f}°C]. Zone: {zone}."
         )
         if zone == "CRITICAL":
-            sketch += " ⚠️ ANOMALY — immediate review required."
+            sketch += " Anomaly detected - immediate review required."
         elif zone == "WARNING":
-            sketch += " ⚡ Elevated — monitoring advised."
+            sketch += " Elevated condition - monitoring advised."
     
     # Write to database
     sensor_db.insert_sketch(
@@ -235,6 +260,8 @@ def generate_sketch(sensor_id, temperature, zone, delta_pct, forwarded_reason, w
     )
     
     return {
+        "schema": SCHEMA_SKETCH,
+        "schemaRevision": SCHEMA_REVISION,
         "sensorId": sensor_id,
         "zone": zone,
         "sketch": sketch,
@@ -255,7 +282,7 @@ def generate_alert(sensor_id, zone, temperature, delta_pct, forwarded_reason):
         return None
     
     alert_type = get_alert_type(zone, delta_pct, forwarded_reason)
-    timestamp = datetime.utcnow().isoformat() + "Z"
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     
     # Generate description based on alert type
     if alert_type == "SPIKE":
@@ -302,6 +329,9 @@ def generate_alert(sensor_id, zone, temperature, delta_pct, forwarded_reason):
         )
     
     return {
+        "schema": SCHEMA_EVENT,
+        "schemaRevision": SCHEMA_REVISION,
+        "eventType": "CoolingDriftDetected" if alert_type in ["SPIKE", "ELEVATED_READING"] else "IncidentUpdated",
         "sensorId": sensor_id,
         "zone": zone,
         "severity": severity,
@@ -353,7 +383,7 @@ def update_fleet_status():
         notes = "All sensors operating normally"
         correlation = False
     
-    timestamp = datetime.utcnow().isoformat() + "Z"
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     
     sensor_db.insert_fleet_status(
         active_sensors=active_sensors,
@@ -375,49 +405,59 @@ def update_fleet_status():
             notes=notes
         )
     
-    status_icon = {
-        "NOMINAL": "🟢",
-        "WARNING": "🟡", 
-        "ELEVATED": "🟠",
-        "CRITICAL": "🔴",
-        "FLEET_CRITICAL": "🔴🔴"
-    }.get(fleet_status, "⚪")
-    
-    print(f"[Fleet]    {status_icon} {fleet_status} | {active_sensors} sensors | {warning_count}W {critical_count}C")
+    print(f"[Fleet] {fleet_status} | {active_sensors} sensors | {warning_count}W {critical_count}C")
 
 
 def on_connect(client, userdata, flags, reason_code, properties=None):
     if reason_code == 0:
-        print(f"[Pipeline] ✅ Connected to {BROKER_HOST}")
+        print(f"[Pipeline] Connected to {BROKER_HOST}")
         client.subscribe(SUBSCRIBE_TOPIC)
-        print(f"[Pipeline] 📡 Subscribed to {SUBSCRIBE_TOPIC}")
+        print(f"[Pipeline] Subscribed to {SUBSCRIBE_TOPIC}")
         userdata["connected"] = True
     else:
-        print(f"[Pipeline] ❌ Connection failed (rc={reason_code})")
+        print(f"[Pipeline] Connection failed (rc={reason_code})")
 
 
 def on_message(client, userdata, msg):
     """Process incoming sensor message through the pipeline"""
     try:
         payload = json.loads(msg.payload.decode())
-        sensor_id = payload.get("sensorId")
-        temperature = payload.get("temperature")
-        timestamp = payload.get("timestamp", datetime.utcnow().isoformat() + "Z")
+        topic_meta = parse_raw_topic(msg.topic)
+        sensor_id = payload.get("sensorId") or topic_meta.get("asset")
+        temperature = payload.get("temperature", payload.get("value"))
+        timestamp = payload.get(
+            "timestamp",
+            payload.get(
+                "ts",
+                datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            ),
+        )
         
         if not sensor_id or temperature is None:
             return
         
         # ── Stage 1: Deadband Filter ─────────────────────────────────────────
         action, result = apply_deadband(sensor_id, temperature, timestamp)
+        result.update(
+            {
+                "schema": SCHEMA_FILTERED,
+                "schemaRevision": SCHEMA_REVISION,
+                "site": payload.get("site", topic_meta.get("site", DEFAULT_SITE)),
+                "room": payload.get("room", topic_meta.get("room", DEFAULT_ROOM)),
+                "row": payload.get("row", topic_meta.get("row")),
+                "rack": payload.get("rack", topic_meta.get("rack")),
+                "asset": payload.get("asset", topic_meta.get("asset")),
+                "metric": payload.get("metric", topic_meta.get("metric", "supply_temp_c")),
+            }
+        )
         
         if action == "suppress":
-            print(f"[Deadband] 🔇 SUPPRESS {sensor_id} | {result['reason']}")
+            print(f"[Deadband] SUPPRESS {sensor_id} | {result['reason']}")
             client.publish(SUPPRESSED_TOPIC, json.dumps(result))
             return
         
         zone = result["zone"]
-        zone_icon = {"NORMAL": "🟢", "WARNING": "🟡", "CRITICAL": "🔴"}.get(zone, "⚪")
-        print(f"[Deadband] {zone_icon} FORWARD {sensor_id} | {temperature:.1f}°C | zone={zone}")
+        print(f"[Deadband] FORWARD {sensor_id} | {temperature:.1f}°C | zone={zone}")
         
         # Write reading to database (passed deadband)
         sensor_db.insert_reading(
@@ -437,23 +477,31 @@ def on_message(client, userdata, msg):
             result["window"], result["trend"]
         )
         
-        print(f"[Sketch]   ✍️  {sensor_id} | \"{sketch_result['sketch'][:60]}...\"")
+        print(f"[Sketch]   GENERATED {sensor_id} | \"{sketch_result['sketch'][:60]}...\"")
         
         # Publish to orchestrator-input topic (for dashboard)
         client.publish(ORCHESTRATOR_TOPIC, json.dumps(sketch_result))
+        incident_id = f"INC-{result['site'].upper()}-{int(time.time())}-{sensor_id}"
+        sketch_result["incidentId"] = incident_id
+        sketch_topic = f"{SKETCH_TOPIC_BASE}/{result['site']}/{result['room']}/{incident_id}"
+        client.publish(sketch_topic, json.dumps(sketch_result))
         
         # ── Stage 3: Anomaly Detection (deterministic - no LLM) ──────────────
         if zone == "NORMAL":
-            print(f"[Anomaly]  💤 SKIP | {sensor_id} zone=NORMAL")
+            print(f"[Anomaly]  SKIP | {sensor_id} zone=NORMAL")
         else:
             alert = generate_alert(
                 sensor_id, zone, temperature, 
                 result["delta_pct"], result["forwarded_reason"]
             )
             if alert:
-                alert_icon = "🚨" if alert["severity"] in ["CRITICAL", "HIGH"] else "⚡"
-                print(f"[Anomaly]  {alert_icon} {alert['severity']} | {sensor_id} | {alert['alert_type']}")
+                alert["site"] = result["site"]
+                alert["room"] = result["room"]
+                alert["incidentId"] = incident_id
+                print(f"[Anomaly]  ALERT {alert['severity']} | {sensor_id} | {alert['alert_type']}")
                 client.publish(ALERTS_TOPIC, json.dumps(alert))
+                event_topic = f"{EVENT_TOPIC_BASE}/{result['site']}/{alert['severity'].lower()}/{alert['eventType']}"
+                client.publish(event_topic, json.dumps(alert))
         
         # ── Stage 4: Fleet Status Update ─────────────────────────────────────
         update_fleet_status()
@@ -461,14 +509,14 @@ def on_message(client, userdata, msg):
         print()
         
     except Exception as e:
-        print(f"[Pipeline] ❌ Error processing message: {e}")
+        print(f"[Pipeline] Error processing message: {e}")
         import traceback
         traceback.print_exc()
 
 
 def main():
     # Initialize the database
-    print("[Pipeline] 📦 Initializing SQLite database...")
+    print("[Pipeline] Initializing SQLite database...")
     sensor_db.init_database()
     
     userdata = {"connected": False}
@@ -484,7 +532,7 @@ def main():
     client.on_message = on_message
     
     if USE_TLS:
-        print(f"[Pipeline] 🔒 TLS enabled")
+        print(f"[Pipeline] TLS enabled")
         client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLS)
     
     print(f"\n{'='*65}")

@@ -120,10 +120,10 @@
 </header>
 
 <div id="config-panel">
-  <div><label>WebSocket Host</label><br><input id="cfg-host" value="mr-connection-ij528qgf39j.messaging.solace.cloud" /></div>
+  <div><label>WebSocket Host</label><br><input id="cfg-host" value="" placeholder="your-broker.messaging.solace.cloud" /></div>
   <div><label>WS Port</label><br><input id="cfg-port" value="443" style="width:80px" /></div>
-  <div><label>Username</label><br><input id="cfg-user" value="solace-cloud-client" /></div>
-  <div><label>Password</label><br><input id="cfg-pass" type="password" value="va197s27vonhhc1r3ujhf35t8i" style="width:140px" /></div>
+  <div><label>Username</label><br><input id="cfg-user" value="" placeholder="broker-username" /></div>
+  <div><label>Password</label><br><input id="cfg-pass" type="password" value="" placeholder="broker-password" style="width:140px" /></div>
   <div style="align-self:flex-end;"><button onclick="connectBroker()">Connect ▶</button></div>
 </div>
 
@@ -203,14 +203,63 @@
   }
 
   function connectBroker() {
-    const host = document.getElementById('cfg-host').value;
-    const port = parseInt(document.getElementById('cfg-port').value);
+    const rawHost = document.getElementById('cfg-host').value.trim();
+    let port = parseInt(document.getElementById('cfg-port').value, 10);
     const user = document.getElementById('cfg-user').value;
     const pass = document.getElementById('cfg-pass').value;
+    let path = '/mqtt';
+
+    if (!rawHost) {
+      alert('Please enter a broker host.');
+      return;
+    }
+
+    // Accept host input as either plain hostname or full ws/wss URL.
+    let host = rawHost;
+    if (rawHost.startsWith('ws://') || rawHost.startsWith('wss://')) {
+      try {
+        const u = new URL(rawHost);
+        host = u.hostname;
+        if (!Number.isNaN(parseInt(u.port, 10)) && u.port) {
+          port = parseInt(u.port, 10);
+          document.getElementById('cfg-port').value = String(port);
+        } else if (rawHost.startsWith('wss://') && !port) {
+          port = 443;
+          document.getElementById('cfg-port').value = '443';
+        } else if (rawHost.startsWith('ws://') && !port) {
+          port = 80;
+          document.getElementById('cfg-port').value = '80';
+        }
+        if (u.pathname && u.pathname !== '/') {
+          path = u.pathname;
+        }
+      } catch (e) {
+        alert('Invalid WebSocket host. Use hostname or ws/wss URL.');
+        return;
+      }
+    } else {
+      // Remove accidental path from host input (e.g. host/mqtt).
+      host = host.split('/')[0];
+      // Support host:port shorthand.
+      if (host.includes(':')) {
+        const parts = host.split(':');
+        host = parts[0];
+        const parsedPort = parseInt(parts[1], 10);
+        if (!Number.isNaN(parsedPort)) {
+          port = parsedPort;
+          document.getElementById('cfg-port').value = String(port);
+        }
+      }
+    }
+
+    if (!port || Number.isNaN(port)) {
+      alert('Please provide a valid WebSocket port.');
+      return;
+    }
 
     if (mqttClient) { try { mqttClient.disconnect(); } catch(e){} }
 
-    mqttClient = new Paho.MQTT.Client(host, port, '/mqtt', 'dashboard-' + Date.now());
+    mqttClient = new Paho.MQTT.Client(host, port, path, 'dashboard-' + Date.now());
 
     mqttClient.onConnectionLost = (r) => {
       document.getElementById('conn-badge').className = 'conn-badge';
@@ -226,14 +275,25 @@
       onSuccess: () => {
         document.getElementById('conn-badge').className = 'conn-badge connected';
         document.getElementById('conn-badge').textContent = '● Connected';
-        // Subscribe to all pipeline topics
+        // Subscribe to new versioned topics
+        mqttClient.subscribe('dc/v1/raw/#');
+        mqttClient.subscribe('dc/v1/pipeline/suppressed');
+        mqttClient.subscribe('dc/v1/pipeline/filtered');
+        mqttClient.subscribe('dc/v1/pipeline/sketched');
+        mqttClient.subscribe('dc/v1/pipeline/alerts');
+        mqttClient.subscribe('dc/v1/sketch/#');
+        mqttClient.subscribe('dc/v1/event/#');
+
+        // Legacy compatibility (optional)
         mqttClient.subscribe('sensors/temperature/#');
         mqttClient.subscribe('sensors/pipeline/suppressed');
-        mqttClient.subscribe('sensors/pipeline/sketch-input');
-        mqttClient.subscribe('sensors/pipeline/orchestrator-input');
-        mqttClient.subscribe('sensors/pipeline/alerts');
+        mqttClient.subscribe('sensors/pipeline/filtered');    // from deadband_service
+        mqttClient.subscribe('sensors/pipeline/sketched');    // from sketch_service
+        mqttClient.subscribe('sensors/pipeline/alerts');      // from anomaly_service
       },
       onFailure: (e) => {
+        document.getElementById('conn-badge').className = 'conn-badge';
+        document.getElementById('conn-badge').textContent = '● Disconnected';
         alert('Connection failed: ' + e.errorMessage);
       }
     });
@@ -243,37 +303,50 @@
     try {
       const topic   = msg.destinationName;
       const payload = JSON.parse(msg.payloadString);
+      const isRawTopic = topic.startsWith('sensors/temperature/') || topic.startsWith('dc/v1/raw/');
+      const isSuppressedTopic = topic === 'sensors/pipeline/suppressed' || topic === 'dc/v1/pipeline/suppressed';
+      const isFilteredTopic = topic === 'sensors/pipeline/filtered' || topic === 'dc/v1/pipeline/filtered';
+      const isSketchedTopic =
+        topic === 'sensors/pipeline/sketched' ||
+        topic === 'dc/v1/pipeline/sketched' ||
+        topic.startsWith('dc/v1/sketch/');
+      const isAlertTopic =
+        topic === 'sensors/pipeline/alerts' ||
+        topic === 'dc/v1/pipeline/alerts' ||
+        topic.startsWith('dc/v1/event/');
 
       // ── Raw sensor events (from publisher) ──────────────────────────────
-      if (topic.startsWith('sensors/temperature/')) {
+      if (isRawTopic) {
         stats.total++;
         const et   = payload.eventType || 'NORMAL';
         const zone = et === 'ANOMALY' ? 'CRITICAL' : (et === 'NOISY' ? 'WARNING' : 'NORMAL');
         const icon = {NORMAL:'🟢', NOISY:'🟡', ANOMALY:'🔴'}[et] || '⚪';
+        const rawTemp = payload.temperature ?? payload.value ?? 0;
+        const rawSensor = payload.sensorId || payload.asset || payload.metric || 'unknown-sensor';
 
         prependCard('col-raw', `
           <div class="event-card ${zone}">
             <div class="ev-header">
               <span>${icon}</span>
-              <span class="ev-sensor">${payload.sensorId}</span>
+              <span class="ev-sensor">${rawSensor}</span>
               <span class="zone-pill ${zone}">${et}</span>
               <span class="ev-time">${now()}</span>
             </div>
-            <div class="ev-temp ${zone}">${payload.temperature}°C</div>
-            <div class="ev-body">seq=${payload.sequence} | raw publish</div>
+            <div class="ev-temp ${zone}">${Number(rawTemp).toFixed(1)}°C</div>
+            <div class="ev-body">seq=${payload.sequence ?? 'n/a'} | raw publish</div>
           </div>`);
         document.getElementById('badge-raw').textContent = stats.total + ' events';
         updateStats();
       }
 
       // ── Suppressed events (from deadband agent) ─────────────────────────
-      if (topic === 'sensors/pipeline/suppressed') {
+      if (isSuppressedTopic) {
         stats.suppressed++;
         updateStats();
       }
 
-      // ── Sketch-input (from deadband agent — forwarded events) ────────────
-      if (topic === 'sensors/pipeline/sketch-input') {
+      // ── Filtered events (from deadband_service — forwarded events) ────────
+      if (isFilteredTopic) {
         const zone = payload.zone || 'NORMAL';
         const reason = payload.forwarded_reason || '';
         const isSuppressed = false; // If it arrived here, it was forwarded
@@ -301,11 +374,13 @@
         updateStats();
       }
 
-      // ── Orchestrator-input (from sketch agent) ───────────────────────────
-      if (topic === 'sensors/pipeline/orchestrator-input') {
+      // ── Sketched events (from sketch_service) ─────────────────────────────
+      if (isSketchedTopic) {
         const zone   = payload.zone || 'NORMAL';
         const sketch = payload.sketch || '';
         const icon   = {NORMAL:'🟢', WARNING:'🟡', CRITICAL:'🔴'}[zone] || '⚪';
+        const skTemp = payload.temperature ?? payload.raw_value ?? payload.value ?? 0;
+        const skSensor = payload.sensorId || payload.asset || payload.incidentId || 'unknown-sensor';
         stats.llm_total++;
         if (zone === 'NORMAL') stats.llm_skipped++;
 
@@ -313,11 +388,11 @@
           <div class="event-card ${zone}">
             <div class="ev-header">
               <span>${icon}</span>
-              <span class="ev-sensor">${payload.sensorId}</span>
+              <span class="ev-sensor">${skSensor}</span>
               <span class="zone-pill ${zone}">${zone}</span>
               <span class="ev-time">${now()}</span>
             </div>
-            <div class="ev-temp ${zone}">${payload.raw_value}°C</div>
+            <div class="ev-temp ${zone}">${Number(skTemp).toFixed(1)}°C</div>
             <div class="ev-sketch">"${sketch}"</div>
             <div class="ev-body" style="margin-top:4px;">
               ${zone === 'NORMAL' ? '💤 Normal — no alert' : '⚡ → Anomaly Detection'}
@@ -329,10 +404,13 @@
       }
 
       // ── Alerts (from anomaly detection - deterministic rules) ──────────────
-      if (topic === 'sensors/pipeline/alerts') {
+      if (isAlertTopic) {
         const severity = payload.severity || 'LOW';
         const zone = payload.zone || 'WARNING';
         const alertType = payload.alert_type || 'ELEVATED_READING';
+        const alertSensor = payload.sensorId || payload.incidentId || payload.eventType || 'unknown-alert';
+        const alertDesc = payload.description || payload.summary || payload.eventType || 'No description';
+        const alertTemp = payload.temperature ?? payload.value;
         
         if (severity === 'CRITICAL' || severity === 'HIGH') stats.alerts++;
         else stats.warnings++;
@@ -344,14 +422,14 @@
           <div class="event-card ${sClass} ALERT">
             <div class="ev-header">
               <span>${sIcon}</span>
-              <span class="ev-sensor">${payload.sensorId}</span>
+              <span class="ev-sensor">${alertSensor}</span>
               <span class="zone-pill ${sClass}">${severity}</span>
               <span class="ev-time">${now()}</span>
             </div>
-            <div class="ev-body" style="margin-bottom:4px;">${payload.description}</div>
+            <div class="ev-body" style="margin-bottom:4px;">${alertDesc}</div>
             <div class="ev-action">▶ ${alertType.replace(/_/g, ' ')}</div>
             <div class="ev-body" style="margin-top:4px;">
-              ${payload.temperature.toFixed(1)}°C | Zone: ${zone} | Deterministic
+              ${alertTemp !== undefined ? Number(alertTemp).toFixed(1) + '°C | ' : ''}Zone: ${zone} | Deterministic
             </div>
           </div>`);
         document.getElementById('badge-alert').textContent =

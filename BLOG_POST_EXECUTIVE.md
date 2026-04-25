@@ -1,306 +1,335 @@
-# The AI-Powered IoT Trap: Why Most Enterprises Are Paying Millions for Noise — And the Architecture That Changes Everything
+# The Token Burn Problem: Why IIoT AI Projects Fail
 
-**A proven pattern that reduces AI infrastructure costs by over 99% while delivering higher-quality operational intelligence at any scale**
-
----
-
-> *"We thought we were building an intelligent factory. We were actually building the world's most expensive alert system."*
-> — IoT Architect, Global Manufacturing Enterprise
+**Many industrial AI projects die the same death. Here's the economics they got wrong — and the architecture that fixes it.**
 
 ---
 
-## The Executive Summary
+## The Uncomfortable Truth
 
-Industrial IoT promises transformational intelligence. The reality for most enterprises: spiraling AI costs, alert-fatigued operators, and diminishing returns. This post explains why — and presents a production-proven architecture that inverts the economics entirely.
+Many IIoT AI projects fail. Not in dramatic fashion — they simply become economically unsustainable and quietly get shelved. The pattern is predictable:
 
-**Key numbers:**
-| | Traditional Approach | Optimized Pattern |
-|--|--|--|
-| Annual AI cost (100 sensors) | **$3.1M** | **$3,650** |
-| Annual AI cost (10,000 sensors) | **$310M** | **~$5,000** |
-| Insight quality | Alert floods | Prioritized recommendations |
-| Scalability | Cost-prohibitive | Effectively unlimited |
+1. A promising pilot demonstrates AI-powered insights from sensor data
+2. Leadership greenlights production deployment
+3. Real sensor volumes start flowing
+4. The AI bill arrives
+5. Someone asks "What exactly are we paying for?"
 
----
+The answer, in most cases: **AI processing millions of messages that say "everything is normal."**
 
-## The Promise vs. The Reality
-
-Every enterprise wants the same thing from their IoT investments: **actionable intelligence**. Not dashboards overflowing with numbers. Not alert fatigue from thousands of threshold breaches. Real insights — the kind that tell operators what's happening, why it matters, and what to do next.
-
-Large Language Models (LLMs) seem like the perfect solution. They synthesize complex data, detect patterns humans miss, and communicate findings in plain English. The vision is compelling:
-
-> *"What's happening with our temperature sensors?"*
->
-> *"Three sensors showed correlated spikes at 3:24 PM — likely a shared HVAC event, not equipment failure. Recommend dispatching maintenance within the hour. No immediate safety risk."*
-
-**The problem?** Most enterprise implementations of this vision are economically unsustainable — and the gap between promise and reality grows as you scale.
+This isn't a technology problem. It's an architecture problem. And it's costing enterprises millions.
 
 ---
 
-## The $8,640-Per-Day Wake-Up Call
+## The Math That Breaks Projects
 
-Here's the math that catches most organizations off guard — often after the system is already in production:
+A typical industrial sensor publishes readings every 2 seconds. Let's trace the economics:
 
-A typical industrial sensor publishes readings every 2 seconds. That's **43,200 messages per sensor per day**. A modest deployment of 100 sensors generates **4.3 million messages daily**.
+| Scale | Sensors | Messages/Day | Annual AI Cost* |
+|-------|---------|--------------|-----------------|
+| Pilot | 10 | 432,000 | $315,000 |
+| Production | 100 | 4,320,000 | $3.1M |
+| Enterprise | 1,000 | 43,200,000 | $31M |
+| Fleet | 10,000 | 432,000,000 | $310M |
 
-The instinctive architecture sends each message to an LLM for analysis:
+*At $0.01/1K tokens, ~200 tokens per message, processing every reading through an LLM.
 
-| Metric | Value |
-|--------|-------|
-| Messages/day (100 sensors) | 4,320,000 |
-| Avg. tokens per message | ~200 |
-| Total tokens/day | 864 million |
-| Cost at $0.01/1K tokens | **$8,640/day** |
-| **Annual cost** | **$3.1 million** |
+The numbers seem absurd because they are. But this is exactly the architecture many teams build — routing every sensor event to an LLM for analysis.
 
-And this is for a system that — by its own design — mostly concludes *"nothing interesting here."*
+**The brutal reality:** 70-80% of those messages are statistical noise. Small fluctuations. Unremarkable readings. The AI processes each one, concludes "nothing interesting here," and bills you anyway.
 
-The reality is more damaging than the headline number: **70–80% of sensor readings are insignificant fluctuations.** You are paying LLM rates — expert consultant rates — for a system that repeatedly confirms normalcy. That is not intelligence. That is waste, industrialized.
-
-> **The uncomfortable question:** How much of your current AI spend is buying answers you already know?
+You're paying expert rates for a system that mostly confirms normalcy.
 
 ---
 
-## The Root Cause: Treating AI as a Data Processor
+## Why Teams Build the Wrong Architecture
 
-The mistake is architectural, and it's understandable. When LLMs became accessible, teams reached for them the same way they'd reach for any powerful new tool: plug it into the data pipeline and let it run.
+The mistake is understandable. LLMs are powerful tools, and the natural instinct is to plug them directly into data streams:
 
-But this treats a reasoning engine like a rules engine — and the economics are very different.
+```
+Sensor → LLM → Insight
+```
 
-**LLMs are not data processors. They are reasoning engines.**
+This works beautifully in a pilot with 10 sensors. It fails catastrophically at scale because it treats a reasoning engine like a data processor.
 
-| Data Processing Work | Reasoning Work |
-|----------------------|----------------|
+**LLMs are reasoning engines, not data processors.**
+
+| Data Processing (Cheap) | Reasoning (Expensive) |
+|------------------------|----------------------|
 | Filter noise | Synthesize patterns across signals |
 | Apply thresholds | Generate causal hypotheses |
-| Calculate statistics | Prioritize recommendations by risk |
-| Transform formats | Communicate findings in natural language |
+| Calculate statistics | Prioritize by risk |
+| Transform formats | Communicate in natural language |
 
-When you route every sensor event through an LLM, you're using a specialist to do clerical work — at specialist prices, millions of times per day.
-
-The fix is not to abandon AI. The fix is to **use AI for what only AI can do.**
+When you route every sensor event through an LLM, you're paying reasoning rates for processing work. That's the economic death spiral.
 
 ---
 
-## The Architecture That Changes the Economics
+## The Architecture That Works
 
-The pattern is called **"Deterministic Pipeline + Intelligent Query Layer."** It separates two fundamentally different jobs that most architectures incorrectly merge.
+The fix is straightforward: separate what should be cheap from what can be expensive.
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                           DATA PLANE                                 │
-│          High-volume, deterministic processing • Zero AI cost        │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  Sensors ──► Filter Noise ──► Generate Summaries ──► Store Results  │
-│                                                                      │
-│  • 70%+ of readings filtered as statistically insignificant          │
-│  • Anomalies and events summarized in plain English at the edge      │
-│  • Alerts generated by deterministic rule-based logic                │
-│  • All processing: code, not AI — fast, cheap, auditable             │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
-                                   │
-                                   ▼  (pre-computed summaries only)
-┌──────────────────────────────────────────────────────────────────────┐
-│                        INTELLIGENCE LAYER                            │
-│            On-demand reasoning • AI precisely where it matters       │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  Operator: "What happened with our sensors this afternoon?"          │
-│                            │                                         │
-│                            ▼                                         │
-│  AI reads pre-computed summaries ──► Synthesizes cross-sensor        │
-│  patterns ──► Generates hypotheses ──► Recommends prioritized        │
-│  actions ──► Responds in plain language                              │
-│                                                                      │
-│  • AI invoked only when a human asks a question                      │
-│  • Operates on summaries, not raw streams                            │
-│  • Focused on: synthesis, correlation, causation, recommendations    │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    DATA PLANE (No AI)                           │
+│              Cost: ~$0 regardless of sensor count               │
+├─────────────────────────────────────────────────────────────────┤
+│  Sensors → Filter Noise → Generate Summaries → Store Results   │
+│                                                                 │
+│  • 70%+ of readings filtered as statistically insignificant     │
+│  • Anomalies summarized in plain English (by code, not AI)      │
+│  • Alerts generated by deterministic rules                      │
+│  • Processing: fast, cheap, auditable                           │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ (summaries only)
+┌─────────────────────────────────────────────────────────────────┐
+│                  INTELLIGENCE LAYER (AI)                        │
+│              Cost: scales with queries, not data                │
+├─────────────────────────────────────────────────────────────────┤
+│  Operator: "What happened with our sensors this afternoon?"     │
+│                              │                                  │
+│                              ▼                                  │
+│  AI reads pre-computed summaries → Synthesizes patterns         │
+│  → Generates hypotheses → Recommends actions                    │
+│                                                                 │
+│  • AI invoked only when humans ask questions                    │
+│  • Operates on summaries, not raw streams                       │
+│  • ~10-50 queries/day, not millions                             │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### The Key Innovation: Pre-Computed Intelligence at the Edge
+**The result:**
 
-Instead of asking an LLM to interpret raw sensor values, the pipeline pre-computes concise natural language summaries as events occur. The AI then reasons over language it was designed to understand — not numbers it must first decode.
+| Approach | Annual AI Cost (100 sensors) |
+|----------|------------------------------|
+| Every message → AI | $3.1M |
+| **Query layer only** | **~$3,650** |
 
-**Before — raw data routed to AI:**
+That's not a 10% improvement. That's a **99.9% reduction**.
+
+---
+
+## The Key Innovation: Pre-Computed Intelligence
+
+Instead of asking an AI to interpret raw sensor values in real-time, the pipeline pre-computes concise natural language summaries as events occur:
+
+**Before — raw data to AI:**
 ```
 [43.2, 43.5, 65.8, 43.4, 43.1, 64.9, 43.3, 66.2...]
 ```
-*The AI must: parse, baseline, calculate deviation, assess significance, and then reason.*
-*Most of that work could be done by deterministic code for a fraction of a cent.*
+*AI must: parse, baseline, calculate deviation, assess significance, then reason.*
 
-**After — pre-computed summaries routed to AI:**
+**After — pre-computed summaries to AI:**
 ```
-"Sensor-001: 38% spike to 65.8°C at 15:24:12. Zone: CRITICAL. Duration: 58s."
-"Sensor-002: 36% spike to 64.9°C at 15:24:14. Zone: CRITICAL. Duration: 61s."
-"Sensor-003: 41% spike to 66.2°C at 15:24:11. Zone: CRITICAL. Duration: 57s."
+"Sensor-001: 38% spike to 65.8°C at 15:24. Zone: CRITICAL."
+"Sensor-002: 36% spike to 64.9°C at 15:24. Zone: CRITICAL."
+"Sensor-003: 41% spike to 66.2°C at 15:24. Zone: CRITICAL."
 ```
-*The AI immediately reasons: "Near-simultaneous onset across three sensors — almost certainly a shared environmental cause, not individual failures."*
+*AI immediately reasons: "Near-simultaneous onset — shared environmental cause, not individual failures."*
 
-The AI is no longer doing arithmetic. It's doing what AI does best: **recognizing causal patterns across pre-digested information and generating prioritized, actionable recommendations.**
+The summaries (we call them "sketches") are generated by deterministic code at ingestion time. The AI reads them at query time. That's the economics that work.
 
 ---
 
-## The Business Impact
+## What Operators Actually Get
 
-### 1. Cost Reduction: 99%+
-
-| Approach | Daily AI Cost | Annual Cost |
-|----------|---------------|-------------|
-| Every sensor message → AI | $8,640 | $3,150,000 |
-| **Deterministic Pipeline + Query Layer** | **~$10** | **~$3,650** |
-
-The driver is simple: AI is invoked only when operators ask questions — typically **10–50 times per day** across a facility, rather than millions of times.
-
-The $3,650 annual estimate accounts for richer, multi-sensor queries that consume more tokens per call than a raw sensor message. The economics still represent a **~2,500x improvement.**
-
-### 2. Quality Improvement: From Alert Floods to Operational Intelligence
-
-**Traditional alerting — what operators actually receive:**
+**Traditional alerting:**
 ```
 ALERT: Sensor-001 exceeded 65°C threshold
-ALERT: Sensor-002 exceeded 65°C threshold
+ALERT: Sensor-002 exceeded 65°C threshold  
 ALERT: Sensor-003 exceeded 65°C threshold
 [...1,758 additional alerts today...]
 ```
-*Result: Alert fatigue. Operators learn to ignore the noise — including the signals that matter.*
+*Result: Alert fatigue. Operators learn to ignore everything.*
 
-**AI-powered insight — what operators receive instead:**
+**AI-powered intelligence (this architecture):**
 ```
-"Correlated temperature spike detected across Sensors 001, 002, and 003 at 3:24 PM.
-Peak-to-normal recovery in under 60 seconds across all three.
+User: "What's happening with m1, m2, and m3?"
 
-Pattern analysis: The near-simultaneous onset and recovery across geographically 
-adjacent sensors strongly suggests a shared environmental cause — not independent 
-equipment failures. This pattern is inconsistent with sensor malfunction.
+Response:
+- m1: Normal and stable — inlet ~38°C, motor ~52°C, outlet ~47°C
+- m2: Multiple critical events — motor peaked ~75°C; warrants immediate review
+- m3: Motor spiked to ~77°C earlier, now in WARNING zone
 
-Recommended actions (prioritized by urgency):
-  1. HIGH: Review HVAC system logs for the 3:20–3:30 PM window
-  2. MEDIUM: Cross-reference power grid event records for the same interval
-  3. LOW: Evaluate alert threshold sensitivity if transient events recur frequently"
+[If user wants more]: "Analyze m2 critical events in detail"
+
+Response: Executive summary, timeline analysis, cross-machine correlation,
+ranked root causes, prioritized recommendations...
 ```
-*Result: Operators understand causation, not just correlation. They act with confidence.*
 
-### 3. Scalability: AI Cost Decoupled from Data Volume
-
-In the traditional pattern, sensor count and AI cost are directly proportional. Scaling your IoT deployment scales your AI bill.
-
-In this pattern, **AI cost scales with query volume — which scales with the number of users, not sensors.** A facility with 10,000 sensors and 20 operators asking questions is not meaningfully more expensive than a facility with 100 sensors.
-
-| Sensors | Traditional AI Cost/Year | This Pattern |
-|---------|--------------------------|--------------|
-| 100 | $3.1M | $3,650 |
-| 1,000 | $31M | $3,650 |
-| 10,000 | $310M | ~$5,000 |
-
-This is the difference between a cost structure that **prevents IoT scale-out** and one that **enables it.**
+The AI responds at the depth the operator needs. Quick status checks are fast and cheap. Deep analysis is thorough when requested.
 
 ---
 
-## Strategic Implications for Leadership
+## The Business Case
 
-### AI Becomes Economically Viable for Industrial IoT
+### Cost Structure Comparison
 
-Many organizations have quietly shelved AI-powered IoT analytics initiatives after pilot economics didn't survive contact with production data volumes. This architecture pattern makes AI viable at any scale — not just in a controlled proof of concept.
+| Metric | Traditional | This Pattern |
+|--------|-------------|--------------|
+| Annual AI cost (100 sensors) | $3.1M | $3,650 |
+| Annual AI cost (10,000 sensors) | $310M | ~$5,000 |
+| Cost scaling | With sensor count | With query count |
+| Marginal sensor cost | ~$31,000/year | ~$0 |
 
-### Human-in-the-Loop Is the Design, Not a Compromise
+### Why It Scales
 
-The AI does not take autonomous action. It waits for human questions and delivers decision support. This is not a limitation — it is an intentional design choice that aligns with regulatory requirements, operational risk tolerance, and the practical reality that operators need to remain in command of critical infrastructure.
+In the traditional pattern, AI cost is proportional to sensor count. Adding sensors adds cost.
 
-This pattern is **audit-friendly and governance-ready** by default.
+In this pattern, **AI cost scales with query volume** — which scales with operators, not sensors. A facility with 10,000 sensors and 20 operators asking questions costs roughly the same as 100 sensors.
 
-### True Vendor and Model Independence
-
-Because the AI reasoning layer is fully decoupled from the data processing layer, your organization retains strategic flexibility:
-- Switch LLM providers without re-architecting the data pipeline
-- Use specialized models for different query types (anomaly analysis vs. maintenance scheduling vs. executive reporting)
-- Negotiate better rates as the LLM market continues to mature
-
-### Data Sovereignty Without Trade-offs
-
-Raw sensor data never leaves your infrastructure. Only operator queries and pre-computed summaries — with sensitive values already abstracted — flow to external AI services. This materially reduces your attack surface and simplifies compliance for industries governed by strict data residency requirements.
+This is the difference between an architecture that **prevents scale-out** and one that **enables it**.
 
 ---
 
-## Implementation Roadmap
+## Strategic Implications
 
-### Technology Components
+### AI Becomes Economically Viable
 
-| Component | Role | Representative Options |
-|-----------|------|------------------------|
-| Event Broker | High-throughput sensor data ingestion and routing | Solace PubSub+, Kafka, AWS IoT Core |
-| Processing Pipeline | Noise filtering, anomaly detection, summarization | Java/Python microservices, Apache Flink |
-| Time-Series Store | Summary and alert persistence | TimescaleDB, InfluxDB, SQLite (at edge) |
-| AI Agent Framework | Query routing, context assembly, LLM orchestration | Solace Agent Mesh, LangChain, LlamaIndex |
-| LLM Provider | Reasoning and natural language generation | Azure OpenAI, Anthropic Claude, AWS Bedrock |
+Many organizations have quietly shelved AI-powered IoT initiatives after pilot economics didn't survive production volumes. This architecture makes AI viable at any scale.
 
-### What Changes from Your Current Architecture
+### Human-in-the-Loop by Design
+
+The AI doesn't take autonomous action. It waits for questions and delivers decision support. This isn't a limitation — it's intentional alignment with:
+- Regulatory requirements
+- Operational risk tolerance
+- The reality that operators need to remain in command
+
+This pattern is **audit-ready by default**.
+
+### True Vendor Independence
+
+Because the AI layer is decoupled from data processing:
+- Switch LLM providers without re-architecting pipelines
+- Use specialized models for different query types
+- Negotiate better rates as the market matures
+
+### Data Sovereignty
+
+Raw sensor data never leaves your infrastructure. Only queries and pre-computed summaries (with sensitive values already abstracted) flow to external AI services. Simpler compliance, smaller attack surface.
+
+---
+
+## Implementation Reality
+
+### What Changes
 
 | Today | With This Pattern |
 |-------|-------------------|
-| AI processes every sensor event | AI answers human questions |
-| Real-time LLM inference at scale | Batch summarization + on-demand reasoning |
-| AI cost scales with data volume | AI cost scales with user query volume |
-| Alert floods that overwhelm operators | Prioritized, contextualized insights |
-| Vendor lock-in at the data layer | Modular, swappable AI providers |
+| AI processes every event | AI answers human questions |
+| Cost scales with data | Cost scales with users |
+| Alert floods | Prioritized insights |
+| Vendor lock-in | Modular, swappable AI |
 
-### Realistic Timeline
-
-For organizations with existing IoT infrastructure in place:
+### Timeline
 
 | Phase | Duration | Deliverable |
 |-------|----------|-------------|
-| Proof of concept | 2–4 weeks | Working demo with sample sensor data |
-| Production pilot | 2–3 months | Single facility, limited sensor set |
-| Full deployment | 3–6 months | Depends on sensor count and integration scope |
+| Proof of concept | 2-4 weeks | Working demo |
+| Production pilot | 2-3 months | Single facility |
+| Full deployment | 3-6 months | Depends on scope |
+
+### Technology Stack
+
+| Component | Options |
+|-----------|---------|
+| Event Broker | Solace PubSub+, Kafka, AWS IoT Core |
+| Processing Pipeline | Python/Java microservices |
+| Time-Series Store | TimescaleDB, InfluxDB, SQLite |
+| AI Framework | Solace Agent Mesh, LangChain |
+| LLM Provider | Azure OpenAI, Anthropic, AWS Bedrock |
 
 ---
 
-## The Three Questions Worth Asking This Week
+## Data Center HVAC EDA Blueprint
 
-If you're currently operating or evaluating AI for industrial IoT, these questions will quickly reveal whether you're on a sustainable path:
+Data center growth driven by AI workloads raises the cost of cooling mistakes. The same architecture principle applies here: process high-frequency HVAC telemetry in the event layer, then reserve AI for operator-driven analysis.
 
-1. **What percentage of our sensor data is genuinely interesting?** If it's less than 30%, you're likely paying AI rates to confirm normalcy.
-2. **Is our AI cost scaling with data volume or with user query volume?** The former is a structural problem; the latter is healthy.
-3. **What would our team do with 99% of the current AI budget reallocated?** More sensors? Higher-quality models for complex analysis? New AI initiatives that are currently cost-prohibitive?
+### Why Data Centers Need This Pattern
 
-The architecture exists. The economics are proven. The only remaining question is how long your organization will continue paying for the old pattern.
+Data centers run tight thermal and environmental envelopes. If every BACnet, Modbus, or MQTT reading is pushed straight to an LLM, cost rises with sensor volume while signal quality falls.
+
+In practice, most samples are normal fluctuations. The expensive path should only activate when deterministic processing detects a material condition change.
+
+### Broker-Level Filtering and Routing (Before AI)
+
+For HVAC metrics like temperature, humidity, and pressure:
+
+- Apply deadband filtering (ignore tiny oscillations)
+- Detect rate-of-change and sustained drift
+- Emit events on state transitions (NORMAL -> WARNING -> CRITICAL)
+- Correlate multi-signal changes in a room/row/rack window
+- Suppress duplicate incidents with dedupe/cooldown keys
+
+This event-gating layer is where BACnet and Modbus data is normalized into a canonical MQTT topic model, so downstream processing is protocol-agnostic.
+
+### Recommended Event Taxonomy
+
+Use explicit event types to enable clean EDA fan-out:
+
+- `TelemetryAccepted` -> historian/time-series store
+- `CoolingDriftDetected` -> operations dashboard and alert stream
+- `HumidityRiskDetected` -> compliance and facilities notifications
+- `PressureContainmentRiskDetected` -> high-priority incident channel
+- `MultiSignalHotspotDetected` -> incident sketch generation for AI context
+- `IncidentOpened/IncidentUpdated/IncidentClosed` -> CMMS and audit trail
+- `OperatorQueryRequested` -> AI orchestration tier
+
+### AI as a Query Layer, Not a Stream Processor
+
+AI should consume pre-computed sketches and incident timelines, not raw telemetry firehoses. This preserves the economic advantage:
+
+- deterministic data plane handles volume
+- AI layer handles reasoning depth
+- cost scales with operator queries, not sensor count
+
+For large data center estates, this is the difference between a pilot that looks impressive and a production architecture that remains financially viable.
+
+---
+
+## Three Questions to Ask This Week
+
+If you're running or evaluating AI for industrial IoT:
+
+1. **What percentage of your sensor data is genuinely interesting?**
+   If less than 30%, you're paying AI rates to confirm normalcy.
+
+2. **Does your AI cost scale with data volume or query volume?**
+   The former is a structural problem. The latter is healthy.
+
+3. **What would your team do with 99% of the current AI budget?**
+   More sensors? Better models? New initiatives that are currently cost-prohibitive?
 
 ---
 
 ## The Bottom Line
 
-The path forward is straightforward:
+1. **Process data deterministically** — fast, cheap, infinitely scalable
+2. **Pre-compute natural language summaries** — the foundation for quality AI reasoning
+3. **Invoke AI only when humans need insight** — expensive per call, but rare
 
-1. **Process data deterministically** — fast, cheap, auditable, and infinitely scalable
-2. **Pre-compute natural language summaries at the edge** — inexpensive, and the foundation for high-quality AI reasoning
-3. **Invoke AI only when humans need insight** — expensive per call, but rare enough to be economically negligible
+**Result:** 99%+ cost reduction, better insights, linear scaling, operators empowered instead of overwhelmed.
 
-**The result:** 99%+ reduction in AI infrastructure cost, a step-change improvement in insight quality, linear scaling economics, and operators who are empowered — not overwhelmed.
+The architecture exists. The economics are proven. The question is how long you'll continue paying for the old pattern.
 
 ---
 
 ## Next Steps
 
-Explore the working reference implementation:
-
-- **Technical deep-dive:** [`BLOG_POST.md`](BLOG_POST.md) — Architecture, code patterns, and engineering rationale
-- **Deployment guide:** [`DEPLOYMENT.md`](DEPLOYMENT.md) — Infrastructure setup and configuration
-- **ELK integration:** [`ELK_INTEGRATION_SUMMARY.md`](ELK_INTEGRATION_SUMMARY.md) — Observability and log analytics integration
-- **Full repository:** [`README.md`](README.md)
+- **Technical deep-dive:** [BLOG_POST.md](BLOG_POST.md) — Architecture, code, microservices implementation
+- **Data center topic contract:** [DC_TOPIC_VERSIONING_README.md](DC_TOPIC_VERSIONING_README.md) — Versioned MQTT taxonomy, event types, and schema policy
+- **Deployment guide:** [DEPLOYMENT.md](DEPLOYMENT.md) — Infrastructure setup
+- **Full repository:** [README.md](README.md)
 
 ---
 
-*This pattern was developed using **Solace PubSub+** for event streaming and **Solace Agent Mesh** for AI orchestration. The architecture principles and economics apply regardless of your underlying technology stack.*
+*This pattern was developed using **Solace PubSub+** for event streaming and **Solace Agent Mesh** for AI orchestration. The principles apply regardless of your technology stack.*
 
 ---
 
 **About the Author**
 
 *Matthew Stobo — Senior Solutions Engineer, Solace*
-*Focused on event-driven architecture and AI integration for industrial and enterprise environments.*
+*Focused on event-driven architecture and AI integration for industrial environments.*
 
 **Connect:** [LinkedIn] | [GitHub Repository](https://github.com/mstobo/mqtt5SRDemo/tree/Agent-Mesh--A2A)

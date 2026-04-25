@@ -81,17 +81,17 @@ def _get_mqtt_client() -> Optional[mqtt.Client]:
         def on_connect(client, userdata, flags, reason_code, properties=None):
             global _mqtt_connected
             if reason_code == 0:
-                print(f"[AutoAnalysis] ✅ MQTT connected to {BROKER_HOST}")
+                print(f"[AutoAnalysis] MQTT connected to {BROKER_HOST}")
                 _mqtt_connected = True
                 # Subscribe to response topic for logging
                 client.subscribe(ANALYSIS_RESPONSE_TOPIC)
             else:
-                print(f"[AutoAnalysis] ❌ MQTT connection failed: {reason_code}")
+                print(f"[AutoAnalysis] MQTT connection failed: {reason_code}")
                 _mqtt_connected = False
         
         def on_message(client, userdata, msg):
             # Log responses (they also go to Slack via gateway)
-            print(f"[AutoAnalysis] 📥 Response received on {msg.topic}")
+            print(f"[AutoAnalysis] Response received on {msg.topic}")
             try:
                 response = json.loads(msg.payload.decode())
                 preview = str(response)[:200]
@@ -129,7 +129,7 @@ def _get_mqtt_client() -> Optional[mqtt.Client]:
         return _mqtt_client
         
     except Exception as e:
-        print(f"[AutoAnalysis] ❌ Failed to create MQTT client: {e}")
+        print(f"[AutoAnalysis] Failed to create MQTT client: {e}")
         return None
 
 
@@ -138,7 +138,7 @@ def _should_analyze() -> bool:
     now = time.time()
     if now - _last_analysis_time < RATE_LIMIT_SECONDS:
         remaining = RATE_LIMIT_SECONDS - (now - _last_analysis_time)
-        print(f"[AutoAnalysis] ⏳ Rate limited. Next analysis allowed in {remaining:.0f}s")
+        print(f"[AutoAnalysis] Rate limited. Next analysis allowed in {remaining:.0f}s")
         return False
     return True
 
@@ -188,7 +188,7 @@ def _execute_analysis():
         _pending_analysis = False
     
     total_events = len(criticals) + len(sensors)
-    print(f"\n[AutoAnalysis] 🤖 Triggering LLM analysis for {total_events} collected events...")
+    print(f"\n[AutoAnalysis] Triggering LLM analysis for {total_events} collected events...")
     
     # Build the analysis request event
     event = _build_analysis_event(criticals, sensors)
@@ -196,7 +196,7 @@ def _execute_analysis():
     # Get MQTT client and publish
     client = _get_mqtt_client()
     if client is None:
-        print("[AutoAnalysis] ❌ No MQTT client available")
+        print("[AutoAnalysis] No MQTT client available")
         return
     
     try:
@@ -207,15 +207,15 @@ def _execute_analysis():
         
         if result.rc == mqtt.MQTT_ERR_SUCCESS:
             _last_analysis_time = time.time()
-            print(f"[AutoAnalysis] ✅ Published analysis request to {ANALYSIS_REQUEST_TOPIC}")
+            print(f"[AutoAnalysis] Published analysis request to {ANALYSIS_REQUEST_TOPIC}")
             print(f"[AutoAnalysis] Payload: {json.dumps(event, indent=2)}")
             print(f"[AutoAnalysis] SAM Event Mesh Gateway will route to FleetQueryAgent")
             print(f"[AutoAnalysis] Response will be delivered to Slack (if configured)")
         else:
-            print(f"[AutoAnalysis] ❌ Publish failed with rc={result.rc}")
+            print(f"[AutoAnalysis] Publish failed with rc={result.rc}")
             
     except Exception as e:
-        print(f"[AutoAnalysis] ❌ Error publishing analysis request: {e}")
+        print(f"[AutoAnalysis] Error publishing analysis request: {e}")
 
 
 def on_fleet_critical(fleet_status: str, critical_count: int, active_sensors: int, 
@@ -255,7 +255,7 @@ def on_fleet_critical(fleet_status: str, critical_count: int, active_sensors: in
         
         # If already pending, just add to batch
         if _pending_analysis:
-            print(f"[AutoAnalysis] 📥 Added to pending batch ({len(_collected_criticals)} fleet events, {len(_collected_sensors)} sensor events)")
+            print(f"[AutoAnalysis] Added to pending batch ({len(_collected_criticals)} fleet events, {len(_collected_sensors)} sensor events)")
             return
         
         # Check rate limit before starting debounce
@@ -266,7 +266,7 @@ def on_fleet_critical(fleet_status: str, critical_count: int, active_sensors: in
         
         # Start debounce timer
         _pending_analysis = True
-        print(f"[AutoAnalysis] ⏱️  FLEET_CRITICAL detected. Starting {DEBOUNCE_SECONDS}s debounce...")
+        print(f"[AutoAnalysis] FLEET_CRITICAL detected. Starting {DEBOUNCE_SECONDS}s debounce...")
         print(f"[AutoAnalysis] Will publish to: {ANALYSIS_REQUEST_TOPIC}")
         
         _pending_timer = threading.Timer(DEBOUNCE_SECONDS, _execute_analysis)
@@ -291,7 +291,7 @@ def on_sensor_critical(sensor_id: str, temperature: float, zone: str):
         })
         
         if _pending_analysis:
-            print(f"[AutoAnalysis] 📥 Collected sensor: {sensor_id} @ {temperature:.1f}°C")
+            print(f"[AutoAnalysis] Collected sensor: {sensor_id} @ {temperature:.1f}°C")
 
 
 def get_status() -> dict:

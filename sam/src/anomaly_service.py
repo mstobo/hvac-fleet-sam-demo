@@ -82,6 +82,9 @@ def generate_alert(data):
     zone = data["zone"]
     delta_pct = data.get("delta_pct", 0)
     forwarded_reason = data.get("forwarded_reason", "unknown")
+    site = data.get("site", config.DEFAULT_SITE)
+    room = data.get("room", config.DEFAULT_ROOM)
+    incident_id = data.get("incidentId")
     
     # No alert for normal zone
     if zone == "NORMAL":
@@ -147,7 +150,13 @@ def generate_alert(data):
         )
     
     return {
+        "schema": config.SCHEMA_EVENT,
+        "schemaRevision": config.SCHEMA_REVISION,
+        "eventType": "CoolingDriftDetected" if alert_type in ["SPIKE", "ELEVATED_READING"] else "IncidentUpdated",
         "sensorId": sensor_id,
+        "site": site,
+        "room": room,
+        "incidentId": incident_id,
         "zone": zone,
         "severity": severity,
         "alert_type": alert_type,
@@ -230,23 +239,23 @@ def update_fleet_status():
         )
     
     status_icon = {
-        "NOMINAL": "🟢",
-        "WARNING": "🟡",
-        "ELEVATED": "🟠",
-        "CRITICAL": "🔴",
-        "FLEET_CRITICAL": "🔴🔴"
-    }.get(fleet_status, "⚪")
+        "NOMINAL": "NOMINAL",
+        "WARNING": "WARNING",
+        "ELEVATED": "ELEVATED",
+        "CRITICAL": "CRITICAL",
+        "FLEET_CRITICAL": "FLEET_CRITICAL"
+    }.get(fleet_status, "UNKNOWN")
     
-    print(f"[Fleet]    {status_icon} {fleet_status} | {active_sensors} sensors | {warning_count}W {critical_count}C")
+    print(f"[Fleet] {status_icon} | {active_sensors} sensors | {warning_count}W {critical_count}C")
 
 
 def on_connect(client, userdata, flags, reason_code, properties=None):
     if reason_code == 0:
-        print(f"[Anomaly] ✅ Connected to {config.BROKER_HOST}")
+        print(f"[Anomaly] Connected to {config.BROKER_HOST}")
         client.subscribe(config.TOPIC_SKETCHED)
-        print(f"[Anomaly] 📡 Subscribed to {config.TOPIC_SKETCHED}")
+        print(f"[Anomaly] Subscribed to {config.TOPIC_SKETCHED}")
     else:
-        print(f"[Anomaly] ❌ Connection failed (rc={reason_code})")
+        print(f"[Anomaly] Connection failed (rc={reason_code})")
 
 
 def on_message(client, userdata, msg):
@@ -274,26 +283,31 @@ def on_message(client, userdata, msg):
         
         # Check for anomalies
         if zone == "NORMAL":
-            print(f"[Anomaly]  💤 SKIP | {sensor_id} zone=NORMAL")
+            print(f"[Anomaly] SKIP | {sensor_id} zone=NORMAL")
         else:
             alert = generate_alert(data)
             if alert:
-                alert_icon = "🚨" if alert["severity"] in ["CRITICAL", "HIGH"] else "⚡"
-                print(f"[Anomaly]  {alert_icon} {alert['severity']} | {sensor_id} | {alert['alert_type']}")
+                print(f"[Anomaly] ALERT {alert['severity']} | {sensor_id} | {alert['alert_type']}")
                 client.publish(config.TOPIC_ALERTS, json.dumps(alert))
+                event_topic = config.build_event_topic(
+                    alert.get("site", config.DEFAULT_SITE),
+                    alert["severity"],
+                    alert["eventType"],
+                )
+                client.publish(event_topic, json.dumps(alert))
         
         # Update fleet status periodically
         update_fleet_status()
         
     except Exception as e:
-        print(f"[Anomaly] ❌ Error: {e}")
+        print(f"[Anomaly] Error: {e}")
         import traceback
         traceback.print_exc()
 
 
 def main():
     # Initialize the database
-    print("[Anomaly] 📦 Initializing SQLite database...")
+    print("[Anomaly] Initializing SQLite database...")
     sensor_db.init_database()
     
     config.print_service_banner(
