@@ -143,6 +143,35 @@ def insert_sketch(sensor_id: str, temperature: float, zone: str, sketch: str,
         )
 
 
+def insert_sketch_batch(rows: List[Dict[str, Any]]):
+    """Insert multiple sketch summaries in a single transaction."""
+    if not rows:
+        return
+
+    values = [
+        (
+            row["sensor_id"],
+            row["temperature"],
+            row["zone"],
+            row["sketch"],
+            row.get("trend"),
+            row.get("window_avg"),
+            row.get("window_min"),
+            row.get("window_max"),
+            row["timestamp"],
+        )
+        for row in rows
+    ]
+
+    with get_connection() as conn:
+        conn.executemany(
+            """INSERT INTO sketches
+               (sensor_id, temperature, zone, sketch, trend, window_avg, window_min, window_max, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            values,
+        )
+
+
 def insert_alert(sensor_id: str, temperature: float, zone: str, severity: str,
                  alert_type: str, description: str, timestamp: str):
     """Insert an alert/anomaly."""

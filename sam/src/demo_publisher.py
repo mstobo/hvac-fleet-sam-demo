@@ -48,12 +48,14 @@ from typing import Dict, List
 
 import paho.mqtt.client as mqtt
 
-# ── Broker config ────────────────────────────────────────────────────────────
-BROKER_HOST = os.getenv("SOLACE_HOST", "YOUR_BROKER.messaging.solace.cloud")
-BROKER_PORT = int(os.getenv("SOLACE_PORT", "8883"))
-USERNAME = os.getenv("SOLACE_USER", "YOUR_USERNAME")
-PASSWORD = os.getenv("SOLACE_PASS", "YOUR_PASSWORD")
-USE_TLS = os.getenv("SOLACE_TLS", "true").lower() in ("true", "1", "yes")
+import pipeline_config as _broker
+
+# ── Broker config (same resolution as deadband / chart writer / sketch) ───────
+BROKER_HOST = _broker.BROKER_HOST
+BROKER_PORT = _broker.BROKER_PORT
+USERNAME = _broker.USERNAME
+PASSWORD = _broker.PASSWORD
+USE_TLS = _broker.USE_TLS
 TOPIC_BASE = os.getenv("TOPIC_BASE", "dc/v1/raw/dc1/hall-a/row-a3/rack-12")
 SCHEMA_RAW = os.getenv("RAW_SCHEMA_NAME", "dc.raw.v1")
 SCHEMA_REVISION = os.getenv("RAW_SCHEMA_REVISION", "1.0.0")

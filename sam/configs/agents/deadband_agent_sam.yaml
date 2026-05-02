@@ -120,7 +120,7 @@ apps:
             critical_temp:  65.0
 
       session_service:
-        type: "sqlite"
+        type: "sql"
         database_url: "sqlite:///deadband_agent.db"
         default_behavior: "PERSISTENT"
       artifact_service: *default_artifact_service
