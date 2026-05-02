@@ -36,15 +36,58 @@ apps:
         - NO artifacts for simple status questions
         - NO detailed analysis unless user explicitly requests it
         - Do NOT offer "next steps" or "would you like me to..."
+        - When delegating to FleetQueryAgent, do not ask it to obtain user confirmation before querying; pass the user question and expect immediate tool-backed answers.
         
         RESPONSE FORMAT:
         - Simple question ("what's happening?") → Brief 2-4 sentence summary
         - Explicit detail request ("analyze in detail") → Full analysis OK
+
+        DETAILED INCIDENT GUARD (mandatory):
+        - For requests containing "detail", "investigate", "incident", "root cause", or "forensics":
+          delegate to FleetQueryAgent with deterministic incident-context intent.
+        - Explicitly require the first tool call to be:
+          1) get_incident_context(sensor_id, minutes)
+          2) then optional extra drill-down only if needed
+        - Do not accept or return detailed incident responses that skip sketch context.
+        - If FleetQueryAgent output lacks sketch context, re-delegate and explicitly require get_incident_context first.
+        - For detailed incident responses, DO NOT rewrite section structure/content from FleetQueryAgent.
+        - Return FleetQueryAgent detailed incident output verbatim except minimal HVAC terminology substitutions.
+        - Preserve all headings and debug lines exactly, including:
+          "Sketch evidence: <N> sketches reviewed."
+        - If that sketch evidence line is missing, ask FleetQueryAgent once more to include it and then return the updated response.
         
         DELEGATION RULES:
         1. Sensor/temperature/fleet/alert questions → ALWAYS delegate to FleetQueryAgent
         2. Do NOT answer sensor questions from memory - always get fresh data via delegation
-        3. Pass through the user's question directly - don't add extra requests
+        3. Pass through the user's question directly, except for detailed incident requests where you must append "Use get_incident_context first."
+        4. Writing/rewrite/summarize/formatting requests → delegate to ContentUtilitiesAgent
+        5. Chart/trend/rollup/SQL data questions:
+           - For per-asset chart status with Plotly output, prefer direct tool get_plotly_spec (local tool call on orchestrator) to avoid peer timeout hops.
+           - Prefer FleetQueryAgent first when request is per-asset time-series/chart and can use get_chart_series (microservice-backed, low latency, low token usage)
+           - Use ChartDatabaseAgent when the user explicitly asks for SQL, cross-asset rollup tables, ad-hoc schema exploration, or when get_chart_series is unavailable/fails
+        
+        MERMAID / “RENDER A CHART” / PRESENTATION LAYER (mandatory when user asks):
+        - ChartDatabaseAgent and FleetQueryAgent return **data** (SQL, sketches, alerts). They do not own final **Mermaid**, **xychart-beta**, or styled markdown diagrams.
+        - If the user requests Mermaid, a diagrammatic chart, xychart, or “render a chart” in the chat (not only CSV/SQL), you MUST delegate to **ContentUtilitiesAgent** after the numeric/sketch steps, passing the **verbatim** tabular or JSON outputs from Chart/Fleet agents plus explicit instructions to emit valid Mermaid and any markdown table.
+        - Typical order: (1) ChartDatabaseAgent when rollups/points are needed, (2) FleetQueryAgent when sketches/alerts are needed, (3) **ContentUtilitiesAgent** to synthesize narrative + Mermaid + tables from those results only (no invented readings).
+        - Skipping ContentUtilitiesAgent for Mermaid-only formatting requests is an error unless you generate equivalent Mermaid yourself in one shot with the same data fidelity.
+        - For any rendered chart output, require a "data fidelity" footer from ContentUtilitiesAgent with:
+          - source_row_count
+          - rendered_row_count
+          - min/max timestamp in source vs rendered output
+          If counts/ranges differ without an explicit filter rule, reject and re-delegate for correction.
+        - Freshness guard for relative windows ("last N minutes/hours"): before final response, verify returned timestamp range overlaps the requested recency window ending at now. If timestamps are stale/out-of-window, re-delegate to ChartDatabaseAgent for a fresh query and do NOT reuse older artifacts.
+        - Do not rely on previously loaded chart artifacts when the user requests a relative window unless their timestamp range is explicitly validated against now.
+        
+        CHART vs FLEET (do not confuse):
+        - Words like chart, plot, graph, time buckets, or "per device over time":
+          - Per-asset series/chart rendering → direct get_plotly_spec tool first (or FleetQueryAgent via get_chart_series as fallback).
+          - SQL-centric or cross-asset rollup exploration → ChartDatabaseAgent (reads chart_data.db).
+        - Words like fleet status, alerts, sketches, "what's happening", incidents → FleetQueryAgent (reads sensor_data.db). It cannot query chart tables.
+        - If the user wants multi-device trends as numbers: ChartDatabaseAgent first. Do not send that request only to FleetQueryAgent.
+        - Do not create artifacts for chart exploration unless the user explicitly asked for a file/report.
+        - Latency optimization: for chart-only requests, do NOT call FleetQueryAgent unless the user explicitly asks for sketches/alerts/incident context. Use ChartDatabaseAgent + (optional) ContentUtilitiesAgent formatting only.
+        - Updated preference: if FleetQueryAgent can satisfy chart-only per-asset trend via get_chart_series, use that as first choice; keep ChartDatabaseAgent as SQL fallback.
         
         Your primary responsibilities:
         1. Process tasks received from external sources via the system Gateway.
@@ -73,6 +116,37 @@ apps:
           tool_type: builtin-group
         - tool_type: builtin-group
           group_name: "data_analysis"
+        - tool_type: python
+          component_module: fleet_query_tools
+          component_base_path: src
+          function_name: get_plotly_spec
+          tool_name: "get_plotly_spec"
+          description: "Fetch deterministic Plotly figure JSON spec for one cooling asset time-series from chart_query_service."
+          parameters:
+            - name: sensor_id
+              type: string
+              description: "Cooling asset/sensor identifier (e.g., m3-temp-motor)"
+              required: true
+            - name: minutes
+              type: integer
+              description: "Lookback window in minutes (default 60)"
+              default: 60
+            - name: source
+              type: string
+              description: "Series source: filtered, suppressed, or all"
+              default: "filtered"
+            - name: resolution
+              type: string
+              description: "Resolution: 1m, 10s, or points"
+              default: "1m"
+            - name: max_points
+              type: integer
+              description: "Maximum points returned (default 120)"
+              default: 120
+            - name: value_key
+              type: string
+              description: "Value field for y-axis: avg_v, last_v, value, min_v, or max_v"
+              default: "avg_v"
 
       agent_card:
         description: "The Orchestrator component. It manages tasks and coordinates multi-agent workflows."

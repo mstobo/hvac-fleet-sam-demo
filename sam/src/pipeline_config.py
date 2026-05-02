@@ -16,14 +16,46 @@ import os
 import ssl
 import time
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import paho.mqtt.client as mqtt
 
+
+def _resolve_broker_from_env():
+    """Align with SAM `.env` (SOLACE_BROKER_URL) and legacy SOLACE_HOST/SOLACE_USER."""
+    host = (os.getenv("SOLACE_HOST") or "").strip()
+    port_s = (os.getenv("SOLACE_PORT") or "").strip()
+    user = (os.getenv("SOLACE_USER") or "").strip()
+    password = (os.getenv("SOLACE_PASS") or "").strip()
+    url = (os.getenv("SOLACE_BROKER_URL") or "").strip()
+
+    if not host and url:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").strip()
+        if not port_s and parsed.port:
+            # wss://host:443 is common for Web UI; native MQTT TLS on Solace Cloud is usually 8883
+            if parsed.scheme in ("wss", "https") and parsed.port == 443:
+                port_s = "8883"
+            else:
+                port_s = str(parsed.port)
+        if not port_s:
+            port_s = "8883" if parsed.scheme in ("wss", "https", "mqtts", "tls") else "1883"
+
+    if not user:
+        user = (os.getenv("SOLACE_BROKER_USERNAME") or "").strip()
+    if not password:
+        password = (os.getenv("SOLACE_BROKER_PASSWORD") or "").strip()
+
+    return (
+        host or "YOUR_BROKER.messaging.solace.cloud",
+        int(port_s or "8883"),
+        user or "YOUR_USERNAME",
+        password or "YOUR_PASSWORD",
+    )
+
+
 # ── Broker Configuration ─────────────────────────────────────────────────────
-BROKER_HOST = os.getenv("SOLACE_HOST", "YOUR_BROKER.messaging.solace.cloud")
-BROKER_PORT = int(os.getenv("SOLACE_PORT", "8883"))
-USERNAME = os.getenv("SOLACE_USER", "YOUR_USERNAME")
-PASSWORD = os.getenv("SOLACE_PASS", "YOUR_PASSWORD")
+BROKER_HOST, BROKER_PORT, USERNAME, PASSWORD = _resolve_broker_from_env()
 USE_TLS = os.getenv("SOLACE_TLS", "true").lower() in ("true", "1", "yes")
 
 # ── Topic Namespace and Schemas ──────────────────────────────────────────────

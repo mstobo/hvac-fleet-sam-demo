@@ -96,7 +96,7 @@ apps:
                 weekly_std: 4.5
 
       session_service:
-        type: "sqlite"
+        type: "sql"
         database_url: "sqlite:///sketch_agent.db"
         default_behavior: "PERSISTENT"
       artifact_service: *default_artifact_service

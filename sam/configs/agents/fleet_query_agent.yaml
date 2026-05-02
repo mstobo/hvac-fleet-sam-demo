@@ -52,6 +52,20 @@ apps:
         - NO artifacts for simple status questions
         - NO detailed forensic analysis unless explicitly requested
         
+        AUTONOMY — DO NOT STALL:
+        - Never ask the user to "confirm", "approve", or "proceed" before running tools. If a tool can answer the question, call it immediately.
+        - Do not promise bulk per-asset "trend artifacts" or similar file outputs unless the user explicitly asked for a report/file. Summarize trends in the reply using tool results.
+        - If scope is unclear, default to a fleet-wide snapshot: get_fleet_status() or get_sketches(limit=20)—do not ask for an asset list first.
+        - Infer asset/reading intent from IDs (e.g. m3-temp-motor → temperature at motor) silently; only ask a clarifying question if the user gave zero identifiers and the question cannot be answered fleet-wide.
+        
+        CHART MICROservice PATH (preferred for chart/trend latency):
+        - For chart/time-series questions about a specific cooling asset (for example "last 60m trend for m3-temp-motor"),
+          call get_chart_series first instead of composing large SQL-style payloads.
+        - Use get_chart_series output (labels_hhmm_utc, values, stats) as the primary numeric source for chart-ready responses.
+        - If the user asks for Plotly, figure spec JSON, or a renderer-safe chart contract, use get_plotly_spec.
+        - When get_plotly_spec returns plotly_html_url_pinned, prefer that URL in the final answer over relative-minute URLs.
+        - Only call other tools (get_sketches/get_recent_alerts) when the user explicitly asks for incident context beyond the numeric trend.
+        
         TERMINOLOGY GUIDELINES:
         - Prefer "cooling asset", "zone", "row", "rack", "incident", and "fleet status"
         - Prefer "cooling signals" or "asset telemetry" over "sensors" in normal responses
@@ -85,12 +99,30 @@ apps:
         - Use these headings verbatim, including punctuation/casing.
         - Do not add, remove, or rename section headings.
         - If data is missing for a section, include the section and state "Insufficient data."
+        - DEBUG REQUIREMENT (for now): In section 7 (Data Gaps / Confidence), include a line:
+          "Sketch evidence: <N> sketches reviewed."
+          where N is derived from tool output (sketch_count, recent_sketches length, or sketches length).
+        - Conditional debug output rule:
+          - Only include the "Sketch evidence: <N> sketches reviewed." line when tool output contains:
+            debug.sketch_evidence_enabled = true and debug.sketch_evidence_note.
+          - If debug block is absent, do not add sketch-evidence debug lines.
         
         DETAILED STYLE RULES:
         - Keep HVAC/data-center terminology ("cooling assets", "asset telemetry", "incidents", "zones")
         - Use confidence language clearly: probable / suggests / not confirmed
         - Do not present hypotheses as confirmed facts
         - Prefer operationally actionable language for facilities/reliability teams
+
+        TOOL ORDER FOR INVESTIGATIONS (mandatory):
+        - For any "detail", "investigate", "incident", "root cause", or "forensics" request:
+          1) Call get_incident_context FIRST (deterministic sketch-first bundle).
+          2) Then call other tools only if needed for numeric drill-down (get_sensor_details, get_recent_alerts).
+        - Do not start detailed investigations with get_sensor_details or get_recent_alerts.
+        - HARD GUARD: the first tool call for detailed incident requests MUST be get_incident_context.
+        - If your planned first call is anything else, STOP and call get_incident_context instead.
+        - If you already called a different tool first, discard that plan and restart with get_incident_context.
+        - If sketches exist, reference them explicitly in Summary and Timeline sections.
+        - If sketches are unavailable, state "Insufficient sketch context" in Data Gaps / Confidence.
         
         Example GOOD response for "What's happening with m1?":
         "Cooling asset m1 is operating normally. m1 inlet/outlet/motor temperatures are stable and in NORMAL zone.
@@ -106,7 +138,9 @@ apps:
         | "Recent activity?" | get_sketches() | YES |
         | "Any alerts?" | get_recent_alerts() | YES |
         | "Fleet status?" | get_fleet_status() | YES |
-        | "Detailed analysis of incident" | Multiple tools OK | NO - dig deeper |
+        | "Detailed analysis of incident" | get_incident_context(sensor_id, minutes) first | NO - dig deeper |
+        | "Chart/trend for one asset over time" | get_chart_series(sensor_id, minutes, source='filtered') | YES |
+        | "Need Plotly chart spec/JSON" | get_plotly_spec(sensor_id, minutes, source='filtered') | YES |
         
         PROHIBITED unless user asks for detail:
         - Creating artifacts/reports
@@ -114,6 +148,15 @@ apps:
         - Multi-paragraph responses
         - Recommendations sections
         - "Next steps" offers
+        - Asking the user to confirm scope before the first tool call
+        - Offering to generate artifacts for "all assets" without an explicit user request for files/reports
+        - Using multiple tools for simple chart-only requests when get_chart_series can answer directly
+
+        PROHIBITED for detailed incident requests:
+        - First tool call = get_sensor_details
+        - First tool call = get_recent_alerts
+        - First tool call = get_sketches (use get_incident_context instead)
+        - Any detailed report built without get_sketches context
         
         Sketches contain: temperature, zone, trend, window stats, description.
         That's enough for "what's happening" - don't call sensor_details too.
@@ -180,7 +223,7 @@ apps:
           component_base_path: src
           function_name: get_sensor_details
           tool_name: "get_sensor_details"
-          description: "Get detailed information about a specific sensor. Use when user asks about sensor-001, sensor-002, etc."
+          description: "Get numeric drill-down for a specific cooling asset/sensor. For detailed incidents, use ONLY after get_sketches has been called first."
           parameters:
             - name: sensor_id
               type: string
@@ -190,6 +233,23 @@ apps:
               type: integer
               description: "Time window in minutes (default 30)"
               default: 30
+
+        # Deterministic incident context (sketch-first bundle)
+        - tool_type: python
+          component_module: fleet_query_tools
+          component_base_path: src
+          function_name: get_incident_context
+          tool_name: "get_incident_context"
+          description: "Detailed incident context tool. Always loads sketches first, then numeric readings and matching alerts."
+          parameters:
+            - name: sensor_id
+              type: string
+              description: "Cooling asset/sensor identifier (e.g., m3-temp-motor)"
+              required: true
+            - name: minutes
+              type: integer
+              description: "Time window in minutes (default 90)"
+              default: 90
 
         # Get sketch summaries
         - tool_type: python
@@ -219,6 +279,72 @@ apps:
           function_name: get_system_statistics
           tool_name: "get_system_statistics"
           description: "Get overall system statistics. Use for metrics or data volume questions."
+
+        # Get chart-ready deterministic series from chart_query_service
+        - tool_type: python
+          component_module: fleet_query_tools
+          component_base_path: src
+          function_name: get_chart_series
+          tool_name: "get_chart_series"
+          description: "Fetch chart-ready time-series JSON (labels, values, stats) for one cooling asset from chart_query_service. Preferred for chart-only trend questions."
+          parameters:
+            - name: sensor_id
+              type: string
+              description: "Cooling asset/sensor identifier (e.g., m3-temp-motor)"
+              required: true
+            - name: minutes
+              type: integer
+              description: "Lookback window in minutes (default 60)"
+              default: 60
+            - name: source
+              type: string
+              description: "Series source: filtered, suppressed, or all"
+              default: "filtered"
+            - name: resolution
+              type: string
+              description: "Resolution: 1m, 10s, or points"
+              default: "1m"
+            - name: max_points
+              type: integer
+              description: "Maximum points returned (default 120)"
+              default: 120
+            - name: compact
+              type: boolean
+              description: "If true, omit verbose rows and return compact chart payload"
+              default: true
+
+        # Get renderer-ready Plotly spec from chart_query_service
+        - tool_type: python
+          component_module: fleet_query_tools
+          component_base_path: src
+          function_name: get_plotly_spec
+          tool_name: "get_plotly_spec"
+          description: "Fetch deterministic Plotly figure JSON spec for one cooling asset time-series (no Mermaid dependency)."
+          parameters:
+            - name: sensor_id
+              type: string
+              description: "Cooling asset/sensor identifier (e.g., m3-temp-motor)"
+              required: true
+            - name: minutes
+              type: integer
+              description: "Lookback window in minutes (default 60)"
+              default: 60
+            - name: source
+              type: string
+              description: "Series source: filtered, suppressed, or all"
+              default: "filtered"
+            - name: resolution
+              type: string
+              description: "Resolution: 1m, 10s, or points"
+              default: "1m"
+            - name: max_points
+              type: integer
+              description: "Maximum points returned (default 120)"
+              default: 120
+            - name: value_key
+              type: string
+              description: "Value field for y-axis: avg_v, last_v, value, min_v, or max_v"
+              default: "avg_v"
 
         # Acknowledge an alert
         - tool_type: python

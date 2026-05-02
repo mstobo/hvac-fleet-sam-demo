@@ -147,7 +147,7 @@ apps:
             Use this when asked about overall fleet status or for periodic health checks.
 
       session_service:
-        type: "sqlite"
+        type: "sql"
         database_url: "sqlite:///fleet_agent.db"
         default_behavior: "PERSISTENT"
       artifact_service: *default_artifact_service

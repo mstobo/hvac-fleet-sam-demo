@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Solace Agent Mesh | Live Pipeline Demo</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.2/mqttws31.min.js"></script>
@@ -13,9 +15,13 @@
     --blue: #60a5fa; --muted: #8892a4; --border: rgba(0,193,118,0.2);
     --text: #e8eaf0;
   }
-  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', monospace; font-size: 13px; }
+  body {
+    background: var(--bg); color: var(--text); font-family: 'Segoe UI', monospace; font-size: 13px;
+    display: flex; flex-direction: column; min-height: 100vh;
+  }
 
   header {
+    flex-shrink: 0;
     background: var(--card); border-bottom: 1px solid var(--border);
     padding: 14px 24px; display: flex; align-items: center; justify-content: space-between;
   }
@@ -29,6 +35,7 @@
 
   /* Config panel */
   #config-panel {
+    flex-shrink: 0;
     background: var(--card2); border-bottom: 1px solid var(--border);
     padding: 12px 24px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
   }
@@ -42,8 +49,176 @@
     padding: 7px 18px; font-weight: 700; cursor: pointer; font-size: 0.82rem;
   }
 
+  /* Live pipeline stages (last message age — not process health on disk) */
+  #pipeline-pulse {
+    flex-shrink: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 20px;
+    padding: 10px 24px;
+    background: rgba(10,15,30,0.92);
+    border-bottom: 1px solid var(--border);
+    border-left: 4px solid var(--green);
+    font-size: 0.78rem;
+    box-shadow: inset 0 1px 0 rgba(0,193,118,0.12);
+  }
+  #pipeline-pulse .pulse-title { color: var(--muted); font-weight: 600; }
+  .pulse-item {
+    padding: 3px 10px;
+    border-radius: 20px;
+    border: 1px solid rgba(136,146,164,0.25);
+    font-variant-numeric: tabular-nums;
+  }
+  .pulse-item.live {
+    border-color: rgba(0,193,118,0.45);
+    background: rgba(0,193,118,0.08);
+    color: var(--green);
+  }
+  .pulse-item.stale {
+    border-color: rgba(251,191,36,0.35);
+    color: var(--yellow);
+    opacity: 0.85;
+  }
+  .pulse-item.off {
+    border-color: #2a3444;
+    color: #5c6578;
+  }
+
+  /* Tabs: Pipeline (default) vs 2D twin */
+  .dash-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 0 20px;
+    background: var(--card2);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .dash-tab {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 11px 18px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .dash-tab:hover { color: var(--text); }
+  .dash-tab.active {
+    color: var(--green);
+    border-bottom-color: var(--green);
+  }
+  .dash-view {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding-bottom: 48px;
+  }
+  .dash-view.hidden { display: none !important; }
+
+  /* 2D digital twin (demo schematic — matches demo_publisher machine-00x / m*-temp-*) */
+  .main-wrap {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  .twin-panel {
+    flex: 0 0 auto;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 24px 14px;
+  }
+  .twin-panel .header-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .twin-panel h2 {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--green);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .twin-panel .hint { font-size: 0.72rem; color: var(--muted); }
+  .twin-svg-wrap {
+    width: 100%;
+    max-height: 200px;
+    border-radius: 8px;
+    background: linear-gradient(180deg, rgba(26,34,53,0.9) 0%, rgba(10,15,30,0.95) 100%);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .twin-svg-wrap svg { display: block; width: 100%; height: auto; max-height: 200px; }
+  .twin-panel--solo {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+    padding: 16px 24px 20px;
+  }
+  .twin-panel--solo .twin-svg-wrap {
+    flex: 1;
+    min-height: 220px;
+    max-height: none;
+  }
+  .twin-panel--solo .twin-svg-wrap svg { max-height: min(55vh, 420px); }
+  .twin-rack {
+    fill: rgba(26,34,53,0.85);
+    stroke: rgba(0,193,118,0.25);
+    stroke-width: 1.5;
+  }
+  .twin-floor {
+    stroke: rgba(136,146,164,0.25);
+    stroke-width: 2;
+    stroke-dasharray: 6 4;
+  }
+  .twin-machine-title {
+    fill: #c8d0dc;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+  }
+  .twin-role {
+    fill: var(--muted);
+    font-size: 10px;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+  }
+  .twin-dot {
+    stroke: rgba(232,234,240,0.35);
+    stroke-width: 2;
+    cursor: pointer;
+    transition: r 0.15s ease, filter 0.15s ease;
+  }
+  .twin-dot:hover { filter: brightness(1.15); }
+  .twin-dot.NORMAL   { fill: var(--green); }
+  .twin-dot.WARNING  { fill: var(--yellow); }
+  .twin-dot.CRITICAL { fill: var(--red); }
+  .twin-dot.STALE    { fill: #3d4a5e; stroke: #2a3444; }
+  #twin-detail {
+    margin-top: 8px;
+    font-size: 0.78rem;
+    color: #94a3b8;
+    min-height: 1.2em;
+  }
+  #twin-detail strong { color: var(--text); }
+
   /* Main layout */
-  .main { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; height: calc(100vh - 110px); }
+  .main {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0;
+  }
 
   /* Pipeline column */
   .pipeline-col {
@@ -70,6 +245,10 @@
   .event-card.CRITICAL { border-left-color: var(--red); background: rgba(248,113,113,0.04); }
   .event-card.SUPPRESSED { opacity: 0.4; border-left-color: #333; }
   .event-card.ALERT    { border-left-color: var(--red); background: rgba(248,113,113,0.08); }
+  .event-card.SKETCH_ESCALATION {
+    border-left-color: #a78bfa;
+    background: rgba(167,139,250,0.06);
+  }
   @keyframes slideIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
 
   .ev-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
@@ -90,6 +269,32 @@
   .zone-pill.WARNING  { background: rgba(251,191,36,0.15); color: var(--yellow); }
   .zone-pill.CRITICAL { background: rgba(248,113,113,0.2); color: var(--red); }
   .zone-pill.SUPPRESSED { background: #222; color: #555; }
+
+  /* Alert column empty state (no messages on pipeline/alerts yet) */
+  .alert-empty {
+    border: 1px dashed rgba(96,165,250,0.35);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin: 4px 0 8px;
+    background: rgba(96,165,250,0.04);
+    line-height: 1.5;
+  }
+  .alert-empty strong { color: #c8d0dc; font-size: 0.85rem; }
+  .alert-empty .alert-empty-sub {
+    margin-top: 8px;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .alert-empty code { color: #60a5fa; font-size: 0.72rem; }
+  .alert-live-hint {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(96,165,250,0.2);
+    font-size: 0.74rem;
+    line-height: 1.55;
+    color: #94a3b8;
+  }
+  .alert-live-hint code { font-size: 0.7rem; }
 
   /* Stats bar */
   #stats-bar {
@@ -114,7 +319,7 @@
 <header>
   <div>
     <h1>⚡ Solace Agent Mesh | Live Pipeline Demo</h1>
-    <div class="subtitle">Filter → Trigger → Summarize → Act &nbsp;|&nbsp; Real-time sensor intelligence</div>
+    <div class="subtitle">Filter → Trigger → Summarize → Act &nbsp;|&nbsp; Real-time sensor intelligence &nbsp;|&nbsp; <span id="dash-rev" title="If this label is missing, the browser is serving an old cached copy of this file. Hard-reload: Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows).">dashboard <strong style="color:#60a5fa">rev&nbsp;7</strong> · Col&nbsp;3 = rule MQTT + sketch escalations</span></div>
   </div>
   <div id="conn-badge" class="conn-badge">● Disconnected</div>
 </header>
@@ -127,7 +332,23 @@
   <div style="align-self:flex-end;"><button onclick="connectBroker()">Connect ▶</button></div>
 </div>
 
-<div class="main" style="margin-bottom:50px;">
+<nav class="dash-tabs" aria-label="Dashboard views">
+  <button type="button" class="dash-tab active" id="tab-pipeline">Pipeline · 3 columns</button>
+  <button type="button" class="dash-tab" id="tab-twin">2D digital twin</button>
+</nav>
+
+<div id="view-pipeline" class="dash-view">
+<div id="pipeline-pulse">
+  <span class="pulse-title">Deterministic pipeline (MQTT)</span>
+  <span id="pulse-raw" class="pulse-item off" title="dc/v1/raw/#">① Raw · —</span>
+  <span id="pulse-filt" class="pulse-item off" title="dc/v1/pipeline/filtered">② Filtered · —</span>
+  <span id="pulse-sk" class="pulse-item off" title="dc/v1/pipeline/sketched">③ Sketched · —</span>
+  <span id="pulse-al" class="pulse-item off" title="dc/v1/pipeline/alerts">④ Anomaly alerts · —</span>
+</div>
+
+<div class="main-wrap">
+
+<div class="main">
 
   <!-- Col 1: Raw + Deadband -->
   <div class="pipeline-col">
@@ -151,11 +372,60 @@
   <div class="pipeline-col" style="border-right:none;">
     <div class="col-header">
       <h2>🚨 3 · Anomaly Alerts (Rules)</h2>
-      <span class="badge" id="badge-alert">0 alerts</span>
+      <span class="badge" id="badge-alert">0 items</span>
     </div>
-    <div class="col-body" id="col-alert"></div>
+    <div class="col-body" id="col-alert">
+      <div id="col-alert-empty" class="alert-empty">
+        <strong>Column 3 · rule alerts + sketch escalations</strong>
+        <div class="alert-empty-sub">
+          <strong>Purple-bordered cards</strong> mirror WARNING/CRITICAL rows from the same sketch topic as column 2. <strong>Red rule-style cards</strong> come only from <code>dc/v1/pipeline/alerts</code> (<code>anomaly_service.py</code>). If you see sketch escalations but ④ stays idle, start or fix anomaly beside sketch.
+        </div>
+        <div id="col-alert-live-hint" class="alert-live-hint" aria-live="polite"></div>
+      </div>
+    </div>
   </div>
 
+</div>
+</div>
+</div>
+
+<div id="view-twin" class="dash-view hidden">
+  <section class="twin-panel twin-panel--solo" aria-label="2D digital twin schematic">
+    <div class="header-row">
+      <h2>🏭 Row schematic (2D twin · demo)</h2>
+      <span class="hint">Placeholder layout · matches <code style="color:#60a5fa">m*-temp-*</code> from demo publisher</span>
+    </div>
+    <div class="twin-svg-wrap">
+      <svg viewBox="0 0 900 210" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Three assets with inlet, outlet, and motor sensors">
+        <line class="twin-floor" x1="24" y1="188" x2="876" y2="188"/>
+        <rect class="twin-rack" x="32" y="48" width="248" height="132" rx="10"/>
+        <text class="twin-machine-title" x="156" y="38" text-anchor="middle">machine-001 · stable</text>
+        <text class="twin-role" x="95" y="175" text-anchor="middle">inlet</text>
+        <text class="twin-role" x="156" y="175" text-anchor="middle">outlet</text>
+        <text class="twin-role" x="217" y="175" text-anchor="middle">motor</text>
+        <circle id="twin-dot-m1-temp-inlet" class="twin-dot STALE" r="13" cx="95" cy="118"><title>m1-temp-inlet — no data yet</title></circle>
+        <circle id="twin-dot-m1-temp-outlet" class="twin-dot STALE" r="13" cx="156" cy="118"><title>m1-temp-outlet — no data yet</title></circle>
+        <circle id="twin-dot-m1-temp-motor" class="twin-dot STALE" r="13" cx="217" cy="118"><title>m1-temp-motor — no data yet</title></circle>
+        <rect class="twin-rack" x="326" y="48" width="248" height="132" rx="10"/>
+        <text class="twin-machine-title" x="450" y="38" text-anchor="middle">machine-002 · spiky</text>
+        <text class="twin-role" x="389" y="175" text-anchor="middle">inlet</text>
+        <text class="twin-role" x="450" y="175" text-anchor="middle">outlet</text>
+        <text class="twin-role" x="511" y="175" text-anchor="middle">motor</text>
+        <circle id="twin-dot-m2-temp-inlet" class="twin-dot STALE" r="13" cx="389" cy="118"><title>m2-temp-inlet — no data yet</title></circle>
+        <circle id="twin-dot-m2-temp-outlet" class="twin-dot STALE" r="13" cx="450" cy="118"><title>m2-temp-outlet — no data yet</title></circle>
+        <circle id="twin-dot-m2-temp-motor" class="twin-dot STALE" r="13" cx="511" cy="118"><title>m2-temp-motor — no data yet</title></circle>
+        <rect class="twin-rack" x="620" y="48" width="248" height="132" rx="10"/>
+        <text class="twin-machine-title" x="744" y="38" text-anchor="middle">machine-003 · hot</text>
+        <text class="twin-role" x="683" y="175" text-anchor="middle">inlet</text>
+        <text class="twin-role" x="744" y="175" text-anchor="middle">outlet</text>
+        <text class="twin-role" x="805" y="175" text-anchor="middle">motor</text>
+        <circle id="twin-dot-m3-temp-inlet" class="twin-dot STALE" r="13" cx="683" cy="118"><title>m3-temp-inlet — no data yet</title></circle>
+        <circle id="twin-dot-m3-temp-outlet" class="twin-dot STALE" r="13" cx="744" cy="118"><title>m3-temp-outlet — no data yet</title></circle>
+        <circle id="twin-dot-m3-temp-motor" class="twin-dot STALE" r="13" cx="805" cy="118"><title>m3-temp-motor — no data yet</title></circle>
+      </svg>
+    </div>
+    <div id="twin-detail">Connect to the broker to populate nodes. Click a sensor for the last reading shown here.</div>
+  </section>
 </div>
 
 <!-- Stats bar -->
@@ -176,16 +446,279 @@
   const stats = {
     total: 0, suppressed: 0, forwarded: 0,
     warnings: 0, alerts: 0,
-    llm_total: 0, llm_skipped: 0
+    llm_total: 0, llm_skipped: 0,
+    /** Cards from dc/v1/pipeline/alerts (anomaly_service) */
+    alertCards: 0,
+    /** WARNING/CRITICAL rows mirrored from sketch topic when rule alerts are absent */
+    sketchEscalationCards: 0
   };
+
+  /** Known sensors from demo_publisher.py (MACHINES → ALL_SENSORS) */
+  const TWIN_SENSORS = new Set([
+    'm1-temp-inlet', 'm1-temp-outlet', 'm1-temp-motor',
+    'm2-temp-inlet', 'm2-temp-outlet', 'm2-temp-motor',
+    'm3-temp-inlet', 'm3-temp-outlet', 'm3-temp-motor'
+  ]);
+  const twinState = {};
+  const TWIN_STALE_MS = 45000;
+
+  function normalizeTwinZone(z) {
+    if (z === 'WARNING' || z === 'CRITICAL' || z === 'NORMAL') return z;
+    return 'NORMAL';
+  }
+
+  function updateTwinSensor(sensorId, zone, temp) {
+    if (!sensorId || !TWIN_SENSORS.has(sensorId)) return;
+    const el = document.getElementById('twin-dot-' + sensorId);
+    if (!el) return;
+    const z = normalizeTwinZone(zone);
+    el.classList.remove('STALE', 'NORMAL', 'WARNING', 'CRITICAL');
+    el.classList.add(z);
+    const tEl = el.getElementsByTagName('title')[0];
+    const tv = temp !== undefined && temp !== null && !Number.isNaN(Number(temp))
+      ? Number(temp).toFixed(1) + '°C'
+      : 'n/a';
+    if (tEl) tEl.textContent = sensorId + ' · ' + tv + ' · ' + z;
+    let numTemp = null;
+    if (temp !== undefined && temp !== null && !Number.isNaN(Number(temp))) numTemp = Number(temp);
+    twinState[sensorId] = { zone: z, temp: numTemp, lastSeen: Date.now() };
+  }
+
+  function tickTwinStale() {
+    const cutoff = Date.now() - TWIN_STALE_MS;
+    TWIN_SENSORS.forEach((sid) => {
+      const st = twinState[sid];
+      const el = document.getElementById('twin-dot-' + sid);
+      if (!el) return;
+      if (!st || st.lastSeen < cutoff) {
+        el.classList.remove('NORMAL', 'WARNING', 'CRITICAL');
+        el.classList.add('STALE');
+        const tEl = el.getElementsByTagName('title')[0];
+        if (tEl) tEl.textContent = sid + ' — stale (no recent MQTT for this id)';
+      }
+    });
+  }
+
+  function setupTwinUi() {
+    const wrap = document.querySelector('.twin-svg-wrap');
+    if (!wrap) return;
+    wrap.addEventListener('click', (e) => {
+      const node = e.target;
+      if (!node || !node.id || !node.id.startsWith('twin-dot-')) return;
+      const sid = node.id.slice('twin-dot-'.length);
+      const detail = document.getElementById('twin-detail');
+      if (!detail) return;
+      const st = twinState[sid];
+      if (!st) {
+        detail.innerHTML = '<strong>' + sid + '</strong> — waiting for first message';
+        return;
+      }
+      const tmp = st.temp != null ? st.temp.toFixed(1) + '°C' : 'n/a';
+      detail.innerHTML =
+        '<strong>' + sid + '</strong> · ' + tmp + ' · ' + st.zone +
+        ' · last seen ' + new Date(st.lastSeen).toLocaleTimeString('en-US', { hour12: false });
+    });
+    setInterval(tickTwinStale, 8000);
+  }
+  setupTwinUi();
 
   function now() {
     return new Date().toLocaleTimeString('en-US', {hour12: false});
   }
 
+  function escapeHtml(s) {
+    return String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function syncBadgeColumn3() {
+    const el = document.getElementById('badge-alert');
+    if (!el) return;
+    const n = stats.alertCards + stats.sketchEscalationCards;
+    el.textContent = n + ' items';
+  }
+
+  /** Mirror WARNING/CRITICAL sketches into column 3 — distinct from rule alerts on dc/v1/pipeline/alerts (anomaly_service). */
+  function prependSketchEscalationForColumn3(sensorId, zone, temp, sketch) {
+    if (zone !== 'WARNING' && zone !== 'CRITICAL') return;
+    stats.sketchEscalationCards++;
+    const zClass = zone === 'CRITICAL' ? 'CRITICAL' : 'WARNING';
+    let snip = String(sketch || '');
+    if (snip.length > 320) snip = snip.slice(0, 317) + '…';
+    const escSketch = escapeHtml(snip);
+
+    prependCard('col-alert', `
+      <div class="event-card ${zClass} SKETCH_ESCALATION">
+        <div class="ev-header">
+          <span>📋</span>
+          <span class="ev-sensor">${escapeHtml(sensorId)}</span>
+          <span class="zone-pill ${zClass}">${escapeHtml(zone)} · sketch</span>
+          <span class="ev-time">${now()}</span>
+        </div>
+        <div class="ev-body" style="margin-bottom:6px;">
+          <strong>Sketch escalation</strong> — same MQTT stream as column 2. Cards on <code style="color:#60a5fa">dc/v1/pipeline/alerts</code> only appear when <code>anomaly_service.py</code> publishes rule alerts (run it beside sketch if that pulse stays idle).
+        </div>
+        <div class="ev-temp ${zClass}">${Number(temp).toFixed(1)}°C</div>
+        <div class="ev-sketch" style="margin-top:6px;">${escSketch}</div>
+      </div>`);
+    syncBadgeColumn3();
+  }
+
+  /** Reject SAM/agent blobs masquerading as alerts */
+  function looksLikePipelineAlert(p) {
+    return p && typeof p === 'object' && !Array.isArray(p)
+      && typeof p.sensorId === 'string'
+      && p.sensorId.length > 0
+      && (typeof p.severity === 'string' || typeof p.alert_type === 'string');
+  }
+
+  const pulseTs = { raw: 0, filtered: 0, sketch: 0, anomaly: 0 };
+  const PULSE_FRESH_MS = 22000;
+  const pulseDom = [
+    ['pulse-raw', 'raw', '① Raw'],
+    ['pulse-filt', 'filtered', '② Filtered'],
+    ['pulse-sk', 'sketch', '③ Sketched'],
+    ['pulse-al', 'anomaly', '④ Anomaly alerts']
+  ];
+
+  function touchPulse(kind) {
+    pulseTs[kind] = Date.now();
+    renderPulse();
+  }
+
+  /** Explains column 3 / ④ when the placeholder is visible (not a bug: NORMAL sketches ⇒ no alerts). */
+  function updateAlertColumnHint() {
+    const hint = document.getElementById('col-alert-live-hint');
+    if (!hint || !document.getElementById('col-alert-empty')) return;
+    const tnow = Date.now();
+    const fresh = (ts) => ts && (tnow - ts < 90000);
+    const sketchFresh = fresh(pulseTs.sketch);
+    const anomalyFresh = fresh(pulseTs.anomaly);
+    const rawFresh = fresh(pulseTs.raw);
+
+    if (anomalyFresh) {
+      hint.innerHTML = '';
+      return;
+    }
+    if (sketchFresh && stats.llm_total > 0 && stats.llm_skipped === stats.llm_total) {
+      hint.innerHTML =
+        '<span style="color:#00c176">● All nominal:</span> every sketch this session is zone <strong>NORMAL</strong>, so there are <strong>no rule alerts</strong> to display — same reason footer can show <strong>100% noise filtered</strong>. Stage ④ stays idle until a WARNING/CRITICAL sketch is processed.';
+      return;
+    }
+    if (sketchFresh) {
+      hint.innerHTML =
+        '<span style="color:#94a3b8">● Sketch feed active.</span> If column 3 stays empty, either zones are still NORMAL or <code>anomaly_service.py</code> is not publishing. To force demo alerts: run anomaly next to sketch and exceed ~58°C / ~65°C thresholds (<code>WARNING_TEMP</code> / <code>CRITICAL_TEMP</code> in <code>pipeline_config.py</code>).';
+      return;
+    }
+    if (rawFresh && !sketchFresh) {
+      hint.textContent =
+        '● Raw/filtered traffic is recent but sketch pulse is stale — start sketch_service.py after deadband.';
+      return;
+    }
+    hint.innerHTML = '';
+  }
+
+  function renderPulse() {
+    const tnow = Date.now();
+    pulseDom.forEach(([id, key, label]) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const ts = pulseTs[key];
+      el.classList.remove('live', 'stale', 'off');
+      if (!ts) {
+        if (key === 'anomaly' && pulseTs.sketch && (tnow - pulseTs.sketch < 90000)) {
+          el.classList.add('stale');
+          el.textContent = label + ' · idle (no publishes · OK if NORMAL-only)';
+          el.title =
+            'No messages on dc/v1/pipeline/alerts. Expected when every sketch is NORMAL; otherwise run anomaly_service.py.';
+        } else {
+          el.classList.add('off');
+          el.textContent = label + ' · —';
+          el.removeAttribute('title');
+        }
+        return;
+      }
+      el.removeAttribute('title');
+      const age = tnow - ts;
+      el.classList.add(age < PULSE_FRESH_MS ? 'live' : 'stale');
+      const ago = age < 86400000 ? Math.round(age / 1000) + 's ago' : 'stale';
+      el.textContent = label + ' · ' + ago;
+    });
+    updateAlertColumnHint();
+  }
+  setInterval(renderPulse, 3000);
+
+  /** Restores column-3 empty placeholder after clearing (same markup as initial HTML). */
+  const COL_ALERT_EMPTY_HTML =
+    '<div id="col-alert-empty" class="alert-empty">' +
+      '<strong>Column 3 · rule alerts + sketch escalations</strong>' +
+      '<div class="alert-empty-sub">' +
+        '<strong>Purple-bordered cards</strong> mirror WARNING/CRITICAL sketch rows. <strong>Red rule-style cards</strong> require <code>anomaly_service.py</code> on <code>dc/v1/pipeline/alerts</code>.' +
+      '</div>' +
+      '<div id="col-alert-live-hint" class="alert-live-hint" aria-live="polite"></div>' +
+    '</div>';
+
+  function resetTwinVisual() {
+    TWIN_SENSORS.forEach((sid) => {
+      delete twinState[sid];
+      const el = document.getElementById('twin-dot-' + sid);
+      if (!el) return;
+      el.classList.remove('NORMAL', 'WARNING', 'CRITICAL');
+      el.classList.add('STALE');
+      const tEl = el.getElementsByTagName('title')[0];
+      if (tEl) tEl.textContent = sid + ' — no data yet';
+    });
+    const detail = document.getElementById('twin-detail');
+    if (detail) {
+      detail.textContent = 'Connect to the broker to populate nodes. Click a sensor for the last reading shown here.';
+    }
+  }
+
+  /** Wipes stale cards so an old cached JS session cannot leave garbage in the columns; call on each successful MQTT connect. */
+  function resetDashboardOnConnect() {
+    stats.total = 0;
+    stats.suppressed = 0;
+    stats.forwarded = 0;
+    stats.warnings = 0;
+    stats.alerts = 0;
+    stats.llm_total = 0;
+    stats.llm_skipped = 0;
+    stats.alertCards = 0;
+    stats.sketchEscalationCards = 0;
+    pulseTs.raw = 0;
+    pulseTs.filtered = 0;
+    pulseTs.sketch = 0;
+    pulseTs.anomaly = 0;
+
+    const rawEl = document.getElementById('col-raw');
+    const skEl = document.getElementById('col-sketch');
+    const alEl = document.getElementById('col-alert');
+    if (rawEl) rawEl.innerHTML = '';
+    if (skEl) skEl.innerHTML = '';
+    if (alEl) alEl.innerHTML = COL_ALERT_EMPTY_HTML;
+
+    const br = document.getElementById('badge-raw');
+    const bs = document.getElementById('badge-sketch');
+    const ba = document.getElementById('badge-alert');
+    if (br) br.textContent = '0 events';
+    if (bs) bs.textContent = '0 sketches';
+    if (ba) ba.textContent = '0 items';
+
+    resetTwinVisual();
+    updateStats();
+    renderPulse();
+  }
+
   function prependCard(colId, html, limit = MAX_CARDS) {
     const col = document.getElementById(colId);
     if (!col) return;
+    if (colId === 'col-alert') {
+      const ph = document.getElementById('col-alert-empty');
+      if (ph) ph.remove();
+    }
     col.insertAdjacentHTML('afterbegin', html);
     while (col.children.length > limit) col.removeChild(col.lastChild);
   }
@@ -275,6 +808,7 @@
       onSuccess: () => {
         document.getElementById('conn-badge').className = 'conn-badge connected';
         document.getElementById('conn-badge').textContent = '● Connected';
+        resetDashboardOnConnect();
         // Subscribe to new versioned topics
         mqttClient.subscribe('dc/v1/raw/#');
         mqttClient.subscribe('dc/v1/pipeline/suppressed');
@@ -282,7 +816,7 @@
         mqttClient.subscribe('dc/v1/pipeline/sketched');
         mqttClient.subscribe('dc/v1/pipeline/alerts');
         mqttClient.subscribe('dc/v1/sketch/#');
-        mqttClient.subscribe('dc/v1/event/#');
+        /* Do NOT subscribe to dc/v1/event/# here — SAM/agents publish unrelated payloads that were rendered as "garbage" in column 3. Anomaly duplicates alerts on dc/v1/pipeline/alerts anyway. */
 
         // Legacy compatibility (optional)
         mqttClient.subscribe('sensors/temperature/#');
@@ -310,10 +844,10 @@
         topic === 'sensors/pipeline/sketched' ||
         topic === 'dc/v1/pipeline/sketched' ||
         topic.startsWith('dc/v1/sketch/');
-      const isAlertTopic =
+      /* Flat anomaly topic only (see subscribe comment — not hierarchical dc/v1/event/#). */
+      const isPipelineAlertsTopic =
         topic === 'sensors/pipeline/alerts' ||
-        topic === 'dc/v1/pipeline/alerts' ||
-        topic.startsWith('dc/v1/event/');
+        topic === 'dc/v1/pipeline/alerts';
 
       // ── Raw sensor events (from publisher) ──────────────────────────────
       if (isRawTopic) {
@@ -336,6 +870,8 @@
             <div class="ev-body">seq=${payload.sequence ?? 'n/a'} | raw publish</div>
           </div>`);
         document.getElementById('badge-raw').textContent = stats.total + ' events';
+        updateTwinSensor(rawSensor, zone, rawTemp);
+        touchPulse('raw');
         updateStats();
       }
 
@@ -355,6 +891,10 @@
 
         const icon = {NORMAL:'🟢', WARNING:'🟡', CRITICAL:'🔴'}[zone] || '⚪';
         const win  = payload.window || {};
+        const deltaPct =
+          payload.delta_pct != null && !Number.isNaN(Number(payload.delta_pct))
+            ? (Number(payload.delta_pct) * 100).toFixed(1)
+            : '—';
 
         prependCard('col-raw', `
           <div class="event-card ${zone}" style="border-left-width:2px; margin-left:12px;">
@@ -366,11 +906,13 @@
               <span class="ev-time">${now()}</span>
             </div>
             <div class="ev-body">
-              Δ=${(payload.delta_pct*100).toFixed(1)}% | reason=${reason}<br>
+              Δ=${deltaPct}% | reason=${reason}<br>
               win: mean=${win.mean}°C min=${win.min}°C max=${win.max}°C
             </div>
           </div>`);
         document.getElementById('badge-raw').textContent = stats.total + ' events';
+        updateTwinSensor(payload.sensorId, zone, payload.temperature);
+        touchPulse('filtered');
         updateStats();
       }
 
@@ -400,40 +942,50 @@
           </div>`);
         document.getElementById('badge-sketch').textContent =
           stats.llm_total + ' sketches';
+        updateTwinSensor(skSensor, zone, skTemp);
+        touchPulse('sketch');
+        if (zone === 'WARNING' || zone === 'CRITICAL') {
+          prependSketchEscalationForColumn3(skSensor, zone, skTemp, sketch);
+        }
         updateStats();
       }
 
       // ── Alerts (from anomaly detection - deterministic rules) ──────────────
-      if (isAlertTopic) {
+      if (isPipelineAlertsTopic && looksLikePipelineAlert(payload)) {
         const severity = payload.severity || 'LOW';
         const zone = payload.zone || 'WARNING';
-        const alertType = payload.alert_type || 'ELEVATED_READING';
+        const alertTypeRaw = payload.alert_type != null ? payload.alert_type : 'ELEVATED_READING';
+        const alertTypeStr = String(alertTypeRaw);
         const alertSensor = payload.sensorId || payload.incidentId || payload.eventType || 'unknown-alert';
         const alertDesc = payload.description || payload.summary || payload.eventType || 'No description';
         const alertTemp = payload.temperature ?? payload.value;
-        
+
         if (severity === 'CRITICAL' || severity === 'HIGH') stats.alerts++;
         else stats.warnings++;
-        
+
         const sIcon = {CRITICAL:'🚨', HIGH:'🔴', MEDIUM:'🟠', LOW:'🟡'}[severity] || '⚡';
         const sClass = {CRITICAL:'CRITICAL', HIGH:'CRITICAL', MEDIUM:'WARNING', LOW:'WARNING'}[severity] || 'WARNING';
+        const twinAlertZone =
+          (zone === 'CRITICAL' || zone === 'WARNING' || zone === 'NORMAL') ? zone : sClass;
 
+        stats.alertCards++;
         prependCard('col-alert', `
           <div class="event-card ${sClass} ALERT">
             <div class="ev-header">
               <span>${sIcon}</span>
-              <span class="ev-sensor">${alertSensor}</span>
-              <span class="zone-pill ${sClass}">${severity}</span>
+              <span class="ev-sensor">${escapeHtml(alertSensor)}</span>
+              <span class="zone-pill ${sClass}">${escapeHtml(severity)}</span>
               <span class="ev-time">${now()}</span>
             </div>
-            <div class="ev-body" style="margin-bottom:4px;">${alertDesc}</div>
-            <div class="ev-action">▶ ${alertType.replace(/_/g, ' ')}</div>
+            <div class="ev-body" style="margin-bottom:4px;">${escapeHtml(alertDesc)}</div>
+            <div class="ev-action">▶ ${escapeHtml(alertTypeStr.replace(/_/g, ' '))}</div>
             <div class="ev-body" style="margin-top:4px;">
-              ${alertTemp !== undefined ? Number(alertTemp).toFixed(1) + '°C | ' : ''}Zone: ${zone} | Deterministic
+              ${alertTemp !== undefined && alertTemp !== null && !Number.isNaN(Number(alertTemp)) ? Number(alertTemp).toFixed(1) + '°C | ' : ''}Zone: ${escapeHtml(zone)} | Deterministic
             </div>
           </div>`);
-        document.getElementById('badge-alert').textContent =
-          (stats.warnings + stats.alerts) + ' alerts';
+        syncBadgeColumn3();
+        updateTwinSensor(alertSensor, twinAlertZone, alertTemp);
+        touchPulse('anomaly');
         updateStats();
       }
 
@@ -441,6 +993,54 @@
       console.error('Message parse error:', e);
     }
   }
+
+  function setupDashTabs() {
+    const tabP = document.getElementById('tab-pipeline');
+    const tabT = document.getElementById('tab-twin');
+    const viewP = document.getElementById('view-pipeline');
+    const viewT = document.getElementById('view-twin');
+    if (!tabP || !tabT || !viewP || !viewT) return;
+
+    function goPipeline() {
+      viewP.classList.remove('hidden');
+      viewT.classList.add('hidden');
+      tabP.classList.add('active');
+      tabT.classList.remove('active');
+      try {
+        localStorage.setItem('mqtt5dashTab', 'pipeline');
+      } catch (e) { /* private mode */ }
+      if (window.history && window.history.replaceState) {
+        const base = window.location.href.split('#')[0];
+        window.history.replaceState(null, '', base);
+      }
+    }
+
+    function goTwin() {
+      viewT.classList.remove('hidden');
+      viewP.classList.add('hidden');
+      tabT.classList.add('active');
+      tabP.classList.remove('active');
+      try {
+        localStorage.setItem('mqtt5dashTab', 'twin');
+      } catch (e) { /* */ }
+      if (window.history && window.history.replaceState) {
+        const base = window.location.href.split('#')[0];
+        window.history.replaceState(null, '', base + '#twin');
+      }
+    }
+
+    tabP.addEventListener('click', goPipeline);
+    tabT.addEventListener('click', goTwin);
+
+    if (window.location.hash === '#twin') {
+      goTwin();
+    } else {
+      try {
+        if (localStorage.getItem('mqtt5dashTab') === 'twin') goTwin();
+      } catch (e) { /* */ }
+    }
+  }
+  setupDashTabs();
 </script>
 </body>
 </html>

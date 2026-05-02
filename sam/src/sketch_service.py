@@ -22,6 +22,29 @@ from datetime import datetime
 import pipeline_config as config
 import sensor_db
 
+SKETCH_DB_BATCH_SIZE = 100
+SKETCH_DB_FLUSH_INTERVAL_SEC = 0.5
+SKETCH_LOG_EVERY_N = 50
+
+_sketch_buffer = []
+_last_flush_time = time.monotonic()
+_processed_count = 0
+
+
+def _flush_sketch_buffer(force=False):
+    """Flush buffered sketch rows to SQLite in batches."""
+    global _last_flush_time
+    if not _sketch_buffer:
+        return
+
+    now = time.monotonic()
+    if not force and len(_sketch_buffer) < SKETCH_DB_BATCH_SIZE and (now - _last_flush_time) < SKETCH_DB_FLUSH_INTERVAL_SEC:
+        return
+
+    sensor_db.insert_sketch_batch(_sketch_buffer)
+    _sketch_buffer.clear()
+    _last_flush_time = now
+
 
 def generate_sketch(data):
     """
@@ -71,18 +94,21 @@ def generate_sketch(data):
         elif zone == "WARNING":
             sketch += " Elevated condition - monitoring advised."
     
-    # Write to database
-    sensor_db.insert_sketch(
-        sensor_id=sensor_id,
-        temperature=temperature,
-        zone=zone,
-        sketch=sketch,
-        timestamp=timestamp,
-        trend=trend,
-        window_avg=win_mean,
-        window_min=win_min,
-        window_max=win_max
+    # Buffer database write; flush in batches to avoid per-message SQLite commits.
+    _sketch_buffer.append(
+        {
+            "sensor_id": sensor_id,
+            "temperature": temperature,
+            "zone": zone,
+            "sketch": sketch,
+            "timestamp": timestamp,
+            "trend": trend,
+            "window_avg": win_mean,
+            "window_min": win_min,
+            "window_max": win_max,
+        }
     )
+    _flush_sketch_buffer()
     
     return {
         "schema": config.SCHEMA_SKETCH,
@@ -113,6 +139,7 @@ def on_connect(client, userdata, flags, reason_code, properties=None):
 
 def on_message(client, userdata, msg):
     """Process filtered reading and generate sketch."""
+    global _processed_count
     try:
         data = json.loads(msg.payload.decode())
         
@@ -122,20 +149,25 @@ def on_message(client, userdata, msg):
         
         # Generate sketch
         result = generate_sketch(data)
-        
-        # Log and publish
-        sketch_preview = result["sketch"][:60] + "..." if len(result["sketch"]) > 60 else result["sketch"]
-        print(f"[Sketch] GENERATED {result['sensorId']} | \"{sketch_preview}\"")
-        
-        client.publish(config.TOPIC_SKETCHED, json.dumps(result))
+        payload = json.dumps(result)
+        client.publish(config.TOPIC_SKETCHED, payload)
         client.publish(
             config.build_sketch_topic(
                 result["site"],
                 result["room"],
                 result["incidentId"],
             ),
-            json.dumps(result),
+            payload,
         )
+
+        # Throttle per-message logs to reduce stdout overhead at high throughput.
+        _processed_count += 1
+        if _processed_count % SKETCH_LOG_EVERY_N == 0:
+            print(
+                f"[Sketch] processed={_processed_count} "
+                f"buffered={len(_sketch_buffer)} "
+                f"last={result['sensorId']}:{result['zone']}"
+            )
         
     except Exception as e:
         print(f"[Sketch] Error: {e}")
@@ -164,6 +196,7 @@ def main():
     except KeyboardInterrupt:
         print("\n[Sketch] Stopped by user.")
     finally:
+        _flush_sketch_buffer(force=True)
         client.disconnect()
 
 
