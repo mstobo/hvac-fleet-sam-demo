@@ -34,7 +34,7 @@ Configure broker credentials via environment variables:
     SOLACE_USER     - Username
     SOLACE_PASS     - Password
     SOLACE_TLS      - Set to "true" for TLS (default: true)
-    TOPIC_BASE      - Base topic (default: dc/v1/raw/dc1/hall-a/row-a3/rack-12)
+    TOPIC_BASE      - Base topic (default: dc/<DC_BROKER_SITE>/v1/raw/… from pipeline_config)
 """
 
 import json
@@ -56,7 +56,10 @@ BROKER_PORT = _broker.BROKER_PORT
 USERNAME = _broker.USERNAME
 PASSWORD = _broker.PASSWORD
 USE_TLS = _broker.USE_TLS
-TOPIC_BASE = os.getenv("TOPIC_BASE", "dc/v1/raw/dc1/hall-a/row-a3/rack-12")
+TOPIC_BASE = os.getenv(
+    "TOPIC_BASE",
+    f"{_broker.pipeline_topic_prefix()}/raw/dc1/hall-a/row-a3/rack-12",
+)
 SCHEMA_RAW = os.getenv("RAW_SCHEMA_NAME", "dc.raw.v1")
 SCHEMA_REVISION = os.getenv("RAW_SCHEMA_REVISION", "1.0.0")
 
@@ -211,6 +214,56 @@ SCENARIOS = [
 ]
 
 
+def _telemetry_availability(sensor: SensorConfig) -> dict:
+    """
+    Realistic data-fidelity hints: the demo only models one temperature stream per
+    published message; other facility signals are intentionally absent.
+    """
+    if sensor.sensor_type == "outlet":
+        return {
+            "scope": "outlet_temperature_only",
+            "signals_present": ["outlet_temperature_c"],
+            "signals_not_in_this_stream": [
+                "inlet_airflow_cfm",
+                "humidity_rh",
+                "differential_pressure_pa",
+            ],
+            "note": (
+                "Only outlet temperature telemetry is present in this incident bundle; "
+                "inlet airflow, humidity, and pressure signals are not included."
+            ),
+        }
+    if sensor.sensor_type == "inlet":
+        return {
+            "scope": "inlet_temperature_only",
+            "signals_present": ["inlet_temperature_c"],
+            "signals_not_in_this_stream": [
+                "outlet_temperature_c",
+                "airflow_cfm",
+                "humidity_rh",
+                "differential_pressure_pa",
+            ],
+            "note": (
+                "Only inlet temperature is modeled on this stream; airflow, humidity, "
+                "and pressure are not included in the simulated bundle."
+            ),
+        }
+    return {
+        "scope": "motor_winding_temperature_only",
+        "signals_present": ["motor_temperature_c"],
+        "signals_not_in_this_stream": [
+            "inlet_airflow_cfm",
+            "humidity_rh",
+            "differential_pressure_pa",
+            "bearing_vibration",
+        ],
+        "note": (
+            "Motor winding temperature only; inlet/outlet airflow, humidity, and "
+            "pressure are not included in this simulated stream."
+        ),
+    }
+
+
 def get_active_spikes() -> Dict[str, float]:
     """Get current spike amounts for all sensors from active scenarios."""
     spikes = {}
@@ -265,7 +318,8 @@ def build_payload(sensor: SensorConfig, seq: int, spike: float = 0.0) -> dict:
         "temperature": temp,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "eventType": event_type,
-        "sequence": seq
+        "sequence": seq,
+        "telemetry_availability": _telemetry_availability(sensor),
     }
 
 

@@ -16,6 +16,7 @@ All detection logic is deterministic threshold-based rules.
 """
 
 import json
+import os
 import time
 from datetime import datetime
 
@@ -41,6 +42,35 @@ except ImportError:
 # ── Fleet Tracking State ─────────────────────────────────────────────────────
 _sensor_zones = {}        # sensor_id -> current zone
 _last_fleet_update = 0
+_last_fleet_slack_status = None
+_last_fleet_slack_sent_at = 0.0
+FLEET_SLACK_MIN_INTERVAL_SECONDS = float(
+    os.getenv("FLEET_SLACK_MIN_INTERVAL_SECONDS", "180")
+)
+# Share of sensors that must be in CRITICAL zone simultaneously to raise FLEET_CRITICAL
+# (Slack + auto LLM analysis via fleet_alert_analyzer). Default 0.5 ⇒ 5/9. Try 0.34 ⇒ ~3/9 for demos.
+FLEET_CRITICAL_FRACTION = float(os.getenv("FLEET_CRITICAL_FRACTION", "0.5"))
+
+
+def _should_send_fleet_slack(fleet_status: str, now_monotonic: float) -> bool:
+    """
+    Send fleet Slack alerts on status transitions, otherwise throttle repeats.
+
+    This keeps Slack actionable during turbulence while still allowing periodic
+    reminders if a critical state persists.
+    """
+    global _last_fleet_slack_status, _last_fleet_slack_sent_at
+
+    if _last_fleet_slack_status != fleet_status:
+        _last_fleet_slack_status = fleet_status
+        _last_fleet_slack_sent_at = now_monotonic
+        return True
+
+    if now_monotonic - _last_fleet_slack_sent_at >= FLEET_SLACK_MIN_INTERVAL_SECONDS:
+        _last_fleet_slack_sent_at = now_monotonic
+        return True
+
+    return False
 
 
 def classify_severity(zone, delta_pct, temperature):
@@ -130,8 +160,8 @@ def generate_alert(data):
         timestamp=timestamp
     )
     
-    # Send Slack notification for CRITICAL/HIGH severity
-    if SLACK_ENABLED and severity in ["CRITICAL", "HIGH"]:
+    # Slack: only true CRITICAL severity (skip HIGH — CRITICAL zone but temp < 70°C)
+    if SLACK_ENABLED and severity == "CRITICAL":
         slack_notifier.send_critical_alert(
             sensor_id=sensor_id,
             temperature=temperature,
@@ -185,7 +215,7 @@ def update_fleet_status():
     
     # Determine fleet status
     if critical_count > 0:
-        if critical_count >= active_sensors * 0.5:
+        if critical_count >= active_sensors * FLEET_CRITICAL_FRACTION:
             fleet_status = "FLEET_CRITICAL"
             notes = f"Multiple sensors in critical state ({critical_count}/{active_sensors})"
             correlation = True
@@ -220,7 +250,11 @@ def update_fleet_status():
     )
     
     # Send Slack notification for fleet-wide critical events
-    if SLACK_ENABLED and fleet_status in ["FLEET_CRITICAL", "CRITICAL"]:
+    if (
+        SLACK_ENABLED
+        and fleet_status in ["FLEET_CRITICAL", "CRITICAL"]
+        and _should_send_fleet_slack(fleet_status, now)
+    ):
         slack_notifier.send_fleet_alert(
             fleet_status=fleet_status,
             active_sensors=active_sensors,

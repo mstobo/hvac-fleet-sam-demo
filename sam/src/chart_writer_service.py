@@ -5,8 +5,8 @@ chart_writer_service.py
 Chart writer microservice (SQLite).
 
 Subscribes to:
-- dc/v1/pipeline/suppressed
-- dc/v1/pipeline/filtered
+- dc/<DC_BROKER_SITE>/v1/pipeline/suppressed
+- dc/<DC_BROKER_SITE>/v1/pipeline/filtered
 
 Writes:
 - chart_points (optional raw-ish continuity points)

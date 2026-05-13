@@ -4,9 +4,10 @@ deadband_service.py
 ===================
 Microservice 1/3: Deadband Filter
 
-Subscribes to: sensors/temperature/#
-Publishes to:  sensors/pipeline/filtered (forwarded readings)
-               sensors/pipeline/suppressed (filtered out readings)
+Subscribes to: dc/<DC_BROKER_SITE>/v1/raw/# (see pipeline_config.TOPIC_SENSOR_RAW;
+               or dc/+/v1/raw/# when DC_PIPELINE_MULTISITE_RAW=true)
+Publishes to:  dc/<DC_BROKER_SITE>/v1/pipeline/filtered (forwarded readings)
+               dc/<DC_BROKER_SITE>/v1/pipeline/suppressed (filtered out readings)
 
 Suppresses sensor readings that haven't changed significantly (< 2%)
 unless a heartbeat interval (30s) has elapsed.
@@ -134,9 +135,13 @@ def on_message(client, userdata, msg):
     """Process incoming sensor message through deadband filter."""
     try:
         payload = json.loads(msg.payload.decode())
-        topic_meta = config.parse_raw_topic(msg.topic)
+        topic_meta, temp_from_topic = config.parse_raw_topic_with_temperature(msg.topic)
         sensor_id = payload.get("sensorId") or topic_meta.get("asset")
-        temperature = payload.get("temperature", payload.get("value"))
+        temperature = (
+            temp_from_topic
+            if temp_from_topic is not None
+            else payload.get("temperature", payload.get("value"))
+        )
         timestamp = payload.get("timestamp", payload.get("ts", datetime.utcnow().isoformat() + "Z"))
         
         if not sensor_id or temperature is None:
@@ -156,6 +161,7 @@ def on_message(client, userdata, msg):
                 "metric": payload.get("metric", topic_meta.get("metric", "supply_temp_c")),
             }
         )
+        config.copy_raw_metadata_to_result(payload, result)
         
         if action == "suppress":
             print(f"[Deadband] SUPPRESS {sensor_id} | {result['reason']}")
