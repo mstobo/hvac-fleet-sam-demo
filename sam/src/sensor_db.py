@@ -245,6 +245,31 @@ def get_recent_sketches(minutes: int = 60, sensor_id: str = None, zone: str = No
         return [dict(row) for row in rows]
 
 
+def get_sketches_since_days(
+    days: int = 3,
+    sensor_ids: Optional[List[str]] = None,
+    limit: int = 100_000,
+) -> List[Dict]:
+    """
+    Sketches in the last ``days`` days, optionally restricted to ``sensor_ids``.
+    ``sensor_ids`` None or empty = all sensors. Ordered oldest-first for timeline audits.
+    """
+    with get_connection() as conn:
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        if sensor_ids is not None and len(sensor_ids) > 0:
+            placeholders = ",".join("?" * len(sensor_ids))
+            query = (
+                f"SELECT * FROM sketches WHERE timestamp > ? AND sensor_id IN ({placeholders}) "
+                "ORDER BY timestamp ASC LIMIT ?"
+            )
+            params: List[Any] = [cutoff, *sensor_ids, limit]
+        else:
+            query = "SELECT * FROM sketches WHERE timestamp > ? ORDER BY timestamp ASC LIMIT ?"
+            params = [cutoff, limit]
+        rows = conn.execute(query, params).fetchall()
+        return [dict(row) for row in rows]
+
+
 def get_sensor_history(sensor_id: str, minutes: int = 30, limit: int = 50) -> List[Dict]:
     """Get recent readings for a specific sensor."""
     with get_connection() as conn:

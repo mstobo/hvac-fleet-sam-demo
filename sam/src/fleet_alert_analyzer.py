@@ -14,6 +14,11 @@ This module publishes to sensors/fleet/analysis-request topic.
 SAM's Event Mesh Gateway picks this up and routes to FleetQueryAgent.
 Response is delivered via Slack or response topic.
 
+After a successful analysis-request publish, a JSON sketch audit report is also
+published to sensors/fleet/audit-report (override with FLEET_AUDIT_REPORT_TOPIC)
+for archival pipelines (e.g. S3). See fleet_sketch_audit_report.py — deterministic
+only; SAM is not used for that report (by design, for now).
+
 This is the appropriate use of event-triggered AI:
   - LOW frequency (maybe 1-5 per day)
   - HIGH value (correlated failures need immediate analysis)
@@ -24,6 +29,7 @@ import os
 import ssl
 import threading
 import time
+import uuid
 from datetime import datetime
 from typing import Optional
 
@@ -40,10 +46,23 @@ except ImportError:
 DEBOUNCE_SECONDS = float(os.getenv("ANALYSIS_DEBOUNCE_SECONDS", "60.0"))
 RATE_LIMIT_SECONDS = float(os.getenv("ANALYSIS_RATE_LIMIT_SECONDS", "300.0"))
 ENABLE_AUTO_ANALYSIS = os.getenv("ENABLE_AUTO_ANALYSIS", "true").lower() in ("true", "1", "yes")
+ANALYSIS_REQUEST_QOS = int(os.getenv("ANALYSIS_REQUEST_QOS", "1"))
+PUBLISH_ACK_TIMEOUT_SECONDS = float(os.getenv("ANALYSIS_PUBLISH_ACK_TIMEOUT_SECONDS", "8.0"))
+PUBLISH_RETRY_COUNT = int(os.getenv("ANALYSIS_PUBLISH_RETRY_COUNT", "2"))
 
 # MQTT topic for analysis requests (Event Mesh Gateway subscribes to this)
 ANALYSIS_REQUEST_TOPIC = "sensors/fleet/analysis-request"
 ANALYSIS_RESPONSE_TOPIC = "sensors/fleet/analysis-response"
+
+# Post-incident sketch audit (JSON for S3/archival consumers; published alongside analysis request)
+ENABLE_FLEET_SKETCH_AUDIT = os.getenv("ENABLE_FLEET_SKETCH_AUDIT", "true").lower() in (
+    "true",
+    "1",
+    "yes",
+)
+AUDIT_REPORT_TOPIC = os.getenv("FLEET_AUDIT_REPORT_TOPIC", "sensors/fleet/audit-report")
+AUDIT_WINDOW_DAYS = int(os.getenv("FLEET_AUDIT_SKETCH_DAYS", "3"))
+AUDIT_REPORT_QOS = int(os.getenv("AUDIT_REPORT_QOS", "1"))
 
 # Broker config (use pipeline_config if available)
 if CONFIG_AVAILABLE:
@@ -68,6 +87,19 @@ _collected_sensors = []
 _lock = threading.Lock()
 _mqtt_client: Optional[mqtt.Client] = None
 _mqtt_connected = False
+_publish_ack_events = {}
+_publish_ack_lock = threading.Lock()
+
+
+def _normalize_notes(notes: str) -> str:
+    """Remove explicit test-language from outbound analysis notes."""
+    text = (notes or "").strip()
+    if not text:
+        return "Multiple sensors in critical state"
+    lowered = text.lower()
+    if any(token in lowered for token in ("test", "validation", "e2e", "end-to-end", "verify")):
+        return "Multiple sensors in critical state"
+    return text
 
 
 def _get_mqtt_client() -> Optional[mqtt.Client]:
@@ -103,6 +135,13 @@ def _get_mqtt_client() -> Optional[mqtt.Client]:
             global _mqtt_connected
             _mqtt_connected = False
             print(f"[AutoAnalysis] MQTT disconnected: {reason_code}")
+
+        def on_publish(client, userdata, mid, reason_code, properties=None):
+            _ = (client, userdata, reason_code, properties)
+            with _publish_ack_lock:
+                event = _publish_ack_events.get(mid)
+            if event is not None:
+                event.set()
         
         _mqtt_client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
@@ -113,6 +152,7 @@ def _get_mqtt_client() -> Optional[mqtt.Client]:
         _mqtt_client.on_connect = on_connect
         _mqtt_client.on_message = on_message
         _mqtt_client.on_disconnect = on_disconnect
+        _mqtt_client.on_publish = on_publish
         
         if USE_TLS:
             _mqtt_client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLS)
@@ -164,11 +204,44 @@ def _build_analysis_event(criticals: list, sensors: list) -> dict:
         "active_sensors": latest_critical.get("active_sensors", len(sensor_ids)),
         "sensors": sensor_ids,
         "average_temperature": round(avg_temp, 1),
-        "notes": latest_critical.get("notes", "Multiple sensors in critical state"),
+        "notes": _normalize_notes(latest_critical.get("notes", "Multiple sensors in critical state")),
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "debounce_window_seconds": DEBOUNCE_SECONDS,
-        "events_collected": len(criticals) + len(sensors)
+        "events_collected": len(criticals) + len(sensors),
     }
+
+
+def _publish_with_puback(client: mqtt.Client, topic: str, payload: str, qos: int, log_label: str) -> bool:
+    """Publish with QoS>=1 and wait for broker PUBACK (same pattern as analysis request)."""
+    for attempt in range(1, PUBLISH_RETRY_COUNT + 2):
+        result = client.publish(topic, payload, qos=qos)
+        if result.rc != mqtt.MQTT_ERR_SUCCESS:
+            print(f"[AutoAnalysis] {log_label} publish attempt {attempt} failed rc={result.rc}")
+            time.sleep(0.4)
+            continue
+
+        ack_event = threading.Event()
+        with _publish_ack_lock:
+            _publish_ack_events[result.mid] = ack_event
+
+        acked = ack_event.wait(timeout=PUBLISH_ACK_TIMEOUT_SECONDS)
+        with _publish_ack_lock:
+            _publish_ack_events.pop(result.mid, None)
+
+        if acked:
+            print(
+                f"[AutoAnalysis] Published {log_label} to {topic} "
+                f"(qos={qos}, mid={result.mid}, attempt={attempt})"
+            )
+            return True
+
+        print(
+            f"[AutoAnalysis] {log_label} attempt {attempt} no PUBACK within "
+            f"{PUBLISH_ACK_TIMEOUT_SECONDS:.1f}s (mid={result.mid})"
+        )
+        time.sleep(0.4)
+
+    return False
 
 
 def _execute_analysis():
@@ -190,30 +263,66 @@ def _execute_analysis():
     total_events = len(criticals) + len(sensors)
     print(f"\n[AutoAnalysis] Triggering LLM analysis for {total_events} collected events...")
     
-    # Build the analysis request event
     event = _build_analysis_event(criticals, sensors)
-    
-    # Get MQTT client and publish
+    correlation_id = str(uuid.uuid4())
+    event["correlation_id"] = correlation_id
+
     client = _get_mqtt_client()
     if client is None:
         print("[AutoAnalysis] No MQTT client available")
         return
-    
+
     try:
-        # Publish to the analysis request topic
-        # SAM's Event Mesh Gateway subscribes to this and routes to FleetQueryAgent
         payload = json.dumps(event)
-        result = client.publish(ANALYSIS_REQUEST_TOPIC, payload, qos=1)
-        
-        if result.rc == mqtt.MQTT_ERR_SUCCESS:
+        published = _publish_with_puback(
+            client,
+            ANALYSIS_REQUEST_TOPIC,
+            payload,
+            ANALYSIS_REQUEST_QOS,
+            "analysis-request",
+        )
+
+        if published:
             _last_analysis_time = time.time()
-            print(f"[AutoAnalysis] Published analysis request to {ANALYSIS_REQUEST_TOPIC}")
             print(f"[AutoAnalysis] Payload: {json.dumps(event, indent=2)}")
-            print(f"[AutoAnalysis] SAM Event Mesh Gateway will route to FleetQueryAgent")
-            print(f"[AutoAnalysis] Response will be delivered to Slack (if configured)")
+            print("[AutoAnalysis] SAM Event Mesh Gateway will route to FleetQueryAgent")
+            print("[AutoAnalysis] Response will be delivered to Slack (if configured)")
+
+            if ENABLE_FLEET_SKETCH_AUDIT:
+                try:
+                    from fleet_sketch_audit_report import build_fleet_sketch_audit_report
+
+                    report = build_fleet_sketch_audit_report(
+                        event,
+                        sensors,
+                        correlation_id=correlation_id,
+                        days=AUDIT_WINDOW_DAYS,
+                    )
+                    audit_ok = _publish_with_puback(
+                        client,
+                        AUDIT_REPORT_TOPIC,
+                        json.dumps(report),
+                        AUDIT_REPORT_QOS,
+                        "sketch-audit-report",
+                    )
+                    if audit_ok:
+                        print(
+                            f"[AutoAnalysis] Sketch audit report ({AUDIT_WINDOW_DAYS}d) on "
+                            f"{AUDIT_REPORT_TOPIC} (correlation_id={correlation_id})"
+                        )
+                    else:
+                        print(
+                            "[AutoAnalysis] Sketch audit report not acknowledged; "
+                            "check broker or AUDIT_REPORT_QOS"
+                        )
+                except Exception as audit_exc:
+                    print(f"[AutoAnalysis] Sketch audit failed (non-fatal): {audit_exc}")
         else:
-            print(f"[AutoAnalysis] Publish failed with rc={result.rc}")
-            
+            print(
+                "[AutoAnalysis] Failed to deliver analysis request after retries; "
+                "event was not acknowledged by broker."
+            )
+
     except Exception as e:
         print(f"[AutoAnalysis] Error publishing analysis request: {e}")
 
@@ -312,7 +421,10 @@ def get_status() -> dict:
             "rate_limit_seconds": RATE_LIMIT_SECONDS,
             "mqtt_connected": _mqtt_connected,
             "request_topic": ANALYSIS_REQUEST_TOPIC,
-            "response_topic": ANALYSIS_RESPONSE_TOPIC
+            "response_topic": ANALYSIS_RESPONSE_TOPIC,
+            "sketch_audit_enabled": ENABLE_FLEET_SKETCH_AUDIT,
+            "audit_report_topic": AUDIT_REPORT_TOPIC,
+            "audit_window_days": AUDIT_WINDOW_DAYS,
         }
 
 

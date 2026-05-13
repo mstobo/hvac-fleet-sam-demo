@@ -269,9 +269,21 @@ def _build_plotly_spec(
 class ChartQueryHandler(BaseHTTPRequestHandler):
     server_version = "chart-query-service/1.0"
 
+    def _add_cors_headers(self) -> None:
+        # Allow browser fetch from file://, other ports, or static hosts (local dev only).
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self._add_cors_headers()
+        self.end_headers()
+
     def _send_json(self, payload: dict, status: int = HTTPStatus.OK):
         body = json.dumps(payload, ensure_ascii=True).encode("utf-8")
         self.send_response(status)
+        self._add_cors_headers()
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
@@ -550,6 +562,7 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
 
         body = html.encode("utf-8")
         self.send_response(HTTPStatus.OK)
+        self._add_cors_headers()
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
@@ -560,9 +573,9 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
 def main():
     chart_db.init_database()
     print(f"[ChartQuery] DB initialized at {chart_db.get_db_path()}")
+    server = ThreadingHTTPServer((HOST, PORT), ChartQueryHandler)
     print(f"[ChartQuery] Listening on http://{HOST}:{PORT}")
     print("[ChartQuery] Endpoints: /health, /sensors, /series, /plotly-spec, /plotly-html")
-    server = ThreadingHTTPServer((HOST, PORT), ChartQueryHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

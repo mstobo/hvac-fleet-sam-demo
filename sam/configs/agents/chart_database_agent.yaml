@@ -52,7 +52,7 @@ apps:
           SELECT COUNT(*) AS n, MIN(bucket_ts) AS oldest, MAX(bucket_ts) AS newest FROM chart_rollups_1m;
           and similarly for chart_points using ts.
         - If newest data is older than the requested window, say so and report the actual data range; suggest a shorter window or ensuring chart_writer_service is running and publishing pipeline topics.
-        - If sanity check shows COUNT(*)=0 for BOTH chart_rollups_1m and chart_points (global empty), widening the time window will not help. State clearly that no ingestion has been recorded: run chart_writer_service (subscribes to dc/v1/pipeline/suppressed and filtered) alongside the deadband pipeline that publishes those topics, using the same broker and CHART_DB_PATH / chart_data.db as this agent. Do not ask the user to pick diagnostics in that case—give this fix as the primary next step.
+        - If sanity check shows COUNT(*)=0 for BOTH chart_rollups_1m and chart_points (global empty), widening the time window will not help. State clearly that no ingestion has been recorded: run chart_writer_service (subscribes to dc/<DC_BROKER_SITE>/v1/pipeline/suppressed and filtered per pipeline_config) alongside the deadband pipeline that publishes those topics, using the same broker and CHART_DB_PATH / chart_data.db as this agent. Do not ask the user to pick diagnostics in that case—give this fix as the primary next step.
         - Multi-device / fleet charting: use chart_rollups_1m with GROUP BY sensor_id (and ORDER BY COUNT(*) DESC LIMIT 20). Do not invent asset_id or reading_type columns.
 
         Query workflow:

@@ -64,6 +64,9 @@ apps:
         - Use get_chart_series output (labels_hhmm_utc, values, stats) as the primary numeric source for chart-ready responses.
         - If the user asks for Plotly, figure spec JSON, or a renderer-safe chart contract, use get_plotly_spec.
         - When get_plotly_spec returns plotly_html_url_pinned, prefer that URL in the final answer over relative-minute URLs.
+        - NEVER handcraft chart_query_service links. Only output URLs returned by tools.
+        - Strict parameter schema for chart URLs: use sensor_id (never asset_id) and valid value_key only (avg_v, last_v, value, min_v, max_v).
+        - If a URL candidate contains asset_id or value_key=temperature, treat it as invalid and regenerate via get_plotly_spec.
         - Only call other tools (get_sketches/get_recent_alerts) when the user explicitly asks for incident context beyond the numeric trend.
         
         TERMINOLOGY GUIDELINES:
@@ -99,6 +102,11 @@ apps:
         - Use these headings verbatim, including punctuation/casing.
         - Do not add, remove, or rename section headings.
         - If data is missing for a section, include the section and state "Insufficient data."
+        - Include a "Chart Evidence" subsection at the end of Summary with tool-returned links for key assets in the incident.
+        - Chart window alignment is mandatory: every chart link MUST use the exact same UTC start/end window cited in Timeline/Summary.
+        - If your narrative window changes after analysis, regenerate chart links so URLs and narrative windows are identical.
+        - Prefer get_plotly_spec for these links and use value_key=max_v for spike-focused incident narratives unless user requests another metric.
+        - Never provide chart links without explicitly stating the corresponding UTC window in the report text.
         - DEBUG REQUIREMENT (for now): In section 7 (Data Gaps / Confidence), include a line:
           "Sketch evidence: <N> sketches reviewed."
           where N is derived from tool output (sketch_count, recent_sketches length, or sketches length).
@@ -116,7 +124,8 @@ apps:
         TOOL ORDER FOR INVESTIGATIONS (mandatory):
         - For any "detail", "investigate", "incident", "root cause", or "forensics" request:
           1) Call get_incident_context FIRST (deterministic sketch-first bundle).
-          2) Then call other tools only if needed for numeric drill-down (get_sensor_details, get_recent_alerts).
+          2) Then call get_plotly_spec for key assets using the same analysis window reported in the narrative.
+          3) Call other tools only if needed for numeric drill-down (get_sensor_details, get_recent_alerts).
         - Do not start detailed investigations with get_sensor_details or get_recent_alerts.
         - HARD GUARD: the first tool call for detailed incident requests MUST be get_incident_context.
         - If your planned first call is anything else, STOP and call get_incident_context instead.

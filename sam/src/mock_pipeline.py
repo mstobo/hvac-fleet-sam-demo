@@ -37,6 +37,7 @@ import paho.mqtt.client as mqtt
 
 # Import our database module
 import sensor_db
+import pipeline_config
 
 # Import Slack notifier for critical alerts
 try:
@@ -53,24 +54,22 @@ USERNAME = os.getenv("SOLACE_USER", "YOUR_USERNAME")
 PASSWORD = os.getenv("SOLACE_PASS", "YOUR_PASSWORD")
 USE_TLS = os.getenv("SOLACE_TLS", "true").lower() in ("true", "1", "yes")
 
-# ── Topics / Schemas ─────────────────────────────────────────────────────────
-DC_NAMESPACE = os.getenv("DC_NAMESPACE", "dc")
-DC_TOPIC_VERSION = os.getenv("DC_TOPIC_VERSION", "v1")
-DEFAULT_SITE = os.getenv("DC_DEFAULT_SITE", "dc1")
-DEFAULT_ROOM = os.getenv("DC_DEFAULT_ROOM", "hall-a")
+# ── Topics / Schemas (aligned with pipeline_config / DC_BROKER_SITE) ─────────
+_pf = pipeline_config.pipeline_topic_prefix()
+SCHEMA_FILTERED = pipeline_config.SCHEMA_FILTERED
+SCHEMA_SKETCH = pipeline_config.SCHEMA_SKETCH
+SCHEMA_EVENT = pipeline_config.SCHEMA_EVENT
+SCHEMA_REVISION = pipeline_config.SCHEMA_REVISION
+DEFAULT_SITE = pipeline_config.DEFAULT_SITE
+DEFAULT_ROOM = pipeline_config.DEFAULT_ROOM
 
-SCHEMA_FILTERED = f"{DC_NAMESPACE}.filtered.{DC_TOPIC_VERSION}"
-SCHEMA_SKETCH = f"{DC_NAMESPACE}.sketch.{DC_TOPIC_VERSION}"
-SCHEMA_EVENT = f"{DC_NAMESPACE}.event.{DC_TOPIC_VERSION}"
-SCHEMA_REVISION = "1.0.0"
-
-SUBSCRIBE_TOPIC = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/raw/#"
-SUPPRESSED_TOPIC = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/pipeline/suppressed"
-SKETCH_TOPIC = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/pipeline/sketch-input"
-ORCHESTRATOR_TOPIC = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/pipeline/orchestrator-input"
-ALERTS_TOPIC = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/pipeline/alerts"
-EVENT_TOPIC_BASE = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/event"
-SKETCH_TOPIC_BASE = f"{DC_NAMESPACE}/{DC_TOPIC_VERSION}/sketch"
+SUBSCRIBE_TOPIC = pipeline_config.TOPIC_SENSOR_RAW
+SUPPRESSED_TOPIC = pipeline_config.TOPIC_SUPPRESSED
+SKETCH_TOPIC = f"{_pf}/pipeline/sketch-input"
+ORCHESTRATOR_TOPIC = f"{_pf}/pipeline/orchestrator-input"
+ALERTS_TOPIC = pipeline_config.TOPIC_ALERTS
+EVENT_TOPIC_BASE = pipeline_config.TOPIC_EVENT_BASE
+SKETCH_TOPIC_BASE = pipeline_config.TOPIC_SKETCH_BASE
 
 # ── Deadband state ───────────────────────────────────────────────────────────
 _last_value = {}
@@ -81,6 +80,7 @@ _windows = {}
 _sensor_zones = {}  # sensor_id -> current zone
 _last_fleet_update = 0
 FLEET_UPDATE_INTERVAL = 10.0  # Update fleet status every 10 seconds
+FLEET_CRITICAL_FRACTION = float(os.getenv("FLEET_CRITICAL_FRACTION", "0.5"))
 
 # ── Thresholds ───────────────────────────────────────────────────────────────
 DEADBAND_PCT = 0.02      # 2% change threshold
@@ -96,19 +96,6 @@ def classify_zone(temp):
     if temp >= WARNING_TEMP:
         return "WARNING"
     return "NORMAL"
-
-
-def parse_raw_topic(topic):
-    parts = topic.split("/")
-    raw_idx = parts.index("raw") if "raw" in parts else -1
-    if raw_idx == -1:
-        return {}
-    suffix = parts[raw_idx + 1 :]
-    fields = ["site", "room", "row", "rack", "asset", "metric"]
-    out = {}
-    for idx, key in enumerate(fields):
-        out[key] = suffix[idx] if idx < len(suffix) else None
-    return out
 
 
 def classify_severity(zone, delta_pct, temperature):
@@ -317,8 +304,8 @@ def generate_alert(sensor_id, zone, temperature, delta_pct, forwarded_reason):
         timestamp=timestamp
     )
     
-    # Send Slack notification for CRITICAL/HIGH severity
-    if SLACK_ENABLED and severity in ["CRITICAL", "HIGH"]:
+    # Slack: only true CRITICAL severity (skip HIGH)
+    if SLACK_ENABLED and severity == "CRITICAL":
         slack_notifier.send_critical_alert(
             sensor_id=sensor_id,
             temperature=temperature,
@@ -361,7 +348,7 @@ def update_fleet_status():
     
     # Determine fleet status
     if critical_count > 0:
-        if critical_count >= active_sensors * 0.5:
+        if critical_count >= active_sensors * FLEET_CRITICAL_FRACTION:
             fleet_status = "FLEET_CRITICAL"
             notes = f"Multiple sensors in critical state ({critical_count}/{active_sensors})"
             correlation = True
@@ -422,9 +409,13 @@ def on_message(client, userdata, msg):
     """Process incoming sensor message through the pipeline"""
     try:
         payload = json.loads(msg.payload.decode())
-        topic_meta = parse_raw_topic(msg.topic)
+        topic_meta, temp_from_topic = pipeline_config.parse_raw_topic_with_temperature(msg.topic)
         sensor_id = payload.get("sensorId") or topic_meta.get("asset")
-        temperature = payload.get("temperature", payload.get("value"))
+        temperature = (
+            temp_from_topic
+            if temp_from_topic is not None
+            else payload.get("temperature", payload.get("value"))
+        )
         timestamp = payload.get(
             "timestamp",
             payload.get(
@@ -450,6 +441,7 @@ def on_message(client, userdata, msg):
                 "metric": payload.get("metric", topic_meta.get("metric", "supply_temp_c")),
             }
         )
+        pipeline_config.copy_raw_metadata_to_result(payload, result)
         
         if action == "suppress":
             print(f"[Deadband] SUPPRESS {sensor_id} | {result['reason']}")

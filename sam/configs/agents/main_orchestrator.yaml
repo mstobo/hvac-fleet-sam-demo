@@ -55,6 +55,9 @@ apps:
         - Preserve all headings and debug lines exactly, including:
           "Sketch evidence: <N> sketches reviewed."
         - If that sketch evidence line is missing, ask FleetQueryAgent once more to include it and then return the updated response.
+        - For detailed incident outputs with chart links, enforce exact window consistency:
+          chart URL window_start/window_end must match the report's cited UTC analysis window.
+        - If chart windows do not match the narrative window, re-delegate and require regenerated links.
         
         DELEGATION RULES:
         1. Sensor/temperature/fleet/alert questions → ALWAYS delegate to FleetQueryAgent
@@ -65,6 +68,8 @@ apps:
            - For per-asset chart status with Plotly output, prefer direct tool get_plotly_spec (local tool call on orchestrator) to avoid peer timeout hops.
            - Prefer FleetQueryAgent first when request is per-asset time-series/chart and can use get_chart_series (microservice-backed, low latency, low token usage)
            - Use ChartDatabaseAgent when the user explicitly asks for SQL, cross-asset rollup tables, ad-hoc schema exploration, or when get_chart_series is unavailable/fails
+           - Never allow handcrafted chart_query_service links in final output; links must come directly from tool output.
+           - Enforce chart URL schema: sensor_id is required (never asset_id). value_key must be one of avg_v, last_v, value, min_v, max_v.
         
         MERMAID / “RENDER A CHART” / PRESENTATION LAYER (mandatory when user asks):
         - ChartDatabaseAgent and FleetQueryAgent return **data** (SQL, sketches, alerts). They do not own final **Mermaid**, **xychart-beta**, or styled markdown diagrams.

@@ -211,6 +211,173 @@
   }
   #twin-detail strong { color: var(--text); }
 
+  .twin-trends {
+    margin-top: 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(19,25,41,0.75);
+    padding: 12px;
+  }
+  .twin-trends-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .twin-trends-head h3 {
+    font-size: 0.8rem;
+    color: var(--green);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .twin-trends-meta { font-size: 0.72rem; color: var(--muted); }
+  .twin-manual {
+    margin-top: 14px;
+    padding: 14px 16px;
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    max-width: 920px;
+  }
+  .twin-manual h3 { font-size: 0.88rem; color: var(--green); margin-bottom: 6px; }
+  .twin-manual .twin-manual-hint { font-size: 0.72rem; color: var(--muted); line-height: 1.45; margin-bottom: 10px; }
+  .twin-manual-options {
+    display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center;
+    margin-bottom: 12px; font-size: 0.75rem; color: var(--muted);
+  }
+  .twin-manual-options label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .twin-manual-options input[type="text"] {
+    background: #0a0f1e; border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text); padding: 5px 8px; font-size: 0.75rem; min-width: 280px;
+    font-family: inherit;
+  }
+  .twin-manual-machines-wrap {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(200px, 1fr));
+    gap: 16px 18px;
+    align-items: start;
+  }
+  @media (max-width: 920px) {
+    .twin-manual-machines-wrap { grid-template-columns: 1fr; }
+  }
+  .twin-manual-machine-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(96, 165, 250, 0.3);
+  }
+  .twin-manual-machine-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .twin-manual-status {
+    font-size: 0.72rem;
+    color: var(--green);
+    min-height: 1.25em;
+    margin: 0 0 10px;
+  }
+  .twin-manual-demo-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .twin-demo-fleet-btn {
+    background: rgba(96, 165, 250, 0.22);
+    border: 1px solid rgba(96, 165, 250, 0.45);
+    color: var(--text);
+    padding: 7px 14px;
+    border-radius: 6px;
+    font-size: 0.74rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .twin-demo-fleet-btn:hover:not(:disabled) {
+    background: rgba(96, 165, 250, 0.38);
+  }
+  .twin-demo-fleet-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .twin-manual-row {
+    background: rgba(10,15,30,0.65);
+    border: 1px solid rgba(96,165,250,0.15);
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .twin-manual-row label {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 0.72rem; color: var(--muted); margin-bottom: 4px;
+  }
+  .twin-manual-row label code { color: #94a3b8; font-size: 0.68rem; }
+  .twin-manual-row input[type="range"] { width: 100%; }
+  /* Match pipeline_config WARNING_TEMP 58 / CRITICAL_TEMP 65 (classifyZoneFromTemp) */
+  .twin-manual-row input[type="range"].twin-heat-NORMAL { accent-color: var(--green); }
+  .twin-manual-row input[type="range"].twin-heat-WARNING { accent-color: var(--yellow); }
+  .twin-manual-row input[type="range"].twin-heat-CRITICAL { accent-color: var(--red); }
+  .twin-manual-row .twin-manual-val {
+    font-size: 0.78rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .twin-manual-val.twin-heat-NORMAL { color: var(--green); }
+  .twin-manual-val.twin-heat-WARNING { color: var(--yellow); }
+  .twin-manual-val.twin-heat-CRITICAL { color: var(--red); }
+  .twin-manual-row.twin-manual-row--disabled { opacity: 0.45; pointer-events: none; }
+  .twin-trends-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(220px, 1fr));
+    gap: 10px;
+  }
+  .trend-card {
+    border: 1px solid rgba(136,146,164,0.2);
+    border-radius: 8px;
+    background: rgba(10,15,30,0.7);
+    padding: 8px;
+  }
+  .trend-title {
+    font-size: 0.74rem;
+    color: #c8d0dc;
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .trend-legend {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    font-size: 0.66rem;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .trend-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .trend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .trend-dot.inlet { background: #38bdf8; }
+  .trend-dot.outlet { background: #a78bfa; }
+  .trend-dot.motor { background: #00c176; }
+  .trend-svg { width: 100%; height: 96px; display: block; }
+  .trend-status {
+    font-size: 0.7rem;
+    color: var(--muted);
+    margin-top: 6px;
+    min-height: 1em;
+  }
+  .trend-zone-NORMAL { color: var(--green); }
+  .trend-zone-WARNING { color: var(--yellow); }
+  .trend-zone-CRITICAL { color: var(--red); }
+
   /* Main layout */
   .main {
     flex: 1;
@@ -319,7 +486,7 @@
 <header>
   <div>
     <h1>⚡ Solace Agent Mesh | Live Pipeline Demo</h1>
-    <div class="subtitle">Filter → Trigger → Summarize → Act &nbsp;|&nbsp; Real-time sensor intelligence &nbsp;|&nbsp; <span id="dash-rev" title="If this label is missing, the browser is serving an old cached copy of this file. Hard-reload: Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows).">dashboard <strong style="color:#60a5fa">rev&nbsp;7</strong> · Col&nbsp;3 = rule MQTT + sketch escalations</span></div>
+    <div class="subtitle">Filter → Trigger → Summarize → Act &nbsp;|&nbsp; Real-time sensor intelligence &nbsp;|&nbsp; <span id="dash-rev" title="If this label is missing, the browser is serving an old cached copy of this file. Hard-reload: Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows).">dashboard <strong style="color:#60a5fa">rev&nbsp;13</strong> · Col&nbsp;3 = rule MQTT + sketch escalations · <code>?dcBroker=DC1</code> = spoke publish prefix</span></div>
   </div>
   <div id="conn-badge" class="conn-badge">● Disconnected</div>
 </header>
@@ -329,6 +496,7 @@
   <div><label>WS Port</label><br><input id="cfg-port" value="443" style="width:80px" /></div>
   <div><label>Username</label><br><input id="cfg-user" value="" placeholder="broker-username" /></div>
   <div><label>Password</label><br><input id="cfg-pass" type="password" value="" placeholder="broker-password" style="width:140px" /></div>
+  <div><label>Raw topic base (twin sliders)</label><br><input id="cfg-raw-base-top" spellcheck="false" placeholder="dc/Hub/v1/raw/dc1/hall-a/row-a3/rack-12" style="width:min(360px,92vw)" title="Synced with twin tab manual publish (dc/&lt;Hub|DC1|DC2&gt;/v1/…)" /></div>
   <div style="align-self:flex-end;"><button onclick="connectBroker()">Connect ▶</button></div>
 </div>
 
@@ -340,10 +508,10 @@
 <div id="view-pipeline" class="dash-view">
 <div id="pipeline-pulse">
   <span class="pulse-title">Deterministic pipeline (MQTT)</span>
-  <span id="pulse-raw" class="pulse-item off" title="dc/v1/raw/#">① Raw · —</span>
-  <span id="pulse-filt" class="pulse-item off" title="dc/v1/pipeline/filtered">② Filtered · —</span>
-  <span id="pulse-sk" class="pulse-item off" title="dc/v1/pipeline/sketched">③ Sketched · —</span>
-  <span id="pulse-al" class="pulse-item off" title="dc/v1/pipeline/alerts">④ Anomaly alerts · —</span>
+  <span id="pulse-raw" class="pulse-item off" title="dc/+/v1/raw/# (all broker sites)">① Raw · —</span>
+  <span id="pulse-filt" class="pulse-item off" title="dc/+/v1/pipeline/filtered">② Filtered · —</span>
+  <span id="pulse-sk" class="pulse-item off" title="dc/+/v1/pipeline/sketched">③ Sketched · —</span>
+  <span id="pulse-al" class="pulse-item off" title="dc/+/v1/pipeline/alerts">④ Anomaly alerts · —</span>
 </div>
 
 <div class="main-wrap">
@@ -378,7 +546,7 @@
       <div id="col-alert-empty" class="alert-empty">
         <strong>Column 3 · rule alerts + sketch escalations</strong>
         <div class="alert-empty-sub">
-          <strong>Purple-bordered cards</strong> mirror WARNING/CRITICAL rows from the same sketch topic as column 2. <strong>Red rule-style cards</strong> come only from <code>dc/v1/pipeline/alerts</code> (<code>anomaly_service.py</code>). If you see sketch escalations but ④ stays idle, start or fix anomaly beside sketch.
+          <strong>Purple-bordered cards</strong> mirror WARNING/CRITICAL rows from the same sketch topic as column 2. <strong>Red rule-style cards</strong> come only from <code>dc/&lt;site&gt;/v1/pipeline/alerts</code> (<code>anomaly_service.py</code>). If you see sketch escalations but ④ stays idle, start or fix anomaly beside sketch.
         </div>
         <div id="col-alert-live-hint" class="alert-live-hint" aria-live="polite"></div>
       </div>
@@ -425,6 +593,75 @@
       </svg>
     </div>
     <div id="twin-detail">Connect to the broker to populate nodes. Click a sensor for the last reading shown here.</div>
+    <section class="twin-manual" id="twin-manual-panel" aria-label="Manual MQTT ingress">
+      <h3>Manual raw publish (digital twin)</h3>
+      <p class="twin-manual-hint">
+        Sliders publish to the same <code>dc/&lt;Hub|DC1|DC2&gt;/v1/raw/…/machine-00x/supply_temp_c</code> prefix as <code>demo_publisher.py</code> (deadband ingress). Optional <strong>°C in the topic</strong> after <code>supply_temp_c</code>: deadband prefers that; otherwise it uses JSON <code>temperature</code> / <code>value</code>.
+        <strong>Note:</strong> brokers typically do <em>not</em> echo self-publishes to this same WebSocket client—the twin schematic updates from slider moves and from the timed stream. Trend charts refresh after stream ticks (debounced).
+      </p>
+      <div class="twin-manual-options">
+        <label>
+          <span>Raw topic base</span>
+          <input type="text" id="cfg-raw-base" spellcheck="false"
+            placeholder="dc/Hub/v1/raw/dc1/hall-a/row-a3/rack-12" />
+        </label>
+        <label>
+          <input type="checkbox" id="twin-temp-in-topic" checked />
+          <span>Append <code>/°C</code> after metric in topic</span>
+        </label>
+        <label title="Matches demo_publisher batch interval (2s)">
+          <input type="checkbox" id="twin-stream-publish" checked />
+          <span>Every <strong>2s</strong>, publish <strong>all</strong> slider values while connected</span>
+        </label>
+      </div>
+      <div class="twin-manual-demo-row">
+        <button type="button" id="twin-demo-fleet-critical-btn" class="twin-demo-fleet-btn" disabled
+          title="Six sensors ≥70°C + one publish burst for all nine (needs default FLEET_CRITICAL_FRACTION=0.5 on anomaly_service)">
+          Demo: FLEET_CRITICAL preset (6 hot + burst)</button>
+        <span class="hint" style="max-width:42rem">Lowers setup vs dragging alone. Optional: set <code>FLEET_CRITICAL_FRACTION=0.34</code> in <code>.env</code> so ~3/9 CRITICAL triggers LLM. After burst, wait ~10s fleet tick + 60s analysis debounce.</span>
+      </div>
+      <p id="twin-manual-status" class="twin-manual-status" aria-live="polite"></p>
+      <div id="twin-manual-sliders" class="twin-manual-machines-wrap"></div>
+    </section>
+
+    <section class="twin-trends" aria-label="Machine trends">
+      <div class="twin-trends-head">
+        <h3>Machine trends (last 30m)</h3>
+        <span id="twin-trends-meta" class="twin-trends-meta">Loading…</span>
+      </div>
+      <div class="twin-trends-grid">
+        <article class="trend-card">
+          <div class="trend-title"><span>machine-001 (inlet · outlet · motor)</span><span id="trend-last-m1">--</span></div>
+          <div class="trend-legend" aria-label="trend legend">
+            <span class="trend-legend-item"><span class="trend-dot inlet"></span>inlet</span>
+            <span class="trend-legend-item"><span class="trend-dot outlet"></span>outlet</span>
+            <span class="trend-legend-item"><span class="trend-dot motor"></span>motor</span>
+          </div>
+          <svg id="trend-svg-m1" class="trend-svg" viewBox="0 0 300 96" preserveAspectRatio="none"></svg>
+          <div id="trend-status-m1" class="trend-status">Waiting for chart service…</div>
+        </article>
+        <article class="trend-card">
+          <div class="trend-title"><span>machine-002 (inlet · outlet · motor)</span><span id="trend-last-m2">--</span></div>
+          <div class="trend-legend" aria-label="trend legend">
+            <span class="trend-legend-item"><span class="trend-dot inlet"></span>inlet</span>
+            <span class="trend-legend-item"><span class="trend-dot outlet"></span>outlet</span>
+            <span class="trend-legend-item"><span class="trend-dot motor"></span>motor</span>
+          </div>
+          <svg id="trend-svg-m2" class="trend-svg" viewBox="0 0 300 96" preserveAspectRatio="none"></svg>
+          <div id="trend-status-m2" class="trend-status">Waiting for chart service…</div>
+        </article>
+        <article class="trend-card">
+          <div class="trend-title"><span>machine-003 (inlet · outlet · motor)</span><span id="trend-last-m3">--</span></div>
+          <div class="trend-legend" aria-label="trend legend">
+            <span class="trend-legend-item"><span class="trend-dot inlet"></span>inlet</span>
+            <span class="trend-legend-item"><span class="trend-dot outlet"></span>outlet</span>
+            <span class="trend-legend-item"><span class="trend-dot motor"></span>motor</span>
+          </div>
+          <svg id="trend-svg-m3" class="trend-svg" viewBox="0 0 300 96" preserveAspectRatio="none"></svg>
+          <div id="trend-status-m3" class="trend-status">Waiting for chart service…</div>
+        </article>
+      </div>
+    </section>
   </section>
 </div>
 
@@ -447,7 +684,7 @@
     total: 0, suppressed: 0, forwarded: 0,
     warnings: 0, alerts: 0,
     llm_total: 0, llm_skipped: 0,
-    /** Cards from dc/v1/pipeline/alerts (anomaly_service) */
+    // Cards from dc/<site>/v1/pipeline/alerts (anomaly_service)
     alertCards: 0,
     /** WARNING/CRITICAL rows mirrored from sketch topic when rule alerts are absent */
     sketchEscalationCards: 0
@@ -461,6 +698,405 @@
   ]);
   const twinState = {};
   const TWIN_STALE_MS = 45000;
+  const CHART_QUERY_BASE_URL = window.localStorage.getItem('chartQueryBaseUrl') || 'http://127.0.0.1:8010';
+  const TREND_GROUPS = [
+    {
+      key: 'm1',
+      sensors: ['m1-temp-inlet', 'm1-temp-outlet', 'm1-temp-motor'],
+      labels: ['inlet', 'outlet', 'motor']
+    },
+    {
+      key: 'm2',
+      sensors: ['m2-temp-inlet', 'm2-temp-outlet', 'm2-temp-motor'],
+      labels: ['inlet', 'outlet', 'motor']
+    },
+    {
+      key: 'm3',
+      sensors: ['m3-temp-inlet', 'm3-temp-outlet', 'm3-temp-motor'],
+      labels: ['inlet', 'outlet', 'motor']
+    }
+  ];
+  let twinTrendTimer = null;
+
+  /** Shared layout for twin sliders + 2s stream tick (same as demo_publisher machines/sensors). */
+  const TWIN_SLIDER_GROUPS = [
+    {
+      machine: 'machine-001',
+      title: 'machine-001 · stable',
+      rows: [
+        { id: 'm1-temp-inlet', role: 'Inlet', def: 38 },
+        { id: 'm1-temp-outlet', role: 'Outlet', def: 48 },
+        { id: 'm1-temp-motor', role: 'Motor', def: 52 }
+      ]
+    },
+    {
+      machine: 'machine-002',
+      title: 'machine-002 · spiky',
+      rows: [
+        { id: 'm2-temp-inlet', role: 'Inlet', def: 39 },
+        { id: 'm2-temp-outlet', role: 'Outlet', def: 49 },
+        { id: 'm2-temp-motor', role: 'Motor', def: 54 }
+      ]
+    },
+    {
+      machine: 'machine-003',
+      title: 'machine-003 · hot',
+      rows: [
+        { id: 'm3-temp-inlet', role: 'Inlet', def: 42 },
+        { id: 'm3-temp-outlet', role: 'Outlet', def: 53 },
+        { id: 'm3-temp-motor', role: 'Motor', def: 58 }
+      ]
+    }
+  ];
+
+  /** Six distinct sensors ≥65°C zone after sketch; +3 stay cooler via burst for 9-way fleet map. */
+  const FLEET_CRITICAL_DEMO_PRESET = [
+    { id: 'm1-temp-motor', machine: 'machine-001', temp: 72 },
+    { id: 'm2-temp-inlet', machine: 'machine-002', temp: 71 },
+    { id: 'm2-temp-outlet', machine: 'machine-002', temp: 70 },
+    { id: 'm2-temp-motor', machine: 'machine-002', temp: 74 },
+    { id: 'm3-temp-inlet', machine: 'machine-003', temp: 70 },
+    { id: 'm3-temp-motor', machine: 'machine-003', temp: 74 }
+  ];
+
+  const MQTT_DC_TOPIC_VERSION = 'v1';
+  const urlParams = typeof URLSearchParams !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const _dcBrokerParam = (urlParams && urlParams.get('dcBroker')) || '';
+  const DC_BROKER_SITE = /^[A-Za-z0-9_-]+$/.test(String(_dcBrokerParam).trim())
+    ? String(_dcBrokerParam).trim()
+    : 'Hub';
+  const PIPELINE_PREFIX = 'dc/' + DC_BROKER_SITE + '/' + MQTT_DC_TOPIC_VERSION;
+  const DEFAULT_RAW_TOPIC_BASE = PIPELINE_PREFIX + '/raw/dc1/hall-a/row-a3/rack-12';
+  const LS_RAW_TOPIC_BASE = 'mqttRawTopicBase';
+  const LS_TWIN_STREAM = 'mqttTwinStreamPublish';
+  let twinManualSeq = 0;
+  const twinPublishTimers = {};
+  let manualTrendRefreshTimer = null;
+  let continuousPublishTimer = null;
+  const TWIN_STREAM_INTERVAL_MS = 2000;
+
+  function matchesDcPipelineTopic(topic, leaf) {
+    const t = topic || '';
+    const esc = leaf.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp('^dc/[^/]+/' + MQTT_DC_TOPIC_VERSION + '/pipeline/' + esc + '$').test(t);
+  }
+  function matchesDcSketchSubtopic(topic) {
+    return new RegExp('^dc/[^/]+/' + MQTT_DC_TOPIC_VERSION + '/sketch/').test(topic || '');
+  }
+  function matchesDcRawSubtopic(topic) {
+    return new RegExp('^dc/[^/]+/' + MQTT_DC_TOPIC_VERSION + '/raw/').test(topic || '');
+  }
+
+  function migrateLegacyRawTopicBase(s) {
+    if (!s || typeof s !== 'string') return s;
+    if (s.indexOf('dc/v1/') === 0) {
+      return 'dc/Hub/v1/' + s.slice('dc/v1/'.length);
+    }
+    return s;
+  }
+  function parseLocationFromRawBase(rawBase) {
+    const parts = String(rawBase || '').replace(/\/+$/, '').split('/');
+    const ri = parts.indexOf('raw');
+    if (ri < 0) {
+      return { site: 'dc1', room: 'hall-a', row: 'row-a3', rack: 'rack-12' };
+    }
+    const suf = parts.slice(ri + 1);
+    return {
+      site: suf[0] || 'dc1',
+      room: suf[1] || 'hall-a',
+      row: suf[2] || 'row-a3',
+      rack: suf[3] || 'rack-12'
+    };
+  }
+
+  /** Match pipeline_config.parse_raw_topic_with_temperature (dashboard display). */
+  function parseTemperatureFromDcRawTopic(topic) {
+    const parts = String(topic || '').split('/');
+    const ri = parts.indexOf('raw');
+    if (ri < 0) return null;
+    const suffix = parts.slice(ri + 1);
+    if (suffix.length >= 2 && String(suffix[suffix.length - 2]).toLowerCase() === 'temperature') {
+      const v = parseFloat(suffix[suffix.length - 1]);
+      if (!Number.isNaN(v)) return v;
+    }
+    if (suffix.length >= 7) {
+      const v = parseFloat(suffix[suffix.length - 1]);
+      if (!Number.isNaN(v)) return v;
+    }
+    return null;
+  }
+
+  function getRawTopicBase() {
+    const top = document.getElementById('cfg-raw-base-top');
+    const twin = document.getElementById('cfg-raw-base');
+    const v = ((twin && twin.value.trim()) || (top && top.value.trim()) || '').replace(/\/+$/, '');
+    return migrateLegacyRawTopicBase(v || DEFAULT_RAW_TOPIC_BASE);
+  }
+
+  function saveRawTopicBaseToLS() {
+    try {
+      localStorage.setItem(LS_RAW_TOPIC_BASE, getRawTopicBase());
+    } catch (e) { /* ignore */ }
+  }
+
+  function syncRawBaseInputsFromLS() {
+    let saved = DEFAULT_RAW_TOPIC_BASE;
+    try {
+      saved = migrateLegacyRawTopicBase(localStorage.getItem(LS_RAW_TOPIC_BASE) || DEFAULT_RAW_TOPIC_BASE);
+    } catch (e) { /* ignore */ }
+    const top = document.getElementById('cfg-raw-base-top');
+    const twin = document.getElementById('cfg-raw-base');
+    if (top) top.value = saved;
+    if (twin) twin.value = saved;
+  }
+
+  function wireRawBaseInputSync() {
+    const top = document.getElementById('cfg-raw-base-top');
+    const twin = document.getElementById('cfg-raw-base');
+    function mirror(from, to) {
+      if (to && from) to.value = from.value;
+      saveRawTopicBaseToLS();
+    }
+    if (top) top.addEventListener('input', () => mirror(top, twin));
+    if (twin) twin.addEventListener('input', () => mirror(twin, top));
+  }
+
+  function syncTwinStreamCheckboxFromLS() {
+    const el = document.getElementById('twin-stream-publish');
+    if (!el) return;
+    try {
+      const v = localStorage.getItem(LS_TWIN_STREAM);
+      if (v === '0') el.checked = false;
+      else if (v === '1') el.checked = true;
+    } catch (e) { /* ignore */ }
+  }
+
+  function wireTwinStreamCheckbox() {
+    const el = document.getElementById('twin-stream-publish');
+    if (!el) return;
+    el.addEventListener('change', () => {
+      try {
+        localStorage.setItem(LS_TWIN_STREAM, el.checked ? '1' : '0');
+      } catch (e) { /* ignore */ }
+      if (mqttClient && mqttClient.isConnected()) startContinuousPublishTimer();
+    });
+  }
+
+  function isTwinStreamPublishEnabled() {
+    const el = document.getElementById('twin-stream-publish');
+    return el ? el.checked : true;
+  }
+
+  function stopContinuousPublishTimer() {
+    if (continuousPublishTimer) {
+      clearInterval(continuousPublishTimer);
+      continuousPublishTimer = null;
+    }
+  }
+
+  function startContinuousPublishTimer() {
+    stopContinuousPublishTimer();
+    if (!mqttClient || !mqttClient.isConnected()) return;
+    if (!isTwinStreamPublishEnabled()) return;
+    tickTwinContinuousPublish();
+    continuousPublishTimer = setInterval(tickTwinContinuousPublish, TWIN_STREAM_INTERVAL_MS);
+  }
+
+  function tickTwinContinuousPublish() {
+    if (!mqttClient || !mqttClient.isConnected()) {
+      stopContinuousPublishTimer();
+      return;
+    }
+    if (!isTwinStreamPublishEnabled()) return;
+    let n = 0;
+    TWIN_SLIDER_GROUPS.forEach((g) => {
+      g.rows.forEach((row) => {
+        const r = document.getElementById('twin-manual-range-' + row.id);
+        if (!r) return;
+        publishTwinManualRaw(row.id, g.machine, r.value, { quiet: true });
+        n++;
+      });
+    });
+    if (n > 0) {
+      touchPulse('raw');
+      const stEl = document.getElementById('twin-manual-status');
+      if (stEl) {
+        stEl.textContent =
+          'Stream: published ' + n + ' sensors · ' +
+          new Date().toLocaleTimeString('en-US', { hour12: false });
+      }
+      scheduleTrendRefreshAfterManual();
+    }
+  }
+
+  /** Slider thumb track + value text color vs pipeline deadband zones (58°C / 65°C). */
+  function updateSliderHeatVisual(sensorId, temp) {
+    const r = document.getElementById('twin-manual-range-' + sensorId);
+    const v = document.getElementById('twin-manual-val-' + sensorId);
+    const z = classifyZoneFromTemp(temp);
+    if (r) {
+      r.classList.remove('twin-heat-NORMAL', 'twin-heat-WARNING', 'twin-heat-CRITICAL');
+      r.classList.add('twin-heat-' + z);
+    }
+    if (v) {
+      v.classList.remove('twin-heat-NORMAL', 'twin-heat-WARNING', 'twin-heat-CRITICAL');
+      v.classList.add('twin-heat-' + z);
+    }
+  }
+
+  function updateTwinManualUiEnabled() {
+    const connected = !!(mqttClient && mqttClient.isConnected());
+    document.querySelectorAll('.twin-manual-row').forEach((row) => {
+      row.classList.toggle('twin-manual-row--disabled', !connected);
+    });
+    const demoBtn = document.getElementById('twin-demo-fleet-critical-btn');
+    if (demoBtn) demoBtn.disabled = !connected;
+    const pan = document.getElementById('twin-manual-panel');
+    if (pan) pan.style.opacity = connected ? '' : '0.92';
+  }
+
+  function applyFleetCriticalDemoPreset() {
+    if (!mqttClient || !mqttClient.isConnected()) return;
+    FLEET_CRITICAL_DEMO_PRESET.forEach(({ id, temp }) => {
+      const r = document.getElementById('twin-manual-range-' + id);
+      const v = document.getElementById('twin-manual-val-' + id);
+      if (!r) return;
+      r.value = String(temp);
+      if (v) v.textContent = temp.toFixed(1) + '°C';
+      updateSliderHeatVisual(id, temp);
+      updateTwinSensor(id, classifyZoneFromTemp(temp), temp);
+    });
+    tickTwinContinuousPublish();
+    const stEl = document.getElementById('twin-manual-status');
+    if (stEl) {
+      stEl.textContent =
+        'Demo preset: 6 sensors ≥70°C + publish all 9. For LLM: need ≥50% CRITICAL (set FLEET_CRITICAL_FRACTION in .env to lower) · ~10s fleet + 60s debounce';
+    }
+  }
+
+  function wireFleetCriticalDemoButton() {
+    const b = document.getElementById('twin-demo-fleet-critical-btn');
+    if (b) b.addEventListener('click', () => applyFleetCriticalDemoPreset());
+  }
+
+  function publishTwinManualRaw(sensorId, machineId, temp, opts) {
+    opts = opts || {};
+    const quiet = !!opts.quiet;
+    if (!mqttClient || !mqttClient.isConnected()) return;
+    const base = getRawTopicBase();
+    const inTopicEl = document.getElementById('twin-temp-in-topic');
+    const inTopic = inTopicEl ? inTopicEl.checked : true;
+    const t = Number(temp);
+    if (Number.isNaN(t)) return;
+    const loc = parseLocationFromRawBase(base);
+    const topic = inTopic
+      ? base + '/' + machineId + '/supply_temp_c/' + t.toFixed(2)
+      : base + '/' + machineId + '/supply_temp_c';
+    const stype = sensorId.indexOf('inlet') >= 0 ? 'inlet'
+      : (sensorId.indexOf('outlet') >= 0 ? 'outlet' : 'motor');
+    twinManualSeq++;
+    const d = new Date();
+    const ts = d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const payload = {
+      schema: 'dc.raw.v1',
+      schemaRevision: '1.0.0',
+      sensorId: sensorId,
+      machineId: machineId,
+      sensorType: stype,
+      site: loc.site,
+      room: loc.room,
+      row: loc.row,
+      rack: loc.rack,
+      asset: machineId,
+      metric: 'supply_temp_c',
+      sourceProtocol: 'MANUAL_SLIDER',
+      unit: 'C',
+      quality: 'GOOD',
+      timestamp: ts,
+      eventType: 'MANUAL',
+      sequence: twinManualSeq
+    };
+    if (!inTopic) {
+      const rounded = Math.round(t * 100) / 100;
+      payload.temperature = rounded;
+      payload.value = rounded;
+    }
+    const msg = new Paho.MQTT.Message(JSON.stringify(payload));
+    msg.destinationName = topic;
+    msg.qos = 0;
+    mqttClient.send(msg);
+
+    /* Broker often does not deliver self-publishes to this session — update twin + charts locally. */
+    updateTwinSensor(sensorId, classifyZoneFromTemp(t), t);
+    updateSliderHeatVisual(sensorId, t);
+    if (!quiet) {
+      touchPulse('raw');
+      const stEl = document.getElementById('twin-manual-status');
+      if (stEl) {
+        stEl.textContent =
+          'Published ' + sensorId + ' @ ' + t.toFixed(1) + ' °C · ' +
+          new Date().toLocaleTimeString('en-US', { hour12: false });
+      }
+      scheduleTrendRefreshAfterManual();
+    }
+  }
+
+  function scheduleTwinManualPublish(sensorId, machineId, temp) {
+    if (isTwinStreamPublishEnabled()) return;
+    if (twinPublishTimers[sensorId]) clearTimeout(twinPublishTimers[sensorId]);
+    twinPublishTimers[sensorId] = setTimeout(() => {
+      publishTwinManualRaw(sensorId, machineId, temp);
+      twinPublishTimers[sensorId] = null;
+    }, 120);
+  }
+
+  function scheduleTrendRefreshAfterManual() {
+    if (manualTrendRefreshTimer) clearTimeout(manualTrendRefreshTimer);
+    manualTrendRefreshTimer = setTimeout(() => {
+      manualTrendRefreshTimer = null;
+      refreshTwinTrends();
+    }, 1200);
+  }
+
+  function initTwinManualSliders() {
+    const host = document.getElementById('twin-manual-sliders');
+    if (!host) return;
+    const groups = TWIN_SLIDER_GROUPS;
+    host.innerHTML = groups.map((g) => `
+      <div class="twin-manual-machine" data-machine="${g.machine}">
+        <h4 class="twin-manual-machine-title">${g.title}</h4>
+        <div class="twin-manual-machine-inner">
+          ${g.rows.map((row) => `
+            <div class="twin-manual-row twin-manual-row--disabled" data-sensor="${row.id}" data-machine="${g.machine}">
+              <label>
+                <span><strong>${row.role}</strong> · <code>${row.id}</code></span>
+                <span class="twin-manual-val" id="twin-manual-val-${row.id}">${row.def.toFixed(1)}°C</span>
+              </label>
+              <input type="range" min="15" max="90" step="0.5" value="${row.def}"
+                id="twin-manual-range-${row.id}" aria-label="${row.role} ${g.machine}" />
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `).join('');
+    groups.forEach((g) => {
+      g.rows.forEach((row) => {
+        const r = document.getElementById('twin-manual-range-' + row.id);
+        const v = document.getElementById('twin-manual-val-' + row.id);
+        if (!r || !v) return;
+        const t0 = Number(r.value);
+        updateSliderHeatVisual(row.id, t0);
+        r.addEventListener('input', () => {
+          const tv = Number(r.value);
+          v.textContent = tv.toFixed(1) + '°C';
+          updateSliderHeatVisual(row.id, tv);
+          updateTwinSensor(row.id, classifyZoneFromTemp(tv), tv);
+          scheduleTwinManualPublish(row.id, g.machine, r.value);
+        });
+      });
+    });
+    updateTwinManualUiEnabled();
+  }
 
   function normalizeTwinZone(z) {
     if (z === 'WARNING' || z === 'CRITICAL' || z === 'NORMAL') return z;
@@ -521,6 +1157,12 @@
     setInterval(tickTwinStale, 8000);
   }
   setupTwinUi();
+  syncRawBaseInputsFromLS();
+  syncTwinStreamCheckboxFromLS();
+  wireRawBaseInputSync();
+  wireTwinStreamCheckbox();
+  initTwinManualSliders();
+  wireFleetCriticalDemoButton();
 
   function now() {
     return new Date().toLocaleTimeString('en-US', {hour12: false});
@@ -541,7 +1183,7 @@
     el.textContent = n + ' items';
   }
 
-  /** Mirror WARNING/CRITICAL sketches into column 3 — distinct from rule alerts on dc/v1/pipeline/alerts (anomaly_service). */
+  /** Mirror WARNING/CRITICAL sketches into column 3 — distinct from rule alerts on dc/<site>/v1/pipeline/alerts (anomaly_service). */
   function prependSketchEscalationForColumn3(sensorId, zone, temp, sketch) {
     if (zone !== 'WARNING' && zone !== 'CRITICAL') return;
     stats.sketchEscalationCards++;
@@ -559,7 +1201,7 @@
           <span class="ev-time">${now()}</span>
         </div>
         <div class="ev-body" style="margin-bottom:6px;">
-          <strong>Sketch escalation</strong> — same MQTT stream as column 2. Cards on <code style="color:#60a5fa">dc/v1/pipeline/alerts</code> only appear when <code>anomaly_service.py</code> publishes rule alerts (run it beside sketch if that pulse stays idle).
+          <strong>Sketch escalation</strong> — same MQTT stream as column 2. Cards on <code style="color:#60a5fa">dc/Hub/v1/pipeline/alerts</code> (or same under DC1/DC2) only appear when <code>anomaly_service.py</code> publishes rule alerts (run it beside sketch if that pulse stays idle).
         </div>
         <div class="ev-temp ${zClass}">${Number(temp).toFixed(1)}°C</div>
         <div class="ev-sketch" style="margin-top:6px;">${escSketch}</div>
@@ -633,7 +1275,7 @@
           el.classList.add('stale');
           el.textContent = label + ' · idle (no publishes · OK if NORMAL-only)';
           el.title =
-            'No messages on dc/v1/pipeline/alerts. Expected when every sketch is NORMAL; otherwise run anomaly_service.py.';
+            'No messages on dc/+/v1/pipeline/alerts. Expected when every sketch is NORMAL; otherwise run anomaly_service.py.';
         } else {
           el.classList.add('off');
           el.textContent = label + ' · —';
@@ -656,7 +1298,7 @@
     '<div id="col-alert-empty" class="alert-empty">' +
       '<strong>Column 3 · rule alerts + sketch escalations</strong>' +
       '<div class="alert-empty-sub">' +
-        '<strong>Purple-bordered cards</strong> mirror WARNING/CRITICAL sketch rows. <strong>Red rule-style cards</strong> require <code>anomaly_service.py</code> on <code>dc/v1/pipeline/alerts</code>.' +
+        '<strong>Purple-bordered cards</strong> mirror WARNING/CRITICAL sketch rows. <strong>Red rule-style cards</strong> require <code>anomaly_service.py</code> on <code>dc/&lt;site&gt;/v1/pipeline/alerts</code>.' +
       '</div>' +
       '<div id="col-alert-live-hint" class="alert-live-hint" aria-live="polite"></div>' +
     '</div>';
@@ -790,6 +1432,7 @@
       return;
     }
 
+    stopContinuousPublishTimer();
     if (mqttClient) { try { mqttClient.disconnect(); } catch(e){} }
 
     mqttClient = new Paho.MQTT.Client(host, port, path, 'dashboard-' + Date.now());
@@ -797,6 +1440,8 @@
     mqttClient.onConnectionLost = (r) => {
       document.getElementById('conn-badge').className = 'conn-badge';
       document.getElementById('conn-badge').textContent = '● Disconnected';
+      stopContinuousPublishTimer();
+      updateTwinManualUiEnabled();
     };
 
     mqttClient.onMessageArrived = handleMessage;
@@ -810,13 +1455,13 @@
         document.getElementById('conn-badge').textContent = '● Connected';
         resetDashboardOnConnect();
         // Subscribe to new versioned topics
-        mqttClient.subscribe('dc/v1/raw/#');
-        mqttClient.subscribe('dc/v1/pipeline/suppressed');
-        mqttClient.subscribe('dc/v1/pipeline/filtered');
-        mqttClient.subscribe('dc/v1/pipeline/sketched');
-        mqttClient.subscribe('dc/v1/pipeline/alerts');
-        mqttClient.subscribe('dc/v1/sketch/#');
-        /* Do NOT subscribe to dc/v1/event/# here — SAM/agents publish unrelated payloads that were rendered as "garbage" in column 3. Anomaly duplicates alerts on dc/v1/pipeline/alerts anyway. */
+        mqttClient.subscribe('dc/+/v1/raw/#');
+        mqttClient.subscribe('dc/+/v1/pipeline/suppressed');
+        mqttClient.subscribe('dc/+/v1/pipeline/filtered');
+        mqttClient.subscribe('dc/+/v1/pipeline/sketched');
+        mqttClient.subscribe('dc/+/v1/pipeline/alerts');
+        mqttClient.subscribe('dc/+/v1/sketch/#');
+        /* Do NOT subscribe to dc/+/v1/event/# here — SAM/agents publish unrelated payloads that were rendered as "garbage" in column 3. Anomaly duplicates alerts on dc/<site>/v1/pipeline/alerts anyway. */
 
         // Legacy compatibility (optional)
         mqttClient.subscribe('sensors/temperature/#');
@@ -824,10 +1469,14 @@
         mqttClient.subscribe('sensors/pipeline/filtered');    // from deadband_service
         mqttClient.subscribe('sensors/pipeline/sketched');    // from sketch_service
         mqttClient.subscribe('sensors/pipeline/alerts');      // from anomaly_service
+        updateTwinManualUiEnabled();
+        startContinuousPublishTimer();
       },
       onFailure: (e) => {
         document.getElementById('conn-badge').className = 'conn-badge';
         document.getElementById('conn-badge').textContent = '● Disconnected';
+        stopContinuousPublishTimer();
+        updateTwinManualUiEnabled();
         alert('Connection failed: ' + e.errorMessage);
       }
     });
@@ -837,33 +1486,39 @@
     try {
       const topic   = msg.destinationName;
       const payload = JSON.parse(msg.payloadString);
-      const isRawTopic = topic.startsWith('sensors/temperature/') || topic.startsWith('dc/v1/raw/');
-      const isSuppressedTopic = topic === 'sensors/pipeline/suppressed' || topic === 'dc/v1/pipeline/suppressed';
-      const isFilteredTopic = topic === 'sensors/pipeline/filtered' || topic === 'dc/v1/pipeline/filtered';
+      const isRawTopic = topic.startsWith('sensors/temperature/') || matchesDcRawSubtopic(topic);
+      const isSuppressedTopic = topic === 'sensors/pipeline/suppressed' || matchesDcPipelineTopic(topic, 'suppressed');
+      const isFilteredTopic = topic === 'sensors/pipeline/filtered' || matchesDcPipelineTopic(topic, 'filtered');
       const isSketchedTopic =
         topic === 'sensors/pipeline/sketched' ||
-        topic === 'dc/v1/pipeline/sketched' ||
-        topic.startsWith('dc/v1/sketch/');
-      /* Flat anomaly topic only (see subscribe comment — not hierarchical dc/v1/event/#). */
+        matchesDcPipelineTopic(topic, 'sketched') ||
+        matchesDcSketchSubtopic(topic);
+      /* Flat anomaly topic only (see subscribe comment — not hierarchical dc/<site>/v1/event/#). */
       const isPipelineAlertsTopic =
         topic === 'sensors/pipeline/alerts' ||
-        topic === 'dc/v1/pipeline/alerts';
+        matchesDcPipelineTopic(topic, 'alerts');
 
       // ── Raw sensor events (from publisher) ──────────────────────────────
       if (isRawTopic) {
         stats.total++;
-        const et   = payload.eventType || 'NORMAL';
-        const zone = et === 'ANOMALY' ? 'CRITICAL' : (et === 'NOISY' ? 'WARNING' : 'NORMAL');
-        const icon = {NORMAL:'🟢', NOISY:'🟡', ANOMALY:'🔴'}[et] || '⚪';
-        const rawTemp = payload.temperature ?? payload.value ?? 0;
+        const et = payload.eventType || 'NORMAL';
+        const topicTemp = parseTemperatureFromDcRawTopic(topic);
+        const rawTemp = (topicTemp != null && !Number.isNaN(topicTemp))
+          ? topicTemp
+          : (payload.temperature ?? payload.value ?? 0);
         const rawSensor = payload.sensorId || payload.asset || payload.metric || 'unknown-sensor';
+        const isManual = et === 'MANUAL' || payload.sourceProtocol === 'MANUAL_SLIDER';
+        const zone = isManual
+          ? classifyZoneFromTemp(rawTemp)
+          : (et === 'ANOMALY' ? 'CRITICAL' : (et === 'NOISY' ? 'WARNING' : 'NORMAL'));
+        const icon = isManual ? '🎛' : ({ NORMAL: '🟢', NOISY: '🟡', ANOMALY: '🔴' }[et] || '⚪');
 
         prependCard('col-raw', `
           <div class="event-card ${zone}">
             <div class="ev-header">
               <span>${icon}</span>
               <span class="ev-sensor">${rawSensor}</span>
-              <span class="zone-pill ${zone}">${et}</span>
+              <span class="zone-pill ${zone}">${isManual ? 'MANUAL' : et}</span>
               <span class="ev-time">${now()}</span>
             </div>
             <div class="ev-temp ${zone}">${Number(rawTemp).toFixed(1)}°C</div>
@@ -994,6 +1649,111 @@
     }
   }
 
+  function classifyZoneFromTemp(temp) {
+    const t = Number(temp);
+    if (Number.isNaN(t)) return "NORMAL";
+    if (t >= 65) return "CRITICAL";
+    if (t >= 58) return "WARNING";
+    return "NORMAL";
+  }
+
+  function renderTrendSvg(svgId, seriesList) {
+    const svg = document.getElementById(svgId);
+    if (!svg) return;
+    const validSeries = Array.isArray(seriesList)
+      ? seriesList.filter((series) => Array.isArray(series.values) && series.values.length >= 2)
+      : [];
+    if (validSeries.length === 0) {
+      svg.innerHTML = "";
+      return;
+    }
+    const w = 300, h = 96, pad = 6;
+    const allValues = validSeries.flatMap((series) => series.values);
+    const min = Math.min(...allValues);
+    const max = Math.max(...allValues);
+    const span = Math.max(0.001, max - min);
+    const palette = ["#38bdf8", "#a78bfa", "#00c176"];
+    const polylines = validSeries.map((series, idx) => {
+      const points = series.values.map((v, i) => {
+        const x = pad + (i * (w - pad * 2)) / (series.values.length - 1);
+        const y = h - pad - ((v - min) / span) * (h - pad * 2);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(" ");
+      return `<polyline fill="none" stroke="${palette[idx % palette.length]}" stroke-width="2.0" points="${points}" />`;
+    }).join("");
+    svg.innerHTML = `
+      <rect x="0" y="0" width="${w}" height="${h}" fill="rgba(10,15,30,0.55)"/>
+      ${polylines}
+    `;
+  }
+
+  async function refreshTwinTrends() {
+    const meta = document.getElementById("twin-trends-meta");
+    if (meta) meta.textContent = "Updating…";
+    let ok = 0;
+    for (const group of TREND_GROUPS) {
+      const statusEl = document.getElementById(`trend-status-${group.key}`);
+      const lastEl = document.getElementById(`trend-last-${group.key}`);
+      const seriesList = [];
+      const lastParts = [];
+      let worstZone = "NORMAL";
+      for (let i = 0; i < group.sensors.length; i++) {
+        const sensorId = group.sensors[i];
+        const label = group.labels[i];
+        try {
+          const u = new URL(`${CHART_QUERY_BASE_URL}/series`);
+          u.searchParams.set("sensor_id", sensorId);
+          u.searchParams.set("minutes", "30");
+          u.searchParams.set("max_points", "60");
+          const r = await fetch(u.toString());
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const j = await r.json();
+          const vals = Array.isArray(j.values) ? j.values.map(Number).filter((v)=>!Number.isNaN(v)) : [];
+          if (vals.length > 0) {
+            seriesList.push({ sensorId, label, values: vals });
+            const last = vals[vals.length - 1];
+            const z = classifyZoneFromTemp(last);
+            if (z === "CRITICAL") worstZone = "CRITICAL";
+            else if (z === "WARNING" && worstZone !== "CRITICAL") worstZone = "WARNING";
+            lastParts.push(`${label} ${last.toFixed(1)}°C`);
+          }
+        } catch (e) {
+          // Keep rendering any successful series from this machine.
+        }
+      }
+
+      renderTrendSvg(`trend-svg-${group.key}`, seriesList);
+      if (seriesList.length > 0) {
+        if (lastEl) lastEl.textContent = lastParts.join(" · ");
+        if (statusEl) {
+          statusEl.className = `trend-status trend-zone-${worstZone}`;
+          statusEl.textContent = `${worstZone} · ${seriesList.length}/3 devices`;
+        }
+        ok += 1;
+      } else {
+        if (lastEl) lastEl.textContent = "--";
+        if (statusEl) {
+          statusEl.className = "trend-status";
+          statusEl.textContent = "Chart service unavailable";
+        }
+      }
+    }
+    if (meta) meta.textContent = ok > 0 ? `30m · ${new Date().toLocaleTimeString("en-US", {hour12:false})}` : "No trend data";
+  }
+
+  function startTwinTrendRefresh() {
+    if (twinTrendTimer) clearInterval(twinTrendTimer);
+    refreshTwinTrends();
+    twinTrendTimer = setInterval(refreshTwinTrends, 15000);
+  }
+
+  function stopTwinTrendRefresh() {
+    if (twinTrendTimer) {
+      clearInterval(twinTrendTimer);
+      twinTrendTimer = null;
+    }
+  }
+
   function setupDashTabs() {
     const tabP = document.getElementById('tab-pipeline');
     const tabT = document.getElementById('tab-twin');
@@ -1013,6 +1773,7 @@
         const base = window.location.href.split('#')[0];
         window.history.replaceState(null, '', base);
       }
+      stopTwinTrendRefresh();
     }
 
     function goTwin() {
@@ -1027,6 +1788,7 @@
         const base = window.location.href.split('#')[0];
         window.history.replaceState(null, '', base + '#twin');
       }
+      startTwinTrendRefresh();
     }
 
     tabP.addEventListener('click', goPipeline);

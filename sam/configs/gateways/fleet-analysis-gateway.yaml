@@ -29,7 +29,7 @@ log:
 
 apps:
   - name: fleet-analysis-gateway-app
-    app_module: solace_agent_mesh.gateway.event_mesh.app
+    app_module: sam_event_mesh_gateway.app
     broker:
       <<: *broker_connection
       # Override with data plane broker if different from control plane
@@ -40,6 +40,12 @@ apps:
 
     app_config:
       namespace: "${NAMESPACE}"
+      # Data-plane broker config required by sam-event-mesh-gateway plugin
+      event_mesh_broker_config:
+        broker_url: ${SOLACE_BROKER_URL}
+        broker_vpn: ${SOLACE_BROKER_VPN}
+        broker_username: ${SOLACE_BROKER_USERNAME}
+        broker_password: ${SOLACE_BROKER_PASSWORD}
       
       # Event handlers define what events trigger the gateway
       event_handlers:
@@ -48,36 +54,32 @@ apps:
           subscriptions:
             - topic: "sensors/fleet/analysis-request"
               qos: 1
+          target_agent_name: "FleetQueryAgent"
+          # Data-plane events don't carry end-user claims; stamp service identity.
+          default_user_identity: "fleet-analysis-automation"
           
           # Transform the incoming JSON event into a prompt for the agent
-          input_expression: |
-            template:
-              FLEET CRITICAL EVENT - Automatic Analysis Triggered
-              
-              Event Details:
-              - Fleet Status: {{payload.fleet_status}}
-              - Critical Sensors: {{payload.critical_count}}/{{payload.active_sensors}}
-              - Affected Sensors: {{payload.sensors | join(', ') if payload.sensors else 'Unknown'}}
-              - Average Temperature: {{payload.average_temperature}}°C
-              - Notes: {{payload.notes}}
-              - Timestamp: {{payload.timestamp}}
-              - Events Collected: {{payload.events_collected}}
-              
-              Please analyze this fleet-wide critical event:
-              1. Use get_sketches() to see recent sensor behavior for affected sensors
-              2. Use get_recent_alerts() to see the alert pattern
-              3. Determine if this is a correlated event (shared cause like HVAC/power)
-                 or independent sensor failures
-              4. Provide root cause hypotheses ranked by likelihood
-              5. Recommend immediate actions for operators
-              
-              Format your response for Slack with emoji indicators.
+          input_expression: "template:FLEET CRITICAL EVENT - Automatic Analysis Triggered. Analyze this payload and provide concise Slack-ready output with severity, likely causes, and immediate actions. Payload: {{json://input.payload}}"
           
           payload_encoding: "utf-8"
           payload_format: "json"
+          on_success: "fleet_analysis_success"
+          on_error: "fleet_analysis_error"
       
       # Route to Fleet Query Agent
       default_agent_name: "FleetQueryAgent"
+
+      output_handlers:
+        - name: "fleet_analysis_success"
+          topic_expression: "static:sensors/fleet/analysis-response"
+          payload_expression: "task_response:text"
+          payload_encoding: "utf-8"
+          payload_format: "text"
+        - name: "fleet_analysis_error"
+          topic_expression: "static:sensors/fleet/analysis-error"
+          payload_expression: "task_response:a2a_task_response.error"
+          payload_encoding: "utf-8"
+          payload_format: "json"
       
       # Artifact service for any attachments
       artifact_service: *default_artifact_service
@@ -100,6 +102,11 @@ apps:
       # Response handling - publish to response topic
       # The Slack gateway or other consumers can subscribe to this
       response_topic: "sensors/fleet/analysis-response"
+
+      # This gateway is fed by internal broker events (no user JWT claims on message).
+      # Provide a stable service identity so AuthAndEnrich does not discard triggers.
+      default_user_identity: "fleet-analysis-automation"
+      force_user_identity: "fleet-analysis-automation"
       
       # Authorization (none for internal automated triggers)
       authorization_service:

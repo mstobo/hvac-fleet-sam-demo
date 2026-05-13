@@ -53,6 +53,13 @@ class SlackNotifier:
         self._recent_alerts = set()
         self._alert_ttl = 300  # 5 minutes
         
+        # Sensor-level dedupe: suppress repeated CRITICAL posts for same sensor
+        # within a configurable window, regardless of minor temperature jitter.
+        self._sensor_alert_dedupe = {}
+        self._sensor_alert_dedupe_seconds = int(
+            os.getenv("SLACK_SENSOR_DEDUPE_SECONDS", "300")
+        )
+        
         self._initialize()
     
     def _initialize(self):
@@ -102,6 +109,16 @@ class SlackNotifier:
         
         threading.Thread(target=cleanup, daemon=True).start()
         return False
+
+    def _is_sensor_deduped(self, sensor_id: str, severity: str) -> bool:
+        """Check if the same sensor/severity was recently posted."""
+        now = time.time()
+        key = f"{sensor_id}:{severity}"
+        last_time = self._sensor_alert_dedupe.get(key, 0.0)
+        if now - last_time < self._sensor_alert_dedupe_seconds:
+            return True
+        self._sensor_alert_dedupe[key] = now
+        return False
     
     def send_critical_alert(
         self,
@@ -129,6 +146,12 @@ class SlackNotifier:
         alert_key = f"{sensor_id}:{temperature:.1f}:{alert_type}"
         if self._is_duplicate(alert_key):
             print(f"[SlackNotifier] Duplicate skipped: {sensor_id}")
+            return False
+        
+        # Sensor-level dedupe to reduce repeated CRITICAL spam,
+        # even if alert_type changes (e.g., THRESHOLD_BREACH -> SPIKE).
+        if self._is_sensor_deduped(sensor_id, severity):
+            print(f"[SlackNotifier] Sensor dedupe skipped: {sensor_id} ({severity})")
             return False
         
         if timestamp is None:

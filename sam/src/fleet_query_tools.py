@@ -43,6 +43,65 @@ def _build_sketch_debug_block(sketch_count: int) -> Optional[dict]:
     }
 
 
+def _incident_telemetry_coverage(sensor_id: str) -> dict:
+    """
+    What this demo models per probe id (temperature-only streams), matching
+    demo_publisher telemetry_availability on raw/filtered MQTT.
+    """
+    sid = (sensor_id or "").lower()
+    if "temp-outlet" in sid or sid.endswith("outlet"):
+        return {
+            "summary": (
+                "Only outlet temperature telemetry is present in this incident bundle; "
+                "inlet airflow, humidity, and pressure signals are not included."
+            ),
+            "signals_present": ["outlet_temperature"],
+            "signals_not_in_bundle": [
+                "inlet_airflow",
+                "humidity",
+                "differential_pressure",
+            ],
+            "correlation_hint": (
+                "For cross-probe analysis, query inlet/motor sensor ids on the same machine separately."
+            ),
+        }
+    if "temp-inlet" in sid or sid.endswith("inlet"):
+        return {
+            "summary": (
+                "Only inlet temperature appears in this simulated stream; airflow, humidity, "
+                "and pressure are not included."
+            ),
+            "signals_present": ["inlet_temperature"],
+            "signals_not_in_bundle": [
+                "airflow",
+                "humidity",
+                "differential_pressure",
+            ],
+        }
+    if "temp-motor" in sid or sid.endswith("motor"):
+        return {
+            "summary": (
+                "Motor winding temperature only in this bundle; airflow, humidity, pressure, "
+                "and vibration are not modeled on this stream."
+            ),
+            "signals_present": ["motor_temperature"],
+            "signals_not_in_bundle": [
+                "inlet_airflow",
+                "humidity",
+                "differential_pressure",
+                "bearing_vibration",
+            ],
+        }
+    return {
+        "summary": (
+            "Demo telemetry is temperature-centric per probe; humidity, pressure, and "
+            "airflow are not included in this bundle unless integrated separately."
+        ),
+        "signals_present": ["temperature"],
+        "signals_not_in_bundle": ["inlet_airflow", "humidity", "differential_pressure"],
+    }
+
+
 def get_recent_alerts(minutes: int = 60, severity: str = None, limit: int = 20) -> str:
     """
     Query recent alerts from the sensor pipeline.
@@ -304,6 +363,7 @@ def get_incident_context(sensor_id: str, minutes: int = 90) -> str:
             "sensor_id": sensor_id,
             "time_window_minutes": minutes,
             "source_order": ["sketches", "sensor_details", "alerts"],
+            "telemetry_coverage": _incident_telemetry_coverage(sensor_id),
             "statistics": stats,
             "sketches": sketches,
             "recent_readings": readings,
