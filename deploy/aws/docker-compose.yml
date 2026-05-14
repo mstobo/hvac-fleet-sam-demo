@@ -1,0 +1,127 @@
+# Full mqtt5SRDemo stack on a single host (EC2 with Docker, or local smoke test).
+#
+# From repository root:
+#   ./deploy/aws/scripts/init-data-dir.sh
+#   docker build -f deploy/aws/Dockerfile -t mqtt5sr-demo:latest .
+#   docker compose -f deploy/aws/docker-compose.yml up -d
+#   (Default service env: deploy/aws/env.deploy.example. For production copy to
+#    deploy/aws/.env and run: ENV_FILE=.env docker compose -f deploy/aws/docker-compose.yml up -d)
+#
+# Optional Slack (needs SLACK_BOT_TOKEN / SLACK_APP_TOKEN in the env file):
+#   ENV_FILE=.env docker compose -f deploy/aws/docker-compose.yml --profile slack up -d
+#
+# Optional Java MQTT sample (second ECR image; set MQTT_BROKER_URL for Paho, e.g. ssl://...:8883):
+#   ENV_FILE=.env docker compose -f deploy/aws/docker-compose.yml --profile java up -d
+#
+# SQLite: host files under this directory (see ../scripts/init-data-dir.sh).
+
+name: mqtt5sr
+
+x-common: &common
+  image: ${MQTT5SR_IMAGE:-mqtt5sr-demo:latest}
+  working_dir: /app/sam
+  env_file:
+    - ${ENV_FILE:-env.deploy.example}
+  restart: unless-stopped
+  volumes:
+    - ${DATA_DIR:-./data}/sensor_data.db:/app/sam/sensor_data.db
+    - ${DATA_DIR:-./data}/chart_data.db:/app/sam/chart_data.db
+  environment:
+    CHART_QUERY_BASE_URL: http://chart-query:8010
+    FASTAPI_HOST: 0.0.0.0
+    CHART_QUERY_HOST: 0.0.0.0
+    PLATFORM_API_HOST: 0.0.0.0
+
+services:
+  deadband:
+    <<: *common
+    command: ["python", "-u", "src/deadband_service.py"]
+
+  sketch:
+    <<: *common
+    command: ["python", "-u", "src/sketch_service.py"]
+    depends_on:
+      - deadband
+
+  chart-writer:
+    <<: *common
+    command: ["python", "-u", "src/chart_writer_service.py"]
+    depends_on:
+      - deadband
+
+  demo-publisher:
+    <<: *common
+    command: ["python", "-u", "src/demo_publisher.py"]
+
+  chart-query:
+    <<: *common
+    command: ["python", "-u", "src/chart_query_service.py"]
+    ports:
+      - "${CHART_QUERY_PUBLISH_PORT:-8010}:8010"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8010/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+
+  sam-control-plane:
+    <<: *common
+    command:
+      [
+        "sam",
+        "run",
+        "configs/agents/main_orchestrator.yaml",
+        "configs/agents/fleet_query_agent.yaml",
+        "configs/gateways/webui.yaml",
+      ]
+    ports:
+      - "${WEBUI_PUBLISH_PORT:-8000}:8000"
+    depends_on:
+      chart-query:
+        condition: service_healthy
+
+  fleet-analysis-gateway:
+    <<: *common
+    command: ["sam", "run", "configs/gateways/fleet-analysis-gateway.yaml"]
+    depends_on:
+      sam-control-plane:
+        condition: service_started
+
+  slack-gateway:
+    profiles: [slack]
+    <<: *common
+    command: ["sam", "run", "configs/gateways/slack-bot.yaml"]
+    depends_on:
+      sam-control-plane:
+        condition: service_started
+
+  anomaly:
+    <<: *common
+    command: ["python", "-u", "src/anomaly_service.py"]
+    depends_on:
+      - sketch
+
+  analysis-to-slack:
+    profiles: [slack]
+    <<: *common
+    command: ["python", "-u", "src/analysis_response_to_slack.py"]
+    depends_on:
+      anomaly:
+        condition: service_started
+      slack-gateway:
+        condition: service_started
+
+  # Java MQTT5 sample (Paho). Broker URL must be Paho form (e.g. ssl://host:8883), not wss://.
+  java-publisher:
+    profiles: [java]
+    image: ${MQTT5SR_JAVA_IMAGE:-mqtt5sr-java:latest}
+    restart: unless-stopped
+    env_file:
+      - ${ENV_FILE:-env.deploy.example}
+    environment:
+      JAVA_MAIN_CLASS: ${JAVA_MAIN_CLASS:-MQTT5Publisher}
+
+networks:
+  default:
+    name: mqtt5sr-aws
