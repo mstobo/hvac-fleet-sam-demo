@@ -1,0 +1,18 @@
+# Read only from the build CONTEXT root (the path after `docker build ... <context>`).
+# With: docker build -f deploy/aws/Dockerfile -t mqtt5sr-demo:latest .
+# A copy under deploy/aws/ is NOT used by Docker unless this file exists here.
+
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.git
+**/sensor_data.db
+**/chart_data.db
+**/.env
+sam/sam.log*
+**/*.log
+**/*.db
+deploy/aws/data/
+.cursor/
