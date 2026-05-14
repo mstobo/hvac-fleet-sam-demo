@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # One-shot “first thing in the morning”: build images → push to ECR → optionally SSH to EC2 and restart Compose.
 #
+# Run from your developer machine at the repository root (Docker + AWS CLI for ECR).
+# Do not run this script on EC2 unless you deliberately copy deploy/aws/morning.env there and
+# intend to build/push from the instance; on EC2 you normally only run docker compose pull/up.
+#
 # Prep (once):
 #   cp deploy/aws/morning.env.example deploy/aws/morning.env
 #   Fill AWS_REGION, ECR_REPOSITORY, and (optional) EC2_* for remote refresh.
