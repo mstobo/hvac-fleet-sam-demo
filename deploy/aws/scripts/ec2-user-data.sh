@@ -29,8 +29,12 @@ if [[ -n "${REPO_URL}" ]]; then
   fi
 fi
 
-# Place your real env at ${INSTALL_ROOT}/mqtt5SRDemo/deploy/aws/.env (from S3, SSM, or manual copy).
-# cp /path/to/secret.env "${INSTALL_ROOT}/mqtt5SRDemo/deploy/aws/.env"
+# Ordered bootstrap (replace placeholders):
+#  1) Install Docker + git; clone REPO_URL into ${INSTALL_ROOT}/mqtt5SRDemo
+#  2) cp deploy/aws/env.deploy.example deploy/aws/.env  &&  edit secrets (Solace, LLM, …) — REQUIRED before compose
+#  3) ./deploy/aws/scripts/init-data-dir.sh
+#  4) ECR login + export MQTT5SR_IMAGE / MQTT5SR_JAVA_IMAGE
+#  5) ENV_FILE=.env docker compose -f deploy/aws/docker-compose.yml up -d
 
 cd mqtt5SRDemo
 ./deploy/aws/scripts/init-data-dir.sh

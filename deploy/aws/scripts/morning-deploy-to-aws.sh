@@ -132,9 +132,12 @@ echo ""
 
 if [[ -z "${EC2_HOST:-}" ]]; then
   echo "=== EC2 (manual) ==="
-  echo "On the instance, after docker login to ECR:"
+  echo "On the instance (repo root = ${EC2_REPO_PATH}):"
   echo "  cd ${EC2_REPO_PATH}"
   echo "  git pull   # if you track compose changes"
+  echo "  # Once per host: copy env template and edit secrets (Solace, LLM, optional Slack / Java MQTT) before compose:"
+  echo "  #   cp deploy/aws/env.deploy.example deploy/aws/.env && nano deploy/aws/.env"
+  echo "  # Once: ./deploy/aws/scripts/init-data-dir.sh"
   echo "  aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${REGISTRY}"
   echo "  export MQTT5SR_IMAGE=${MQTT5SR_IMAGE}"
   if [[ "${WITH_JAVA}" == "1" ]]; then

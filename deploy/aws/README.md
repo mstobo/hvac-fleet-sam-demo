@@ -85,6 +85,13 @@ After `docker login` to ECR (or with an instance role that allows pull):
 export MQTT5SR_IMAGE=<uri from push script>
 export MQTT5SR_JAVA_IMAGE=<uri from push script>
 cd /path/to/mqtt5SRDemo   # compose file + env paths; clone repo on the host
+
+# Once per host: secrets for Compose (broker, LLM, optional Slack / Java MQTT)
+cp deploy/aws/env.deploy.example deploy/aws/.env
+# Edit deploy/aws/.env (editor of your choice) before any compose up.
+
+./deploy/aws/scripts/init-data-dir.sh   # once — creates SQLite files for bind mounts
+
 ENV_FILE=.env docker compose -f deploy/aws/docker-compose.yml up -d
 # Full stack including Java sample:
 ENV_FILE=.env docker compose -f deploy/aws/docker-compose.yml --profile java up -d
