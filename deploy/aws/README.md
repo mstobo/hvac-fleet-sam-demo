@@ -29,6 +29,7 @@ Compose uses **`MQTT5SR_IMAGE`** and **`MQTT5SR_JAVA_IMAGE`** (full ECR URIs inc
 cp deploy/aws/morning.env.example deploy/aws/morning.env
 # Edit morning.env: AWS_REGION, ECR_REPOSITORY, optional EC2_HOST / EC2_KEY / COMPOSE_PROFILES=java
 
+# From your laptop (repo root) — not on EC2; EC2 only receives images via compose after ECR push:
 ./deploy/aws/scripts/morning-deploy-to-aws.sh
 # ./deploy/aws/scripts/morning-deploy-to-aws.sh --no-build --dry-run   # examples
 ```
