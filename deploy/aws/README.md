@@ -127,6 +127,7 @@ See `scripts/ec2-user-data.sh`: install Docker, clone repo, place `deploy/aws/.e
 
 | Path | Purpose |
 |------|---------|
+| `.dockerignore` (repo root) | Shrinks build context; required for `docker build -f deploy/aws/Dockerfile .` |
 | `Dockerfile` | Python 3.11 + SAM + `paho-mqtt` |
 | `Dockerfile.java` | Java 11 JRE + Maven-built publisher/subscriber |
 | `docker-compose.yml` | Stack + optional `java` / `slack` profiles |

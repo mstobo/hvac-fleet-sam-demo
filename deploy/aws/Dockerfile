@@ -1,4 +1,4 @@
-# Build from repository root:
+# Build from repository root (`.dockerignore` must live at repo root — same dir as `sam/`):
 #   docker build -f deploy/aws/Dockerfile -t mqtt5sr-demo:latest .
 #
 # Runtime WORKDIR is /app/sam (matches local dev layout). Override command per service in Compose / ECS.

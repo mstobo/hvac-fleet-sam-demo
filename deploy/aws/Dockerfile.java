@@ -1,4 +1,4 @@
-# Java MQTT5 publisher/subscriber (repo root context):
+# Java MQTT5 publisher/subscriber (repo root context; use root `.dockerignore`):
 #   docker build -f deploy/aws/Dockerfile.java -t mqtt5sr-java:latest .
 
 FROM maven:3.9.9-eclipse-temurin-11 AS build
