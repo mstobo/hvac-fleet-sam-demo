@@ -40,9 +40,20 @@ This runs `init-data-dir`, builds (unless `--no-build`), pushes to ECR, then eit
 - Docker 24+ and Compose v2  
 - AWS CLI configured for **`aws sts get-caller-identity`**  
 - IAM permission to create ECR repos (optional) and push images  
-- On EC2: instance role or `docker login` to ECR in the same account/region  
+- On EC2: **IAM instance profile** (recommended) or static keys for `aws ecr get-login-password` + `docker login` in the **same account/region** as the registry (see below)  
 - **Solace** + **LLM** values in `deploy/aws/.env` (see `env.deploy.example`)  
 - For Java in Docker: **`MQTT_BROKER_URL`** in Paho form (e.g. `ssl://…:8883`), **not** `wss://` (Python SAM uses `wss://` in `SOLACE_BROKER_URL` — they can differ)
+
+### EC2: credentials for `docker login` to ECR
+
+If you see **Unable to locate credentials** or **`password is empty`**, the instance has no AWS identity. Prefer an **IAM role attached to the EC2 instance** (no long‑lived keys on disk):
+
+1. In AWS Console: **EC2 → your instance → Actions → Security → Modify IAM role**.  
+2. Choose or create a role whose policies allow ECR pulls. The managed policy **`AmazonEC2ContainerRegistryReadOnly`** is enough to pull images in this account.  
+3. On the instance, verify: `aws sts get-caller-identity` (should succeed with no `aws configure`).  
+4. Retry: `aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin 804666467877.dkr.ecr.us-east-2.amazonaws.com`
+
+Alternative (less ideal): run **`aws configure`** on the instance with an IAM user’s access key that has ECR read permissions (rotate/remove when possible).
 
 ## 1. Secrets on disk
 
