@@ -39,6 +39,7 @@ This runs `init-data-dir`, builds (unless `--no-build`), pushes to ECR, then eit
 ## Prerequisites
 
 - Docker 24+ and Compose v2  
+- **Image CPU**: builds default to **`linux/amd64`** (typical EC2 x86). Building on **Apple Silicon** without that would produce **arm64** images and EC2 amd64 will fail (`platform does not match`). Override only for Graviton: `DOCKER_PLATFORM=linux/arm64`.  
 - AWS CLI configured for **`aws sts get-caller-identity`**  
 - IAM permission to create ECR repos (optional) and push images  
 - On EC2: **IAM instance profile** (recommended) or static keys for `aws ecr get-login-password` + `docker login` in the **same account/region** as the registry (see below)  

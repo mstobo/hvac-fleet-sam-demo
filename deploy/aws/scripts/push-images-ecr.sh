@@ -11,6 +11,7 @@
 # or set BUILD_IMAGES=1 to build both first.
 #
 # Optional: IMAGE_TAG (default latest), AWS_ACCOUNT_ID, LOCAL_IMAGE_PYTHON, LOCAL_IMAGE_JAVA
+# Optional: DOCKER_PLATFORM (default linux/amd64) — Apple Silicon → EC2 x86 must use amd64; use linux/arm64 for Graviton EC2
 set -euo pipefail
 : "${AWS_REGION:?Set AWS_REGION (e.g. us-east-1)}"
 : "${ECR_REPOSITORY:?Set ECR_REPOSITORY (Python/SAM ECR repo name)}"
