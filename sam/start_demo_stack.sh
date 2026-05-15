@@ -30,6 +30,7 @@ set +a
 
 export FLEET_QUERY_DEBUG_SKETCH_EVIDENCE="${FLEET_QUERY_DEBUG_SKETCH_EVIDENCE:-true}"
 export CHART_QUERY_BASE_URL="${CHART_QUERY_BASE_URL:-http://127.0.0.1:8010}"
+# Optional: plot links in Slack use CHART_PUBLIC_BASE_URL when set (e.g. LAN IP:8010); else same as above.
 
 VENV_PY="./.venv/bin/python"
 VENV_SAM="./.venv/bin/sam"

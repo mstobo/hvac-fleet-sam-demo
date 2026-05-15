@@ -265,11 +265,15 @@ def update_fleet_status():
     
     # Trigger auto-analysis for FLEET_CRITICAL (with debounce and rate limiting)
     if AUTO_ANALYSIS_ENABLED and fleet_status == "FLEET_CRITICAL":
+        affected_critical_ids = [
+            sid for sid, z in _sensor_zones.items() if z == "CRITICAL"
+        ]
         fleet_alert_analyzer.on_fleet_critical(
             fleet_status=fleet_status,
             critical_count=critical_count,
             active_sensors=active_sensors,
-            notes=notes
+            notes=notes,
+            sensor_data={"affected_sensor_ids": affected_critical_ids},
         )
     
     status_icon = {

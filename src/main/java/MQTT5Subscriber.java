@@ -186,52 +186,42 @@ public class MQTT5Subscriber {
         String messageId = extractUserProperty(userProps, "messageId");
         String sensorId = extractSensorIdFromPayload(new String(message.getPayload(), java.nio.charset.StandardCharsets.UTF_8));
         
-        // SERDES deserialization with validation
-        try {
-            // Extract only SERDES-specific headers, not all user properties
-            java.util.Map<String, Object> serdesHeaders = new java.util.HashMap<>();
-            for (UserProperty prop : userProps) {
-                // Only include headers that start with known SERDES prefixes
-                String key = prop.getKey();
-                if (key.equals("SCHEMA_ID_STRING") || key.startsWith("solace.schema.")) {
-                    serdesHeaders.put(key, prop.getValue());
+        if (MqttConfig.JSON_SERDES_ENABLED) {
+            // SERDES deserialization with validation (requires schema registry)
+            try {
+                java.util.Map<String, Object> serdesHeaders = new java.util.HashMap<>();
+                for (UserProperty prop : userProps) {
+                    String key = prop.getKey();
+                    if (key.equals("SCHEMA_ID_STRING") || key.startsWith("solace.schema.")) {
+                        serdesHeaders.put(key, prop.getValue());
+                    }
                 }
+                if (!serdesHeaders.containsKey("SCHEMA_ID_STRING")) {
+                    serdesHeaders.put("SCHEMA_ID_STRING", MqttConfig.SCHEMA_ARTIFACT_ID);
+                }
+                com.solace.serdes.jsonschema.JsonSchemaDeserializer<JsonNode> deserializer =
+                        SerdesSupport.getJsonDeserializer();
+                JsonNode deserialized = deserializer.deserialize(topic, message.getPayload(), serdesHeaders);
+                System.out.println("SERDES validation: PASSED");
+                System.out.println("Deserialized JSON: " + SerdesSupport.jsonToString(deserialized));
+                ValidationLogger.logSuccessfulValidation(
+                        ValidationLogger.ClientType.SUBSCRIBER,
+                        messageId != null ? messageId : "unknown",
+                        MqttConfig.SCHEMA_ARTIFACT_ID,
+                        topic,
+                        CLIENT_ID,
+                        sensorId);
+            } catch (Exception e) {
+                System.err.println("SERDES validation: FAILED");
+                System.err.println("  Reason: " + e.getMessage());
+                ValidationLogger.logSubscriberValidationFailure(
+                        messageId != null ? messageId : "unknown",
+                        MqttConfig.SCHEMA_ARTIFACT_ID,
+                        topic,
+                        e.getMessage(),
+                        CLIENT_ID,
+                        sensorId);
             }
-            
-            // Ensure SCHEMA_ID_STRING is present (for cases where only numeric ID was provided)
-            if (!serdesHeaders.containsKey("SCHEMA_ID_STRING")) {
-                serdesHeaders.put("SCHEMA_ID_STRING", MqttConfig.SCHEMA_ARTIFACT_ID);
-            }
-            
-            com.solace.serdes.jsonschema.JsonSchemaDeserializer<JsonNode> deserializer = SerdesSupport.getJsonDeserializer();
-            JsonNode deserialized = deserializer.deserialize(topic, message.getPayload(), serdesHeaders);
-            System.out.println("SERDES validation: PASSED");
-            System.out.println("Deserialized JSON: " + SerdesSupport.jsonToString(deserialized));
-            
-            // ELK: Log successful validation (sampled at 5%)
-            ValidationLogger.logSuccessfulValidation(
-                ValidationLogger.ClientType.SUBSCRIBER,
-                messageId != null ? messageId : "unknown",
-                MqttConfig.SCHEMA_ARTIFACT_ID,
-                topic,
-                CLIENT_ID,
-                sensorId
-            );
-            
-        } catch (Exception e) {
-            System.err.println("SERDES validation: FAILED");
-            System.err.println("  Reason: " + e.getMessage());
-            
-            // ELK: Log validation/deserialization failure
-            // CRITICAL - message passed publisher validation but failed subscriber validation
-            ValidationLogger.logSubscriberValidationFailure(
-                messageId != null ? messageId : "unknown",
-                MqttConfig.SCHEMA_ARTIFACT_ID,
-                topic,
-                e.getMessage(),
-                CLIENT_ID,
-                sensorId
-            );
         }
         
         // Handle MQTT5 message properties (reuse properties variable from above)

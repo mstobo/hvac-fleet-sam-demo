@@ -17,8 +17,8 @@ Compose uses **`MQTT5SR_IMAGE`** and **`MQTT5SR_JAVA_IMAGE`** (full ECR URIs inc
 |--------|------|
 | `deadband`, `sketch`, `chart-writer`, `demo-publisher` | MQTT pipeline |
 | `chart-query` | HTTP API (host port **8010** by default) |
-| `sam-control-plane` | `sam run` orchestrator + fleet query + Web UI (**8000**) |
-| `fleet-analysis-gateway` | SAM fleet analysis gateway |
+| `sam-control-plane` | Orchestrator + fleet query + Web UI (**8000**) + fleet analysis gateway (MQTT automation) |
+| `fleet-analysis-gateway` | **Profile `fleet-analysis-standalone` only** — separate container; can conflict on Solace queue |
 | `anomaly` | Anomaly detection |
 | **Profile `slack`** | `slack-gateway` + `analysis-to-slack` |
 | **Profile `java`** | `java-publisher` (separate ECR image) |
@@ -111,6 +111,70 @@ ENV_FILE=.env docker compose -f deploy/aws/docker-compose.yml --profile java up 
 ```
 
 Health: `curl -sf http://127.0.0.1:8010/health`, Web UI `http://<host>:8000`.
+
+### `fleet-analysis-gateway` (restart loop / exit 0)
+
+The gateway needs the **`sam-event-mesh-gateway`** PyPI package (see `sam/requirements.txt`). Images built **before** that dependency was added will crash-loop with `ModuleNotFoundError: sam_event_mesh_gateway` in logs.
+
+**On your laptop (repo root)** — rebuild, verify, push:
+
+```bash
+./deploy/aws/scripts/build-image.sh mqtt5sr-demo:latest
+# runs verify-python-image.sh unless VERIFY_IMAGE=0
+AWS_REGION=us-east-2 ECR_REPOSITORY=hvac/fleet/management ./deploy/aws/scripts/push-images-ecr.sh
+# or your existing morning-deploy / push flow
+```
+
+**On EC2** — pull and recreate only the gateway (same `.env` + `MQTT5SR_IMAGE` as other SAM services):
+
+```bash
+cd /opt/mqtt5sr/mqtt5SRDemo
+export MQTT5SR_IMAGE=804666467877.dkr.ecr.us-east-2.amazonaws.com/hvac/fleet/management:latest
+aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin 804666467877.dkr.ecr.us-east-2.amazonaws.com
+docker pull "$MQTT5SR_IMAGE"
+ENV_FILE=.env docker compose -f deploy/aws/docker-compose.yml up -d --force-recreate fleet-analysis-gateway
+```
+
+**Checks:**
+
+```bash
+docker compose -f deploy/aws/docker-compose.yml ps fleet-analysis-gateway
+docker compose -f deploy/aws/docker-compose.yml exec -T fleet-analysis-gateway \
+  python -c "import sam_event_mesh_gateway; print('plugin ok')"
+docker compose -f deploy/aws/docker-compose.yml logs fleet-analysis-gateway --tail=60
+```
+
+Healthy logs include broker connect and subscription to `sensors/fleet/analysis-request`. The gateway invokes **FleetQueryAgent** on `sam-control-plane` (keep control plane up and LLM env using `litellm_proxy/...` model names).
+
+If **`RestartCount` keeps increasing** but `import sam_event_mesh_gateway` works, SAM is **exiting during startup** (often broker connect). SAM may exit with code **0**, so Compose still restarts the container:
+
+```bash
+docker compose -f deploy/aws/docker-compose.yml logs fleet-analysis-gateway --tail=100
+```
+
+Look for `Error initializing flows`, `Error in broker connection`, `ServiceUnreachableError`, or `InitializationError`. Fix Solace vars in `.env` (same as control plane).
+
+**Default AWS layout:** `fleet-analysis-gateway.yaml` is started **inside `sam-control-plane`** (one SAM process). Do **not** run the separate `fleet-analysis-gateway` service unless you use `--profile fleet-analysis-standalone`.
+
+**`Max clients exceeded for queue` / `SOLCLIENT_SUBCODE_MAX_CLIENTS_FOR_QUEUE`:** Not a missing EC2 port. The gateway is binding a **durable queue** that already has a consumer (often a **stale session** from a prior crash loop, a **second container**, or another laptop using the same VPN). Recovery:
+
+```bash
+docker compose -f deploy/aws/docker-compose.yml stop fleet-analysis-gateway
+sleep 60   # let the broker release the old consumer
+ENV_FILE=.env docker compose -f deploy/aws/docker-compose.yml up -d fleet-analysis-gateway
+```
+
+In **Solace Cloud**, open the queue used for `sensors/fleet/analysis-request` and disconnect orphaned consumers or raise **Max Clients** if you must use a shared durable queue. Ensure only **one** fleet-analysis-gateway runs against the VPN (stop local `start_demo_stack.sh` if it uses the same broker). The image config sets `temporary_queue: true` on the data-plane client to reduce this on restart.
+
+Foreground debug:
+
+```bash
+export MQTT5SR_IMAGE=...
+ENV_FILE=.env docker compose -f deploy/aws/docker-compose.yml run --rm --no-deps fleet-analysis-gateway \
+  sam run configs/gateways/fleet-analysis-gateway.yaml
+```
+
+(Ctrl+C when done; shows the real traceback in your terminal.)
 
 **Slack and a small audience:** The running gateway uses **one** bot + app token pair in `.env`. Invite the app to a **shared channel** (or have people DM the bot). Everyone who Slack allows to message the app can type prompts; SAM still uses your single **LLM** credentials on the server—participants do not need their own API keys.
 

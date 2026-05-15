@@ -3,16 +3,32 @@
  * Modify the constants in this class to match your broker configuration.
  */
 public class MqttConfig {
-    
+
+    /** Prefer env in containers (e.g. Docker / ECR); falls back to compile-time defaults. */
+    private static String stringEnv(String name, String defaultValue) {
+        String v = System.getenv(name);
+        return (v == null || v.isBlank()) ? defaultValue : v.trim();
+    }
+
+    private static boolean boolEnv(String name, boolean defaultValue) {
+        String v = System.getenv(name);
+        if (v == null || v.isBlank()) {
+            return defaultValue;
+        }
+        return Boolean.parseBoolean(v.trim());
+    }
+
     // Broker Configuration
-    public static final String BROKER_URL = "ssl://mr-connection-yfx6c4y9zy1.messaging.solace.cloud:8883";
+    public static final String BROKER_URL = stringEnv(
+            "MQTT_BROKER_URL",
+            "ssl://mr-connection-yfx6c4y9zy1.messaging.solace.cloud:8883");
     // For TLS/SSL connections, use: "ssl://your-broker:8883"
     // For WebSocket connections, use: "ws://your-broker:8080/mqtt"
     // For WebSocket Secure connections, use: "wss://your-broker:8443/mqtt"
     
     // Authentication Configuration
-    public static final String USERNAME = "solace-cloud-client";     // Change this to your username
-    public static final String PASSWORD = "b0a6gq4es61hosgu4ovghosgte";     // Change this to your password
+    public static final String USERNAME = stringEnv("MQTT_USERNAME", "solace-cloud-client");
+    public static final String PASSWORD = stringEnv("MQTT_PASSWORD", "b0a6gq4es61hosgu4ovghosgte");
     
     // Topic Configuration
     public static final String TOPIC_BASE = "test/mqtt5/messages";
@@ -32,16 +48,16 @@ public class MqttConfig {
     public static final int PUBLISH_QOS = 0;                  // Keep consistent with subscriber
     public static final long MESSAGE_EXPIRY_INTERVAL = 300L;  // 5 minutes in seconds
     
-    // Schema Registry Configuration (fill in credentials)
+    // Schema registry (only used when JSON_SERDES_ENABLED is true)
     public static final String SCHEMA_REGISTRY_URL = "https://apis.18.221.21.40.nip.io/apis/registry/v3";
     public static final String SCHEMA_REGISTRY_USERNAME = "sr-developer";
     public static final String SCHEMA_REGISTRY_PASSWORD = "admin";
     public static final String SCHEMA_ARTIFACT_ID = "solace/samples/tempsensor";
-    // Use validation for JSON Schema during serialization/deserialization
-    // ENABLED - Schema Registry validation active
-    public static final boolean JSON_VALIDATE_SCHEMA = true;
-    public static final boolean JSON_SERDES_ENABLED = true;
-    public static final boolean JSON_PUBLISH_WITH_SERDES = true;
+    /** When false, publisher/subscriber use plain JSON only (no registry calls). */
+    public static final boolean JSON_SERDES_ENABLED = boolEnv("MQTT_JSON_SERDES_ENABLED", false);
+    public static final boolean JSON_PUBLISH_WITH_SERDES =
+            boolEnv("MQTT_JSON_PUBLISH_WITH_SERDES", false);
+    public static final boolean JSON_VALIDATE_SCHEMA = boolEnv("MQTT_JSON_VALIDATE_SCHEMA", false);
     
     // Common broker configurations for reference:
     
@@ -93,6 +109,7 @@ public class MqttConfig {
         System.out.println("Keep Alive: " + KEEP_ALIVE_INTERVAL + "s");
         System.out.println("Session Expiry: " + SESSION_EXPIRY_INTERVAL + "s");
         System.out.println("Default QoS: " + DEFAULT_QOS);
+        System.out.println("JSON SERDES (schema registry): " + (JSON_SERDES_ENABLED ? "enabled" : "disabled"));
         System.out.println("========================\n");
         
         if (!isConfigurationValid()) {

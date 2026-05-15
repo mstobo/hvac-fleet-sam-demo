@@ -236,19 +236,21 @@ class SlackNotifier:
         """Send a fleet-wide status alert."""
         if not self.enabled:
             return False
-        
-        # Only send for significant fleet events
-        if fleet_status not in ["FLEET_CRITICAL", "CRITICAL"]:
+
+        # Normalize first — whitespace / case mismatches could skip sends or route wrong footer.
+        fs = (fleet_status or "").strip().upper()
+        if fs not in ("FLEET_CRITICAL", "CRITICAL"):
             return False
-        
+        is_correlated_fleet = fs == "FLEET_CRITICAL"
+
         timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-        
+
         blocks = [
             {
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": f"FLEET STATUS: {fleet_status}",
+                    "text": f"FLEET STATUS: {fs}",
                     "emoji": True
                 }
             },
@@ -283,21 +285,47 @@ class SlackNotifier:
             {
                 "type": "divider"
             },
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": "Multiple sensors affected - possible correlated event"
-                    }
-                ]
-            }
         ]
+        if is_correlated_fleet:
+            try:
+                debounce_s = int(float(os.getenv("ANALYSIS_DEBOUNCE_SECONDS", "60")))
+            except ValueError:
+                debounce_s = 60
+            blocks.append(
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": (
+                                "Correlated fleet incident: ≥50% of tracked cooling assets in CRITICAL. "
+                                f"*Automated Fleet Analysis* is queued (~{debounce_s}s debounce, then LLM; "
+                                "often 2–6 min total) and posts here as a separate message when ready."
+                            ),
+                        }
+                    ],
+                }
+            )
+        else:
+            blocks.append(
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": (
+                                "Localized fleet excursion: not the full correlated-fleet threshold. "
+                                "No automated in-depth fleet analysis is attached to this status card."
+                            ),
+                        }
+                    ],
+                }
+            )
         
         try:
             self.client.chat_postMessage(
                 channel=self.channel,
-                text=f"FLEET {fleet_status}: {critical_count} critical, {warning_count} warning",
+                text=f"FLEET {fs}: {critical_count} critical, {warning_count} warning",
                 blocks=blocks
             )
             print(f"[SlackNotifier] Fleet alert sent: {fleet_status}")

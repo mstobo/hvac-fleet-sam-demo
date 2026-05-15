@@ -19,3 +19,6 @@ fi
 echo "[build-image] Platform: ${DOCKER_PLATFORM} (set DOCKER_PLATFORM to change, e.g. linux/arm64 for Graviton EC2)"
 docker build --platform "${DOCKER_PLATFORM}" -f "${ROOT}/deploy/aws/Dockerfile" -t "${TAG}" "${ROOT}"
 echo "Built ${TAG}"
+if [[ "${VERIFY_IMAGE:-1}" != "0" ]]; then
+  "${ROOT}/deploy/aws/scripts/verify-python-image.sh" "${TAG}"
+fi

@@ -8,6 +8,14 @@ FLEET_CRITICAL triggers automated fleet analysis.
 Consumers (e.g. bridge to S3) subscribe to the MQTT topic published by
 fleet_alert_analyzer (default: sensors/fleet/audit-report).
 
+To publish a test message without waiting for FLEET_CRITICAL:
+
+    cd sam && python src/fleet_alert_analyzer.py --audit-only
+
+For analysis-request plus audit together without the default debounce wait:
+
+    python src/fleet_alert_analyzer.py --now
+
 Intentionally deterministic only (no SAM / LLM): aggregation and heuristics
 over stored sketches. Optional LLM enrichment belongs in a separate path
 if needed later.
