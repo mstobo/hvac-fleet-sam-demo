@@ -198,6 +198,7 @@ See `scripts/ec2-user-data.sh`: install Docker, clone repo, place `deploy/aws/.e
 ```bash
 sudo mkdir -p /var/www/mqtt5sr-demo
 sudo cp /opt/mqtt5sr/mqtt5SRDemo/sam/demo_dashboard.html /var/www/mqtt5sr-demo/index.html
+sudo cp /opt/mqtt5sr/mqtt5SRDemo/sam/solace-brand.css /var/www/mqtt5sr-demo/
 # Optional: serve the whole sam/ tree if you add assets later
 ```
 
@@ -243,7 +244,8 @@ Generate `demo_dashboard.config.json` beside `index.html` from your Compose `.en
 ```bash
 chmod +x deploy/aws/scripts/gen-dashboard-config.sh
 export DASHBOARD_PUBLIC_HOST=18.116.251.212   # EC2 public IP or DNS
-./deploy/aws/scripts/gen-dashboard-config.sh deploy/aws/.env /var/www/mqtt5sr-demo/demo_dashboard.config.json
+./deploy/aws/scripts/gen-dashboard-config.sh deploy/aws/.env
+sudo cp sam/demo_dashboard.config.json /var/www/mqtt5sr-demo/
 sudo chown www-data:www-data /var/www/mqtt5sr-demo/demo_dashboard.config.json
 ```
 
