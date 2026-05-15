@@ -37,16 +37,28 @@ try:
                 {"role": "user", "content": "Say 'hello' and nothing else."}
             ],
             "stream": False,
-            "max_tokens": 50
+            # Reasoning models (e.g. azure-gpt-5-mini) may use most of a small budget on
+            # reasoning_tokens, leaving message.content empty — use >= 256 for smoke tests.
+            "max_tokens": 512,
         },
-        timeout=30
+        timeout=60,
     )
     print(f"Status: {response.status_code}")
     if response.status_code == 200:
         data = response.json()
-        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-        print(f"Response: {content}")
-        print("✅ Non-streaming: PASSED")
+        choice = data.get("choices", [{}])[0]
+        content = (choice.get("message") or {}).get("content") or ""
+        finish = choice.get("finish_reason")
+        usage = data.get("usage") or {}
+        reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
+        print(f"Response: {content!r}")
+        print(f"finish_reason: {finish}")
+        if reasoning is not None:
+            print(f"reasoning_tokens: {reasoning}")
+        if not (content and str(content).strip()):
+            print("❌ Non-streaming: FAILED (200 but empty content — raise max_tokens or use azure-gpt-5)")
+        else:
+            print("✅ Non-streaming: PASSED")
     else:
         print(f"Error: {response.text}")
         print("❌ Non-streaming: FAILED")
@@ -71,10 +83,10 @@ try:
                 {"role": "user", "content": "Say 'hello' and nothing else."}
             ],
             "stream": True,
-            "max_tokens": 50
+            "max_tokens": 512,
         },
         stream=True,
-        timeout=30
+        timeout=60,
     )
     print(f"Status: {response.status_code}")
     if response.status_code == 200:

@@ -1,1 +1,6 @@
 solace-agent-mesh~=1.18.40
+# Fleet analysis gateway (`configs/gateways/fleet-analysis-gateway.yaml` uses `sam_event_mesh_gateway.app`).
+sam-event-mesh-gateway>=1.1.0,<2
+# Slack gateway (`configs/gateways/slack-bot.yaml`) + anomaly/analysis_to_slack (`slack_notifier.py`).
+sam-slack-gateway-adapter>=0.1.0,<1
+slack_sdk>=3.27.0,<4

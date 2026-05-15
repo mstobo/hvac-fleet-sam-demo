@@ -1,0 +1,98 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <meta http-equiv="Content-Style-Type" content="text/css">
+  <title></title>
+  <meta name="Generator" content="Cocoa HTML Writer">
+  <meta name="CocoaVersion" content="2487.7">
+  <style type="text/css">
+    body {background-color: #0d1013}
+    p.p2 {margin: 0.0px 0.0px 15.0px 0.0px; font: 11.4px 'Helvetica Neue'; color: #8ca0bd; -webkit-text-stroke: #8ca0bd}
+    p.p4 {margin: 0.0px 0.0px 0.0px 0.0px; font: 10.8px 'Helvetica Neue'; color: #8ca0bd; -webkit-text-stroke: #8ca0bd}
+    p.p6 {margin: 0.0px 0.0px 0.0px 0.0px; font: 9.4px '.AppleSystemUIFontMonospaced'; color: #e3e9f5; -webkit-text-stroke: #e3e9f5}
+    p.p7 {margin: 0.0px 0.0px 0.0px 0.0px; font: 9.4px '.AppleSystemUIFontMonospaced'; color: #e3e9f5; -webkit-text-stroke: #e3e9f5; background-color: #141a26}
+    p.p8 {margin: 0.0px 0.0px 0.0px 0.0px; font: 9.4px '.SF NS Mono'; color: #3289ec; -webkit-text-stroke: #3289ec}
+    p.p9 {margin: 0.0px 0.0px 0.0px 0.0px; font: 7.8px '.AppleSystemUIFontMonospaced'; color: #e3e9f5; -webkit-text-stroke: #e3e9f5; background-color: #141a26}
+    p.p11 {margin: 0.0px 0.0px 0.0px 0.0px; font: 8.6px '.AppleSystemUIFontMonospaced'; color: #8ca0bd; -webkit-text-stroke: #8ca0bd}
+    p.p12 {margin: 0.0px 0.0px 0.0px 0.0px; font: 9.0px 'Helvetica Neue'; color: #8ca0bd; -webkit-text-stroke: #8ca0bd}
+    li.li5 {margin: 0.0px 0.0px 3.0px 0.0px; font: 10.6px 'Helvetica Neue'; color: #8ca0bd; -webkit-text-stroke: #8ca0bd}
+    span.s1 {font-kerning: none}
+    span.s2 {font-kerning: none; background-color: #141a26}
+    span.s3 {font: 10.8px '.SF NS'; font-kerning: none; color: #50d783; background-color: #141a26; -webkit-text-stroke: 0px #50d783}
+    span.s4 {background-color: #141a26; -webkit-text-stroke: 0px #000000}
+    span.s5 {font: 10.6px '.SF NS'; font-kerning: none; color: #50d783; background-color: #141a26; -webkit-text-stroke: 0px #50d783}
+    span.s6 {font: 9.6px Menlo; font-kerning: none}
+    span.s7 {font: 9.4px '.AppleSystemUIFontMonospaced'; font-kerning: none; background-color: #0b0e13}
+    span.s8 {font: 9.6px 'Helvetica Neue'; font-kerning: none}
+    span.s9 {font: 9.0px Menlo; font-kerning: none}
+    span.s10 {font: 10.8px Menlo; font-kerning: none; background-color: #141a26}
+    span.s11 {font: 10.6px Menlo; font-kerning: none; background-color: #141a26}
+    span.s12 {font: 10.6px '.SF NS'; color: #50d783; background-color: #141a26; -webkit-text-stroke: 0px #000000}
+    span.s13 {font: 7.8px 'Helvetica Neue'; font-kerning: none; color: #eba620; background-color: #1b2434; -webkit-text-stroke: 0px #eba620}
+    ul.ul1 {list-style-type: disc}
+  </style>
+</head>
+<body>
+<h1 style="margin: 0.0px 0.0px 4.2px 0.0px; font: 21.0px '.SF NS'; color: #e3e9f5; -webkit-text-stroke: #e3e9f5"><span class="s1"><b>mqtt5SRDemo — MQTT5 HVAC-style pipeline</b></span></h1>
+<p class="p2"><span class="s1">Deterministic data plane on Solace · optional SAM / LLM query plane · SQLite as the curated store</span></p>
+<h2 style="margin: 0.0px 0.0px 6.0px 0.0px; font: 9.6px 'Helvetica Neue'; color: #3289ec; -webkit-text-stroke: #3289ec"><span class="s2"><b>PROBLEM → APPROACH</b></span></h2>
+<p class="p4"><span class="s2">High-frequency MQTT cannot be the direct input stream to an LLM. This repo implements a </span><span class="s3"><b>filter → summarize → detect</b></span><span class="s2"> chain on the broker path so downstream consumers (dashboards, CMMS, agents) see </span><span class="s3"><b>low-noise, human-readable</b></span><span class="s2"> events and stored history.</span></p>
+<h2 style="margin: 0.0px 0.0px 6.0px 0.0px; font: 9.6px 'Helvetica Neue'; color: #3289ec; -webkit-text-stroke: #3289ec"><span class="s2"><b>KEY NUMBERS (FROM README NARRATIVE)</b></span></h2>
+<ul class="ul1">
+  <li class="li5"><span class="s4"></span><span class="s2">Deadband + heartbeat suppresses the bulk of unchanged readings.</span></li>
+  <li class="li5"><span class="s4"></span><span class="s2">Sketches are </span><span class="s5"><b>template NL</b></span><span class="s2">, not generative AI.</span></li>
+  <li class="li5"><span class="s4"></span><span class="s2">Anomaly stage is </span><span class="s5"><b>rule-based</b></span><span class="s2"> (zones, spikes, fleet fraction).</span></li>
+  <li class="li5"><span class="s4"></span><span class="s2">LLM / SAM sits on the </span><span class="s5"><b>query</b></span><span class="s2"> path over SQLite, not per reading.</span></li>
+</ul>
+<h2 style="margin: 0.0px 0.0px 6.0px 0.0px; font: 9.6px 'Helvetica Neue'; color: #3289ec; -webkit-text-stroke: #3289ec"><span class="s1"><b>DATA PLANE (DEFAULT: </b></span><span class="s6"><b>DC/&lt;BROKERSITE&gt;/V1</b></span><span class="s1"><b>)</b></span></h2>
+<p class="p6"><span class="s2">Ingress</span></p>
+<p class="p7"><span class="s1">raw MQTT</span></p>
+<p class="p8"><span class="s7"><b>→</b></span></p>
+<p class="p6"><span class="s2">Deadband</span></p>
+<p class="p9"><span class="s1">deadband_service.py</span></p>
+<p class="p8"><span class="s7"><b>→</b></span></p>
+<p class="p6"><span class="s2">Sketch</span></p>
+<p class="p9"><span class="s1">sketch_service.py</span></p>
+<p class="p8"><span class="s7"><b>→</b></span></p>
+<p class="p6"><span class="s2">Anomaly</span></p>
+<p class="p9"><span class="s1">anomaly_service.py</span></p>
+<p class="p8"><span class="s7"><b>→</b></span></p>
+<p class="p6"><span class="s2">SQLite</span></p>
+<p class="p9"><span class="s1">readings · sketches · alerts</span></p>
+<h2 style="margin: 0.0px 0.0px 6.0px 0.0px; font: 9.6px Menlo; color: #3289ec; -webkit-text-stroke: #3289ec"><span class="s8"><b>TOPIC HIERARCHY (SEE </b></span><span class="s1"><b>SAM/SRC/PIPELINE_CONFIG.PY</b></span><span class="s8"><b>)</b></span></h2>
+<p class="p11"><span class="s1">dc/&lt;brokerSite&gt;/v1/raw/{site}/{room}/{row}/{rack}/{asset}/{metric}</span></p>
+<p class="p11"><span class="s1">dc/&lt;brokerSite&gt;/v1/pipeline/filtered <span class="Apple-converted-space">  </span>← deadband → sketch</span></p>
+<p class="p11"><span class="s1">dc/&lt;brokerSite&gt;/v1/pipeline/sketched<span class="Apple-converted-space">  </span>← sketch → anomaly</span></p>
+<p class="p11"><span class="s1">dc/&lt;brokerSite&gt;/v1/pipeline/suppressed</span></p>
+<p class="p11"><span class="s1">dc/&lt;brokerSite&gt;/v1/pipeline/alerts</span></p>
+<p class="p11"><span class="s1">dc/&lt;brokerSite&gt;/v1/event/{site}/{severity}/{eventType} <span class="Apple-converted-space">  </span>← optional routed copy</span></p>
+<p class="p12"><span class="s1">Page 1 of 2 · mqtt5SRDemo · Open </span><span class="s9">demo/DEMO_SCRIPT.md</span><span class="s1"> for the live walkthrough</span></p>
+<h1 style="margin: 0.0px 0.0px 4.2px 0.0px; font: 21.0px '.SF NS'; color: #e3e9f5; -webkit-text-stroke: #e3e9f5"><span class="s1"><b>Control plane, clients &amp; governance</b></span></h1>
+<p class="p2"><span class="s1">How optional AI, the web twin, Java samples, and Event Portal fit around the same broker</span></p>
+<h2 style="margin: 0.0px 0.0px 6.0px 0.0px; font: 9.6px 'Helvetica Neue'; color: #3289ec; -webkit-text-stroke: #3289ec"><span class="s2"><b>QUERY PLANE</b></span></h2>
+<p class="p4"><span class="s3"><b>Solace Agent Mesh</b></span><span class="s2"> (</span><span class="s10">sam run</span><span class="s2">) can expose tools that read </span><span class="s3"><b>SQLite</b></span><span class="s2"> (sketches, alerts, fleet status) so natural-language questions do not replay the raw topic firehose. Can also respond to event-driven prompts through Solace event gateway.</span></p>
+<ul class="ul1">
+  <li class="li5"><span class="s4"></span><span class="s2">Configs under </span><span class="s11">sam/configs/agents/</span><span class="s2"> (e.g. fleet query, orchestrator).</span></li>
+  <li class="li5"><span class="s4"></span><span class="s2">Prescriptive YAML (</span><span class="s11">sensor_pipeline_sam.yaml</span><span class="s2">) documents an alternate SAM-centric view; Python microservices implement the </span><span class="s11">dc/…</span><span class="s2"> pipeline in code.</span></li>
+</ul>
+<h2 style="margin: 0.0px 0.0px 6.0px 0.0px; font: 9.6px 'Helvetica Neue'; color: #3289ec; -webkit-text-stroke: #3289ec"><span class="s2"><b>OTHER CLIENTS IN THE REPO</b></span></h2>
+<ul class="ul1">
+  <li class="li5"><span class="s12"><b></b></span><span class="s5"><b>demo_dashboard.html</b></span><span class="s2"> — Web UI + digital twin; publishes/consumes the same </span><span class="s11">dc/…</span><span class="s2"> topics (optional °C in topic path).</span></li>
+  <li class="li5"><span class="s12"><b></b></span><span class="s5"><b>demo_publisher.py</b></span><span class="s2"> — Continuous HVAC-style simulator (raw path without trailing °C in topic).</span></li>
+  <li class="li5"><span class="s12"><b></b></span><span class="s5"><b>Java MQTT5</b></span><span class="s2"> — Separate sample using </span><span class="s11">MqttConfig.TOPIC_BASE</span><span class="s2"> (</span><span class="s11">test/mqtt5/messages</span><span class="s2">) with optional JSON Schema / SERDES.</span></li>
+</ul>
+<h2 style="margin: 0.0px 0.0px 6.0px 0.0px; font: 9.6px 'Helvetica Neue'; color: #3289ec; -webkit-text-stroke: #3289ec"><span class="s1"><b>EVENT PORTAL </b></span><span class="s13"><b>GOVERNANCE</b></span></h2>
+<p class="p4"><span class="s2">Event types are modeled with </span><span class="s3"><b>past-tense names</b></span><span class="s2">, </span><span class="s3"><b>topic addresses</b></span><span class="s2"> on each event version, and </span><span class="s3"><b>declared producers/consumers</b></span><span class="s2"> for deadband, sketch, anomaly, and the web dashboard on raw variants. Optional: Java and SAM workflow objects live in the same application domain for a single governance view.</span></p>
+<h2 style="margin: 0.0px 0.0px 6.0px 0.0px; font: 9.6px 'Helvetica Neue'; color: #3289ec; -webkit-text-stroke: #3289ec"><span class="s1"><b>DEMO COMMANDS (ABBREV.)</b></span></h2>
+<p class="p11"><span class="s1">cd sam &amp;&amp; source .venv/bin/activate</span></p>
+<p class="p11"><span class="s1">export SOLACE_HOST SOLACE_PORT SOLACE_USER SOLACE_PASS SOLACE_TLS</span></p>
+<p class="p11"><span class="s1"># Microservices path:</span></p>
+<p class="p11"><span class="s1">python src/demo_publisher.py<span class="Apple-converted-space">    </span># T1</span></p>
+<p class="p11"><span class="s1">python src/deadband_service.py<span class="Apple-converted-space">  </span># T2</span></p>
+<p class="p11"><span class="s1">python src/sketch_service.py<span class="Apple-converted-space">    </span># T3</span></p>
+<p class="p11"><span class="s1">python src/anomaly_service.py <span class="Apple-converted-space">  </span># T4</span></p>
+<p class="p11"><span class="s1"># Or single process: python src/mock_pipeline.py</span></p>
+<p class="p12"><span class="s1">Page 2 of 2 · Repository: mqtt5SRDemo · README.md for full quick start</span></p>
+</body>
+</html>

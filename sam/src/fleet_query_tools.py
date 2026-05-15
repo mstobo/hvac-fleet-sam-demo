@@ -14,12 +14,24 @@ These tools only READ from the database - they don't process raw sensor data.
 import json
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Tuple
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
 # Import the database module
 import sensor_db
+import dispatch_workforce
+
+
+def _chart_query_internal_public_bases() -> Tuple[str, str]:
+    """
+    Internal base: GET /series and /plotly-spec from this host (SAM tools).
+    Public base: plotly_html_url_pinned for humans (e.g. Slack); defaults to internal.
+    """
+    internal = os.getenv("CHART_QUERY_BASE_URL", "http://127.0.0.1:8010").rstrip("/")
+    pub = os.getenv("CHART_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    public = pub if pub else internal
+    return internal, public
 
 
 def _debug_sketch_evidence_enabled() -> bool:
@@ -427,7 +439,7 @@ def get_chart_series(
         JSON string
     """
     try:
-        base = os.getenv("CHART_QUERY_BASE_URL", "http://127.0.0.1:8010").rstrip("/")
+        internal, _ = _chart_query_internal_public_bases()
         params = {
             "sensor_id": sensor_id,
             "minutes": int(minutes),
@@ -435,7 +447,7 @@ def get_chart_series(
             "resolution": resolution,
             "max_points": int(max_points),
         }
-        url = f"{base}/series?{urlencode(params)}"
+        url = f"{internal}/series?{urlencode(params)}"
 
         with urlopen(url, timeout=8) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -487,7 +499,7 @@ def get_plotly_spec(
     Use this when the caller needs a chart-renderer-friendly spec (no Mermaid).
     """
     try:
-        base = os.getenv("CHART_QUERY_BASE_URL", "http://127.0.0.1:8010").rstrip("/")
+        internal, public = _chart_query_internal_public_bases()
         params = {
             "sensor_id": sensor_id,
             "minutes": int(minutes),
@@ -496,7 +508,7 @@ def get_plotly_spec(
             "max_points": int(max_points),
             "value_key": value_key,
         }
-        url = f"{base}/plotly-spec?{urlencode(params)}"
+        url = f"{internal}/plotly-spec?{urlencode(params)}"
 
         with urlopen(url, timeout=8) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -526,7 +538,7 @@ def get_plotly_spec(
                 "window_start": pinned_start,
                 "window_end": pinned_end,
             }
-            pinned_url = f"{base}/plotly-html?{urlencode(pinned_params)}"
+            pinned_url = f"{public}/plotly-html?{urlencode(pinned_params)}"
 
         out = {
             "status": "ok",
@@ -583,3 +595,61 @@ def acknowledge_alert(alert_id: int) -> str:
                 })
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
+
+
+def get_dispatch_workforce_directory() -> str:
+    """
+    Return the mock CMMS / workforce directory (read-only demo fixture).
+
+    Use for questions about who is available, skills, sites, or shift coverage.
+    This is NOT connected to a real HR or CMMS system.
+    """
+    try:
+        doc = dispatch_workforce.load_workforce_document()
+        if doc.get("error"):
+            return json.dumps({"status": "error", "message": doc["error"]}, indent=2)
+        techs = dispatch_workforce.list_technicians()
+        return json.dumps(
+            {
+                "status": "ok",
+                "data_source": "mock_cmms_fixture",
+                "fixture_path": str(dispatch_workforce._data_path()),
+                "schema_version": doc.get("schema_version"),
+                "description": doc.get("description"),
+                "count": len(techs),
+                "technicians": techs,
+            },
+            indent=2,
+        )
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+
+def recommend_dispatch_technicians(
+    sensor_id: str,
+    incident_zone: str = None,
+    urgency: str = "high",
+    top_n: int = 3,
+) -> str:
+    """
+    Rank mock technicians for a cooling-asset incident (deterministic demo scoring).
+
+    Call AFTER get_incident_context for detailed investigations so sensor_id and
+    zone align with the incident under analysis. Read-only: does not create tickets.
+
+    Args:
+        sensor_id: Same cooling asset id used with get_incident_context (e.g. m3-temp-motor).
+        incident_zone: Optional zone string (e.g. CRITICAL) to tune skill hints.
+        urgency: high (default) or critical for stronger weighting on incident leads.
+        top_n: Number of ranked recommendations to return (default 3, max 10).
+    """
+    try:
+        out = dispatch_workforce.recommend_technicians(
+            sensor_id=sensor_id or "",
+            incident_zone=incident_zone,
+            urgency=urgency or "high",
+            top_n=int(top_n) if top_n is not None else 3,
+        )
+        return json.dumps(out, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)}, indent=2)

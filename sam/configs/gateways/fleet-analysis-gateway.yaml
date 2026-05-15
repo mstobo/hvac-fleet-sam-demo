@@ -40,12 +40,16 @@ apps:
 
     app_config:
       namespace: "${NAMESPACE}"
-      # Data-plane broker config required by sam-event-mesh-gateway plugin
+      gateway_id: ${FLEET_ANALYSIS_GATEWAY_ID, fleet-analysis-gw}
+      # Data-plane broker config required by sam-event-mesh-gateway plugin.
+      # Use temporary_queue so restarts do not fight for a single exclusive durable queue
+      # (SOLCLIENT_SUBCODE_MAX_CLIENTS_FOR_QUEUE on Solace Cloud).
       event_mesh_broker_config:
         broker_url: ${SOLACE_BROKER_URL}
         broker_vpn: ${SOLACE_BROKER_VPN}
         broker_username: ${SOLACE_BROKER_USERNAME}
         broker_password: ${SOLACE_BROKER_PASSWORD}
+        temporary_queue: ${USE_TEMPORARY_QUEUES, true}
       
       # Event handlers define what events trigger the gateway
       event_handlers:
@@ -58,8 +62,24 @@ apps:
           # Data-plane events don't carry end-user claims; stamp service identity.
           default_user_identity: "fleet-analysis-automation"
           
-          # Transform the incoming JSON event into a prompt for the agent
-          input_expression: "template:FLEET CRITICAL EVENT - Automatic Analysis Triggered. Analyze this payload and provide concise Slack-ready output with severity, likely causes, and immediate actions. Payload: {{json://input.payload}}"
+          # Transform MQTT payload into agent prompt. Branch: full in-depth ONLY for true FLEET_CRITICAL automation.
+          input_expression: >-
+            template:Incoming JSON: {{json://input.payload}}
+
+            BRANCHING (read the JSON and choose exactly one path):
+            SECTION A — Use ONLY if payload.event_type is "FLEET_CRITICAL_ANALYSIS_REQUEST" AND payload.fleet_status is "FLEET_CRITICAL" (correlated fleet: typically ≥50% of active cooling assets in CRITICAL). This path replaces the short *Automated Fleet Analysis* Slack body with one consolidated in-depth report.
+
+            SECTION A instructions (single Slack message; do NOT repeat eight full section headers once per sensor):
+            - Produce ONE report using the Fleet Query Agent 8-section headings (1–8) exactly once at fleet level.
+            - For each sensor_id in payload.sensors (or payload.affected_sensor_ids if sensors empty), in order: call get_incident_context(sensor_id, minutes=120) FIRST, then get_plotly_spec once per sensor_id (value_key=max_v; pinned Plotly URLs must match the UTC window you cite in Summary/Timeline). Do not call get_plotly_spec again for the same sensor_id/window after a successful response; if incident context shows NORMAL, summarize from that—do not loop on Plotly alignment for NORMAL assets.
+            - Weave per-asset evidence under clear "### <sensor_id>" subheadings inside the main sections (do not create eight duplicate section stacks per asset).
+            - Section 8 Dispatch recommendations (mock CMMS): call recommend_dispatch_technicians for at most THREE sensor_ids (choose the hottest / most severe first using tool data; if fewer than three assets, call for each). State fixture is read-only. Summarize remaining assets qualitatively without extra dispatch tool calls.
+            - Include sketch-evidence debug line in section 7 only when tool debug metadata requires it.
+            - Slack formatting: paste chart URLs as plain https lines (or angle-bracket URLs). Do not use markdown link syntax [label](target) unless target is a real http(s) URL—otherwise Slack may render garbage (e.g. accidental [11:37 AM](note text)).
+
+            SECTION B — Use for ALL other payloads (including non-fleet triggers or missing fields): at most 6 short sentences, Slack-ready, with severity and immediate actions only; NO per-asset forensic loop, NO get_incident_context unless the user payload explicitly asks for an asset deep-dive.
+
+            This message is only the *Automated Fleet Analysis* path (analysis-response → Slack). It must NOT change behavior for ordinary per-sensor CRITICAL alerts or the separate FLEET STATUS Slack card.
           
           payload_encoding: "utf-8"
           payload_format: "json"
@@ -86,18 +106,15 @@ apps:
       
       # System purpose for this gateway's context
       system_purpose: |
-        You are an automated fleet analysis system responding to a FLEET_CRITICAL event.
-        
-        This analysis was automatically triggered because multiple sensors (50%+) entered 
-        critical state simultaneously, indicating a likely correlated event.
-        
-        Your job is to:
-        1. Analyze the pattern of critical events using the database tools
-        2. Determine the most likely cause (shared environmental vs independent failures)
-        3. Provide clear, actionable recommendations for operators
-        
-        Be concise - this is an automated alert, not a conversation.
-        Use emoji status indicators: 🔴 Critical, 🟡 Warning, 🟢 Normal, ⚠️ Action needed
+        You are an automated fleet analysis system for MQTT-triggered analysis requests.
+
+        If the inbound message selects SECTION A (true FLEET_CRITICAL automation payload), produce
+        one consolidated in-depth Slack report as instructed (fleet-level 8 sections, per-asset
+        subsections, charts, limited dispatch tool calls).
+
+        Otherwise (SECTION B), stay brief: at most six sentences, no deep multi-asset loop.
+
+        Use emoji sparingly: 🔴 Critical, 🟡 Warning, 🟢 Normal, ⚠️ Action needed
       
       # Response handling - publish to response topic
       # The Slack gateway or other consumers can subscribe to this

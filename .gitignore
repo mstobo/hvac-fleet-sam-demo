@@ -36,6 +36,9 @@ update-ingress.yaml
 elk/elasticsearch-data/
 elk/filebeat-data/
 
+# AWS Compose bind-mount SQLite (local / EC2 host)
+deploy/aws/data/
+
 # Sensitive files - TLS certificates and keys
 *.crt
 *.key
@@ -74,6 +77,9 @@ logs/
 
 # Local environment and runtime (do not commit)
 sam/.env
+deploy/aws/.env
+deploy/aws/morning.env
+.cursor/solace-mcp.env
 *.db
 **/__pycache__/
 

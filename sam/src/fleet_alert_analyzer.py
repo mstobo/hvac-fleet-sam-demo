@@ -24,16 +24,25 @@ This is the appropriate use of event-triggered AI:
   - HIGH value (correlated failures need immediate analysis)
 """
 
+import argparse
 import json
 import os
 import ssl
 import threading
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import paho.mqtt.client as mqtt
+
+
+def _utc_now_iso_z() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 # Import shared config
 try:
@@ -131,7 +140,7 @@ def _get_mqtt_client() -> Optional[mqtt.Client]:
             except:
                 print(f"[AutoAnalysis] Response: {msg.payload.decode()[:200]}...")
         
-        def on_disconnect(client, userdata, reason_code, properties=None):
+        def on_disconnect(client, userdata, disconnect_flags, reason_code, properties=None):
             global _mqtt_connected
             _mqtt_connected = False
             print(f"[AutoAnalysis] MQTT disconnected: {reason_code}")
@@ -185,10 +194,15 @@ def _should_analyze() -> bool:
 
 def _build_analysis_event(criticals: list, sensors: list) -> dict:
     """Build the event payload for the analysis request."""
-    # Extract unique sensor IDs
-    sensor_ids = list(set(
-        s.get("sensor_id") for s in sensors if s.get("sensor_id")
-    ))
+    # Unique sensor IDs from debounce-window samples plus any fleet snapshot lists
+    # (e.g. affected_sensor_ids from anomaly_service when FLEET_CRITICAL fires).
+    from_sensors = [s.get("sensor_id") for s in sensors if s.get("sensor_id")]
+    extra: list[str] = []
+    for c in criticals:
+        ids = c.get("affected_sensor_ids")
+        if isinstance(ids, list):
+            extra.extend(str(x) for x in ids if x)
+    sensor_ids = sorted(set(from_sensors + extra))
     
     # Get latest fleet critical info
     latest_critical = criticals[-1] if criticals else {}
@@ -203,9 +217,10 @@ def _build_analysis_event(criticals: list, sensors: list) -> dict:
         "critical_count": latest_critical.get("critical_count", len(sensor_ids)),
         "active_sensors": latest_critical.get("active_sensors", len(sensor_ids)),
         "sensors": sensor_ids,
+        "affected_sensor_ids": sensor_ids,
         "average_temperature": round(avg_temp, 1),
         "notes": _normalize_notes(latest_critical.get("notes", "Multiple sensors in critical state")),
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": _utc_now_iso_z(),
         "debounce_window_seconds": DEBOUNCE_SECONDS,
         "events_collected": len(criticals) + len(sensors),
     }
@@ -358,7 +373,7 @@ def on_fleet_critical(fleet_status: str, critical_count: int, active_sensors: in
             "critical_count": critical_count,
             "active_sensors": active_sensors,
             "notes": notes,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": _utc_now_iso(),
             **(sensor_data or {})
         })
         
@@ -396,7 +411,7 @@ def on_sensor_critical(sensor_id: str, temperature: float, zone: str):
             "sensor_id": sensor_id,
             "temperature": temperature,
             "zone": zone,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _utc_now_iso()
         })
         
         if _pending_analysis:
@@ -437,30 +452,146 @@ def shutdown():
         _mqtt_client = None
 
 
-# For testing
-if __name__ == "__main__":
-    print("Testing fleet_alert_analyzer (Event Mesh Gateway version)...")
-    print(f"Status: {json.dumps(get_status(), indent=2)}")
-    
-    # Simulate a FLEET_CRITICAL event
-    print("\nSimulating FLEET_CRITICAL event...")
+def _seed_test_collections() -> None:
+    """
+    Fill collected critical/sensor lists like a FLEET_CRITICAL batch, without starting
+    the debounce timer (for manual / CLI testing).
+    """
+    global _collected_criticals, _collected_sensors, _pending_analysis, _pending_timer
+    with _lock:
+        if _pending_timer is not None:
+            _pending_timer.cancel()
+            _pending_timer = None
+        _collected_criticals = []
+        _collected_sensors = []
+        _pending_analysis = False
+
     on_sensor_critical("sensor-001", 68.5, "CRITICAL")
     on_sensor_critical("sensor-002", 67.2, "CRITICAL")
     on_sensor_critical("sensor-003", 69.1, "CRITICAL")
-    
-    on_fleet_critical(
-        fleet_status="FLEET_CRITICAL",
-        critical_count=3,
-        active_sensors=3,
-        notes="Test event - 3 sensors in critical state"
+
+    ts = _utc_now_iso()
+    with _lock:
+        _collected_criticals.append(
+            {
+                "fleet_status": "FLEET_CRITICAL",
+                "critical_count": 3,
+                "active_sensors": 3,
+                "notes": "CLI self-test batch for analysis-request and audit-report",
+                "timestamp": ts,
+            }
+        )
+
+
+def publish_audit_report_test_only() -> bool:
+    """
+    Publish one FLEET_SKETCH_AUDIT_REPORT JSON to AUDIT_REPORT_TOPIC only (no analysis-request).
+    Use this to validate subscribers on sensors/fleet/audit-report without involving SAM.
+    """
+    from fleet_sketch_audit_report import build_fleet_sketch_audit_report
+
+    correlation_id = str(uuid.uuid4())
+    ts = _utc_now_iso()
+    criticals = [
+        {
+            "fleet_status": "FLEET_CRITICAL",
+            "critical_count": 3,
+            "active_sensors": 9,
+            "notes": "Audit-only self-test for MQTT subscribers",
+            "timestamp": ts,
+        }
+    ]
+    sensors = [
+        {
+            "sensor_id": sid,
+            "temperature": temp,
+            "zone": "CRITICAL",
+            "timestamp": ts,
+        }
+        for sid, temp in (
+            ("sensor-001", 68.5),
+            ("sensor-002", 67.2),
+            ("sensor-003", 69.1),
+        )
+    ]
+    event = _build_analysis_event(criticals, sensors)
+    event["correlation_id"] = correlation_id
+    report = build_fleet_sketch_audit_report(
+        event,
+        sensors,
+        correlation_id=correlation_id,
+        days=AUDIT_WINDOW_DAYS,
     )
-    
-    print(f"\nStatus after trigger: {json.dumps(get_status(), indent=2)}")
-    
-    # Wait for debounce
-    print(f"\nWaiting {DEBOUNCE_SECONDS}s for debounce...")
-    time.sleep(DEBOUNCE_SECONDS + 5)
-    
+    client = _get_mqtt_client()
+    if client is None:
+        print("[AutoAnalysis] No MQTT client; cannot publish audit-only report")
+        return False
+    time.sleep(1.0)
+    ok = _publish_with_puback(
+        client,
+        AUDIT_REPORT_TOPIC,
+        json.dumps(report),
+        AUDIT_REPORT_QOS,
+        "sketch-audit-report-only",
+    )
+    if ok:
+        print(f"[AutoAnalysis] Audit-only report published to {AUDIT_REPORT_TOPIC}")
+    return ok
+
+
+# For testing: cd sam && python src/fleet_alert_analyzer.py [--now] [--audit-only]
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Test fleet auto-analysis and/or sketch audit MQTT publishes.",
+    )
+    parser.add_argument(
+        "--now",
+        action="store_true",
+        help="Skip debounce wait; publish analysis-request + audit-report after connect (~2s).",
+    )
+    parser.add_argument(
+        "--audit-only",
+        action="store_true",
+        help="Publish only to audit-report topic (no analysis-request / SAM).",
+    )
+    args = parser.parse_args()
+
+    print("Testing fleet_alert_analyzer (Event Mesh Gateway version)...")
+    print(f"Status: {json.dumps(get_status(), indent=2)}")
+
+    if args.audit_only:
+        if not ENABLE_FLEET_SKETCH_AUDIT:
+            print("ENABLE_FLEET_SKETCH_AUDIT is false; enable it to publish audit reports.")
+            raise SystemExit(1)
+        print("\nPublishing audit-report only (no analysis-request)...")
+        publish_audit_report_test_only()
+        print(f"\nFinal status: {json.dumps(get_status(), indent=2)}")
+        shutdown()
+        print("Done")
+        raise SystemExit(0)
+
+    print("\nSimulating FLEET_CRITICAL batch...")
+    if args.now:
+        _seed_test_collections()
+        print(f"\nStatus after seed: {json.dumps(get_status(), indent=2)}")
+        print("\n--now: publishing immediately (no debounce sleep)...")
+        time.sleep(1.5)
+        _execute_analysis()
+        time.sleep(2.0)
+    else:
+        on_sensor_critical("sensor-001", 68.5, "CRITICAL")
+        on_sensor_critical("sensor-002", 67.2, "CRITICAL")
+        on_sensor_critical("sensor-003", 69.1, "CRITICAL")
+        on_fleet_critical(
+            fleet_status="FLEET_CRITICAL",
+            critical_count=3,
+            active_sensors=3,
+            notes="CLI debounced test - 3 sensors in critical state",
+        )
+        print(f"\nStatus after trigger: {json.dumps(get_status(), indent=2)}")
+        print(f"\nWaiting {DEBOUNCE_SECONDS}s for debounce...")
+        time.sleep(DEBOUNCE_SECONDS + 5)
+
     print(f"\nFinal status: {json.dumps(get_status(), indent=2)}")
     shutdown()
     print("Done")

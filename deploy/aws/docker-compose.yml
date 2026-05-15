@@ -67,6 +67,8 @@ services:
 
   sam-control-plane:
     <<: *common
+  # Fleet analysis gateway runs in the same SAM process (avoids a second container
+  # competing for the same Solace queue on sensors/fleet/analysis-request).
     command:
       [
         "sam",
@@ -74,6 +76,7 @@ services:
         "configs/agents/main_orchestrator.yaml",
         "configs/agents/fleet_query_agent.yaml",
         "configs/gateways/webui.yaml",
+        "configs/gateways/fleet-analysis-gateway.yaml",
       ]
     ports:
       - "${WEBUI_PUBLISH_PORT:-8000}:8000"
@@ -81,7 +84,10 @@ services:
       chart-query:
         condition: service_healthy
 
+  # Optional: separate container (can hit SOLCLIENT_SUBCODE_MAX_CLIENTS_FOR_QUEUE if the
+  # broker queue already has a consumer). Default deploy uses sam-control-plane above.
   fleet-analysis-gateway:
+    profiles: [fleet-analysis-standalone]
     <<: *common
     command: ["sam", "run", "configs/gateways/fleet-analysis-gateway.yaml"]
     depends_on:

@@ -20,7 +20,7 @@ from slack_notifier import send_message
 
 RESPONSE_TOPIC = os.getenv("ANALYSIS_RESPONSE_TOPIC", "sensors/fleet/analysis-response")
 ERROR_TOPIC = os.getenv("ANALYSIS_ERROR_TOPIC", "sensors/fleet/analysis-error")
-SLACK_CHANNEL = os.getenv("SLACK_ALERT_CHANNEL", "COB1TRWTR0U")
+SLACK_CHANNEL = os.getenv("SLACK_ALERT_CHANNEL", "#sensor-alerts")
 
 _running = True
 
