@@ -517,7 +517,7 @@
 
 <div id="config-panel">
   <div><label>WebSocket Host</label><br><input id="cfg-host" value="" placeholder="your-broker.messaging.solace.cloud" /></div>
-  <div><label>WS Port</label><br><input id="cfg-port" value="443" style="width:80px" /></div>
+  <div><label>WS Port</label><br><input id="cfg-port" value="8443" style="width:80px" title="Solace Cloud MQTT WebSocket is usually 8443 (SAM wss may use 443)" /></div>
   <div><label>Username</label><br><input id="cfg-user" value="" placeholder="broker-username" /></div>
   <div><label>Password</label><br><input id="cfg-pass" type="password" value="" placeholder="broker-password" style="width:140px" /></div>
   <div><label>Raw topic base (twin sliders)</label><br><input id="cfg-raw-base-top" spellcheck="false" placeholder="dc/Hub/v1/raw/dc1/hall-a/row-a3/rack-12" style="width:min(360px,92vw)" title="Synced with twin tab manual publish (dc/&lt;Hub|DC1|DC2&gt;/v1/…)" /></div>
@@ -796,7 +796,7 @@
       hostEl.value = pickBrokerField(p && p.get('wsHost'), cfg.wsHost, LS_WS_HOST, '');
     }
     if (portEl) {
-      portEl.value = pickBrokerField(p && p.get('wsPort'), cfg.wsPort, LS_WS_PORT, '443') || '443';
+      portEl.value = pickBrokerField(p && p.get('wsPort'), cfg.wsPort, LS_WS_PORT, '8443') || '8443';
     }
     if (userEl) {
       userEl.value = pickBrokerField(p && p.get('wsUser'), cfg.wsUser, LS_WS_USER, '');
@@ -1608,8 +1608,8 @@
           port = parseInt(u.port, 10);
           document.getElementById('cfg-port').value = String(port);
         } else if (rawHost.startsWith('wss://') && !port) {
-          port = 443;
-          document.getElementById('cfg-port').value = '443';
+          port = 8443;
+          document.getElementById('cfg-port').value = '8443';
         } else if (rawHost.startsWith('ws://') && !port) {
           port = 80;
           document.getElementById('cfg-port').value = '80';
