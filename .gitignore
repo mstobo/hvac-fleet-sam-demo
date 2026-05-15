@@ -77,6 +77,7 @@ logs/
 
 # Local environment and runtime (do not commit)
 sam/.env
+sam/demo_dashboard.config.json
 deploy/aws/.env
 deploy/aws/morning.env
 .cursor/solace-mcp.env

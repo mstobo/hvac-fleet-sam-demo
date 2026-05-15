@@ -510,7 +510,7 @@
 <header>
   <div>
     <h1>⚡ Solace Agent Mesh | Live Pipeline Demo</h1>
-    <div class="subtitle">Filter → Trigger → Summarize → Act &nbsp;|&nbsp; Real-time sensor intelligence &nbsp;|&nbsp; <span id="dash-rev" title="If this label is missing, the browser is serving an old cached copy of this file. Hard-reload: Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows).">dashboard <strong style="color:#60a5fa">rev&nbsp;14</strong> · SAM chat tab · <code>?chartQuery=</code> <code>?samWebui=</code> · <code>?dcBroker=DC1</code></span></div>
+    <div class="subtitle">Filter → Trigger → Summarize → Act &nbsp;|&nbsp; Real-time sensor intelligence &nbsp;|&nbsp; <span id="dash-rev" title="If this label is missing, the browser is serving an old cached copy of this file. Hard-reload: Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows).">dashboard <strong style="color:#60a5fa">rev&nbsp;15</strong> · auto-connect · <code>demo_dashboard.config.json</code> optional</span></div>
   </div>
   <div id="conn-badge" class="conn-badge">● Disconnected</div>
 </header>
@@ -697,9 +697,9 @@
     <p class="sam-chat-hint">
       Embeds the <strong>SAM HTTP/SSE Web UI gateway</strong> (<code>configs/gateways/webui.yaml</code>, port <strong>8000</strong> in Docker).
       Requires <code>sam-control-plane</code> (or local <code>./start_demo_stack.sh</code>).
-      On EC2 behind Apache, set SAM URL to <code>https://your-host/sam/</code> (see <code>deploy/aws/README.md</code>).
+      Use <code>http://&lt;same-host&gt;:8000</code> for SAM (not <code>/sam/</code> — SPA assets break under a path prefix). See <code>deploy/aws/README.md</code>.
     </p>
-    <iframe id="sam-chat-frame" class="sam-chat-frame" title="SAM Fleet Chat" src="about:blank"></iframe>
+    <iframe id="sam-chat-frame" class="sam-chat-frame" title="SAM Fleet Chat" allow="microphone" src="about:blank"></iframe>
   </section>
 </div>
 
@@ -738,19 +738,104 @@
   const TWIN_STALE_MS = 45000;
   const LS_CHART_QUERY = 'chartQueryBaseUrl';
   const LS_SAM_WEBUI = 'samWebuiBaseUrl';
+  const LS_WS_HOST = 'mqttWsHost';
+  const LS_WS_PORT = 'mqttWsPort';
+  const LS_WS_USER = 'mqttWsUser';
+  const LS_WS_PASS = 'mqttWsPass';
+  const DEMO_CONFIG_URL = 'demo_dashboard.config.json';
 
   function defaultChartQueryBase() {
     if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+      const port = window.location.port;
+      if (port === '8010') return window.location.origin.replace(/\/$/, '');
       return window.location.origin.replace(/\/$/, '') + '/charts';
     }
     return 'http://127.0.0.1:8010';
   }
 
+  /** SAM Web UI is a SPA at / — use :8000 on the demo host, not /sam behind Apache. */
   function defaultSamWebuiBase() {
     if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
-      return window.location.origin.replace(/\/$/, '') + '/sam';
+      const host = window.location.hostname;
+      return 'http://' + host + ':8000';
     }
     return 'http://127.0.0.1:8000';
+  }
+
+  function lsGet(key) {
+    try { return localStorage.getItem(key); } catch (e) { return null; }
+  }
+  function lsSet(key, val) {
+    try { if (val != null && val !== '') localStorage.setItem(key, val); } catch (e) { /* */ }
+  }
+
+  async function loadOptionalDemoConfig() {
+    try {
+      const r = await fetch(DEMO_CONFIG_URL, { cache: 'no-store' });
+      if (r.ok) return await r.json();
+    } catch (e) { /* no config file — normal */ }
+    return null;
+  }
+
+  function pickBrokerField(urlVal, cfgVal, lsKey, fallback) {
+    if (urlVal != null && String(urlVal).trim() !== '') return String(urlVal).trim();
+    if (cfgVal != null && String(cfgVal).trim() !== '') return String(cfgVal).trim();
+    const v = lsGet(lsKey);
+    if (v != null && String(v).trim() !== '') return String(v).trim();
+    return fallback != null ? String(fallback) : '';
+  }
+
+  function initBrokerConfig(demoConfig) {
+    const cfg = demoConfig || {};
+    const p = urlParams;
+    const hostEl = document.getElementById('cfg-host');
+    const portEl = document.getElementById('cfg-port');
+    const userEl = document.getElementById('cfg-user');
+    const passEl = document.getElementById('cfg-pass');
+    if (hostEl) {
+      hostEl.value = pickBrokerField(p && p.get('wsHost'), cfg.wsHost, LS_WS_HOST, '');
+    }
+    if (portEl) {
+      portEl.value = pickBrokerField(p && p.get('wsPort'), cfg.wsPort, LS_WS_PORT, '443') || '443';
+    }
+    if (userEl) {
+      userEl.value = pickBrokerField(p && p.get('wsUser'), cfg.wsUser, LS_WS_USER, '');
+    }
+    if (passEl) {
+      passEl.value = pickBrokerField(p && p.get('wsPass'), cfg.wsPass, LS_WS_PASS, '');
+    }
+    if (cfg.rawTopicBase) {
+      const top = document.getElementById('cfg-raw-base-top');
+      const twin = document.getElementById('cfg-raw-base');
+      if (top && !top.value.trim()) top.value = cfg.rawTopicBase;
+      if (twin && !twin.value.trim()) twin.value = cfg.rawTopicBase;
+    }
+  }
+
+  function saveBrokerConfigToLS() {
+    const hostEl = document.getElementById('cfg-host');
+    const portEl = document.getElementById('cfg-port');
+    const userEl = document.getElementById('cfg-user');
+    const passEl = document.getElementById('cfg-pass');
+    if (hostEl) lsSet(LS_WS_HOST, hostEl.value.trim());
+    if (portEl) lsSet(LS_WS_PORT, portEl.value.trim());
+    if (userEl) lsSet(LS_WS_USER, userEl.value.trim());
+    if (passEl) lsSet(LS_WS_PASS, passEl.value);
+  }
+
+  function canAutoConnectBroker() {
+    const host = document.getElementById('cfg-host');
+    const user = document.getElementById('cfg-user');
+    const pass = document.getElementById('cfg-pass');
+    return !!(host && host.value.trim() && user && user.value.trim() && pass && pass.value);
+  }
+
+  function shouldAutoConnect(demoConfig) {
+    if (urlParams && urlParams.get('autoConnect') === '0') return false;
+    if (urlParams && urlParams.get('autoConnect') === '1') return canAutoConnectBroker();
+    if (demoConfig && demoConfig.autoConnect === false) return false;
+    if (demoConfig && demoConfig.autoConnect === true) return canAutoConnectBroker();
+    return canAutoConnectBroker();
   }
 
   function normalizeServiceBase(url, fallback) {
@@ -803,11 +888,12 @@
     refreshTwinTrends();
   }
 
-  function initServiceUrlInputs() {
+  function initServiceUrlInputs(demoConfig) {
+    const cfg = demoConfig || {};
     const chartParam = urlParams && urlParams.get('chartQuery');
     const samParam = urlParams && urlParams.get('samWebui');
-    let chartBase = chartParam || null;
-    let samBase = samParam || null;
+    let chartBase = chartParam || cfg.chartQueryBaseUrl || null;
+    let samBase = samParam || cfg.samWebuiBaseUrl || null;
     try {
       if (!chartBase) chartBase = localStorage.getItem(LS_CHART_QUERY);
       if (!samBase) samBase = localStorage.getItem(LS_SAM_WEBUI);
@@ -1576,6 +1662,7 @@
       onSuccess: () => {
         document.getElementById('conn-badge').className = 'conn-badge connected';
         document.getElementById('conn-badge').textContent = '● Connected';
+        saveBrokerConfigToLS();
         resetDashboardOnConnect();
         // Subscribe to new versioned topics
         mqttClient.subscribe('dc/+/v1/raw/#');
@@ -1952,8 +2039,17 @@
     }
   }
 
-  initServiceUrlInputs();
-  setupDashTabs();
+  async function bootstrapDashboard() {
+    const demoConfig = await loadOptionalDemoConfig();
+    initBrokerConfig(demoConfig);
+    initServiceUrlInputs(demoConfig);
+    applyServiceUrls();
+    setupDashTabs();
+    if (shouldAutoConnect(demoConfig)) {
+      connectBroker();
+    }
+  }
+  bootstrapDashboard();
 </script>
 </body>
 </html>
