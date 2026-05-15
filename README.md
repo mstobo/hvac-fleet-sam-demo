@@ -97,7 +97,9 @@ Open **`sam/demo_dashboard.html`** in a browser (file URL or static host), or ho
 | 2D digital twin | MQTT + **chart-query** trends (`/series`) |
 | **Fleet chat (SAM)** | iframe → **SAM Web UI gateway** (`:8000` or `/sam/` behind Apache) |
 
-Configure **Chart API** and **SAM Web UI** in the header (saved to `localStorage`), or use `?chartQuery=` and `?samWebui=` query params. When served over HTTP(S) from a host, defaults are `/charts` and `/sam` on the same origin.
+Configure **Chart API** and **SAM Web UI** in the header (saved to `localStorage`), or use `?chartQuery=` and `?samWebui=` query params. When served over HTTP(S) from a host, defaults are `http://<host>/charts` and `http://<host>:8000`.
+
+For a frictionless EC2 demo, generate **`demo_dashboard.config.json`** from `.env` (see [deploy/aws/README.md](deploy/aws/README.md)) — the page auto-connects to Solace on load.
 
 **Tip:** With EC2 `demo-publisher` running, disconnect the dashboard or disable continuous twin publish to avoid duplicate traffic.
 

@@ -236,9 +236,24 @@ Replace `your-host` with your DNS name or use the EC2 public IP over HTTP for de
 
 Enable the site, reload Apache, and open `http://your-host/` (or `http://<ec2-ip>/`).
 
-### 4. Dashboard URL settings
+### 4. One-time broker defaults (auto-connect)
 
-The dashboard (**rev 14+**) has a **Fleet chat (SAM)** tab (iframe) and config fields:
+Generate `demo_dashboard.config.json` beside `index.html` from your Compose `.env` (gitignored — contains broker password):
+
+```bash
+chmod +x deploy/aws/scripts/gen-dashboard-config.sh
+export DASHBOARD_PUBLIC_HOST=18.116.251.212   # EC2 public IP or DNS
+./deploy/aws/scripts/gen-dashboard-config.sh deploy/aws/.env /var/www/mqtt5sr-demo/demo_dashboard.config.json
+sudo chown www-data:www-data /var/www/mqtt5sr-demo/demo_dashboard.config.json
+```
+
+On load, the dashboard (**rev 15+**) reads that file, fills the form, sets **SAM** to `http://<host>:8000` and **charts** to `http://<host>/charts`, and **Connects automatically**. Override any field manually or use `?autoConnect=0` to disable.
+
+Credentials are also saved in the browser `localStorage` after the first successful connect.
+
+### 5. Dashboard URL settings
+
+The dashboard has a **Fleet chat (SAM)** tab (iframe) and config fields:
 
 | Field | Apache example | Backend |
 |--------|----------------|---------|

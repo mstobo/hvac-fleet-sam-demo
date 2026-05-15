@@ -1,0 +1,10 @@
+{
+  "wsHost": "your-broker.messaging.solace.cloud",
+  "wsPort": 443,
+  "wsUser": "your-username",
+  "wsPass": "your-password",
+  "rawTopicBase": "dc/Hub/v1/raw/dc1/hall-a/row-a3/rack-12",
+  "chartQueryBaseUrl": "",
+  "samWebuiBaseUrl": "",
+  "autoConnect": true
+}
