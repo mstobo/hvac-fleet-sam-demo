@@ -7,17 +7,42 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Solace Agent Mesh | Live Pipeline Demo</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.2/mqttws31.min.js"></script>
+<link rel="stylesheet" href="solace-brand.css">
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  /* Dashboard tokens mapped to solace-brand.css design system */
   :root {
-    --bg: #0a0f1e; --card: #131929; --card2: #1a2235;
-    --green: #00c176; --yellow: #fbbf24; --red: #f87171;
-    --blue: #60a5fa; --muted: #8892a4; --border: rgba(0,193,118,0.2);
-    --text: #e8eaf0;
+    --bg: var(--solace-dark);
+    --card: var(--solace-dark-mid);
+    --card2: var(--solace-dark-surface);
+    --green: var(--solace-primary);
+    --yellow: var(--solace-warning);
+    --red: var(--solace-error);
+    --blue: var(--solace-accent);
+    --muted: var(--solace-text-on-dark-muted);
+    --border: var(--solace-dark-border);
+    --text: var(--solace-text-on-dark);
   }
-  body {
-    background: var(--bg); color: var(--text); font-family: 'Segoe UI', monospace; font-size: 13px;
-    display: flex; flex-direction: column; min-height: 100vh;
+  body.solace-dashboard {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--solace-font-primary);
+    font-size: var(--solace-text-sm);
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    line-height: 1.5;
+  }
+  body.solace-dashboard h1, body.solace-dashboard h2, body.solace-dashboard h3 {
+    color: inherit;
+    margin-bottom: 0;
+  }
+  body.solace-dashboard code {
+    background: rgba(0, 200, 149, 0.12);
+    color: var(--solace-primary-light);
+    font-family: var(--solace-font-mono);
+    font-size: 0.85em;
+    padding: 0.12em 0.35em;
+    border-radius: var(--solace-radius-sm);
   }
 
   header {
@@ -25,13 +50,28 @@
     background: var(--card); border-bottom: 1px solid var(--border);
     padding: 14px 24px; display: flex; align-items: center; justify-content: space-between;
   }
-  header h1 { font-size: 1.1rem; font-weight: 700; color: var(--green); }
-  header .subtitle { font-size: 0.8rem; color: var(--muted); }
-  .conn-badge {
-    padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700;
-    background: rgba(248,113,113,0.15); color: var(--red); border: 1px solid var(--red);
+  header h1 {
+    font-size: var(--solace-text-lg);
+    font-weight: var(--solace-weight-bold);
+    color: var(--green);
   }
-  .conn-badge.connected { background: rgba(0,193,118,0.15); color: var(--green); border-color: var(--green); }
+  header .subtitle { font-size: var(--solace-text-sm); color: var(--muted); }
+  .conn-badge {
+    padding: var(--solace-space-1) var(--solace-space-3);
+    border-radius: var(--solace-radius-full);
+    font-size: var(--solace-text-xs);
+    font-weight: var(--solace-weight-semibold);
+    background: rgba(232, 57, 77, 0.12);
+    color: var(--red);
+    border: 1px solid var(--red);
+    letter-spacing: 0.04em;
+  }
+  .conn-badge.connected {
+    background: rgba(0, 200, 149, 0.12);
+    color: var(--green);
+    border-color: var(--green);
+    box-shadow: var(--solace-shadow-glow);
+  }
 
   /* Config panel */
   #config-panel {
@@ -40,14 +80,27 @@
     padding: 12px 24px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
   }
   #config-panel input {
-    background: #0a0f1e; border: 1px solid var(--border); border-radius: 4px;
-    color: var(--text); padding: 6px 10px; font-size: 0.8rem; width: 220px;
+    background: var(--solace-dark);
+    border: 1.5px solid var(--border);
+    border-radius: var(--solace-radius-md);
+    color: var(--text);
+    padding: 0.5rem 0.65rem;
+    font-size: var(--solace-text-sm);
+    font-family: var(--solace-font-primary);
+    width: 220px;
+    transition: border-color var(--solace-transition-fast), box-shadow var(--solace-transition-fast);
   }
-  #config-panel label { font-size: 0.75rem; color: var(--muted); }
-  #config-panel button {
-    background: var(--green); color: #0a0f1e; border: none; border-radius: 4px;
-    padding: 7px 18px; font-weight: 700; cursor: pointer; font-size: 0.82rem;
+  #config-panel input:focus {
+    outline: none;
+    border-color: var(--green);
+    box-shadow: 0 0 0 3px rgba(0, 200, 149, 0.15);
   }
+  #config-panel label {
+    font-size: var(--solace-text-xs);
+    font-weight: var(--solace-weight-medium);
+    color: var(--muted);
+  }
+  #config-panel button.solace-btn { width: auto; }
 
   /* Live pipeline stages (last message age — not process health on disk) */
   #pipeline-pulse {
@@ -110,6 +163,7 @@
   .dash-tab.active {
     color: var(--green);
     border-bottom-color: var(--green);
+    font-weight: var(--solace-weight-semibold);
   }
   .dash-view {
     flex: 1;
@@ -413,8 +467,13 @@
 
   /* Pipeline column */
   .pipeline-col {
-    background: var(--card); border-right: 1px solid var(--border);
-    display: flex; flex-direction: column; overflow: hidden;
+    background: var(--card);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: var(--solace-radius-lg);
+    box-shadow: var(--solace-shadow-sm);
   }
   .col-header {
     padding: 10px 16px; background: rgba(0,193,118,0.06);
@@ -505,12 +564,12 @@
   ::-webkit-scrollbar-thumb { background: #2a3550; border-radius: 4px; }
 </style>
 </head>
-<body>
+<body class="solace-dashboard">
 
 <header>
   <div>
     <h1>⚡ Solace Agent Mesh | Live Pipeline Demo</h1>
-    <div class="subtitle">Filter → Trigger → Summarize → Act &nbsp;|&nbsp; Real-time sensor intelligence &nbsp;|&nbsp; <span id="dash-rev" title="If this label is missing, the browser is serving an old cached copy of this file. Hard-reload: Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows).">dashboard <strong style="color:#60a5fa">rev&nbsp;15</strong> · auto-connect · <code>demo_dashboard.config.json</code> optional</span></div>
+    <div class="subtitle">Filter → Trigger → Summarize → Act &nbsp;|&nbsp; Real-time sensor intelligence &nbsp;|&nbsp; <span id="dash-rev" title="If this label is missing, the browser is serving an old cached copy of this file. Hard-reload: Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows).">dashboard <strong class="solace-text-primary">rev&nbsp;16</strong> · Solace brand · <code>demo_dashboard.config.json</code> optional</span></div>
   </div>
   <div id="conn-badge" class="conn-badge">● Disconnected</div>
 </header>
@@ -523,7 +582,7 @@
   <div><label>Raw topic base (twin sliders)</label><br><input id="cfg-raw-base-top" spellcheck="false" placeholder="dc/Hub/v1/raw/dc1/hall-a/row-a3/rack-12" style="width:min(360px,92vw)" title="Synced with twin tab manual publish (dc/&lt;Hub|DC1|DC2&gt;/v1/…)" /></div>
   <div><label>Chart API (trends)</label><br><input id="cfg-chart-query" spellcheck="false" placeholder="http://127.0.0.1:8010" style="width:min(240px,40vw)" title="chart-query base URL (e.g. https://your-host/charts/ behind Apache)" /></div>
   <div><label>SAM Web UI (chat)</label><br><input id="cfg-sam-webui" spellcheck="false" placeholder="http://127.0.0.1:8000" style="width:min(240px,40vw)" title="HTTP/SSE gateway (e.g. https://your-host/sam/ behind Apache)" /></div>
-  <div style="align-self:flex-end; display:flex; gap:8px; flex-wrap:wrap;"><button type="button" onclick="applyServiceUrls()">Apply URLs</button><button type="button" onclick="connectBroker()">Connect ▶</button></div>
+  <div style="align-self:flex-end; display:flex; gap:8px; flex-wrap:wrap;"><button type="button" class="solace-btn solace-btn--secondary solace-btn--sm" onclick="applyServiceUrls()">Apply URLs</button><button type="button" class="solace-btn solace-btn--primary solace-btn--sm" onclick="connectBroker()">Connect ▶</button></div>
 </div>
 
 <nav class="dash-tabs" aria-label="Dashboard views">
