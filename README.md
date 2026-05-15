@@ -89,18 +89,15 @@ curl -sf http://127.0.0.1:8010/health
 
 ### 4. Live pipeline dashboard (browser)
 
-Open **`sam/demo_dashboard.html`** in a browser (file URL or static host). Connect with your Solace **WebSocket** host/port and credentials.
+Open **`sam/demo_dashboard.html`** in a browser (file URL or static host), or host it on **Apache on EC2** (see [deploy/aws/README.md](deploy/aws/README.md#live-pipeline-dashboard-on-apache-optional)). Connect with your Solace **WebSocket** host/port and credentials.
 
-| Dashboard area | Data source |
-|----------------|-------------|
-| Pipeline columns (raw / filtered / sketch / alerts) | Live MQTT subscriptions (session counters) |
-| Machine trends (30m) | **chart-query** HTTP API — default `http://127.0.0.1:8010` |
+| Tab | Data source |
+|-----|-------------|
+| Pipeline · 3 columns | Live MQTT (session counters) |
+| 2D digital twin | MQTT + **chart-query** trends (`/series`) |
+| **Fleet chat (SAM)** | iframe → **SAM Web UI gateway** (`:8000` or `/sam/` behind Apache) |
 
-To use EC2 chart data from your laptop:
-
-```javascript
-localStorage.setItem('chartQueryBaseUrl', 'http://<ec2-public-ip>:8010');
-```
+Configure **Chart API** and **SAM Web UI** in the header (saved to `localStorage`), or use `?chartQuery=` and `?samWebui=` query params. When served over HTTP(S) from a host, defaults are `/charts` and `/sam` on the same origin.
 
 **Tip:** With EC2 `demo-publisher` running, disconnect the dashboard or disable continuous twin publish to avoid duplicate traffic.
 

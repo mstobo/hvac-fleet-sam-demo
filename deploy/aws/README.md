@@ -189,6 +189,76 @@ ENV_FILE=.env docker compose -f deploy/aws/docker-compose.yml run --rm --no-deps
 
 See `scripts/ec2-user-data.sh`: install Docker, clone repo, place `deploy/aws/.env`, `init-data-dir`, ECR login, set both image env vars, `docker compose up`.
 
+## Live pipeline dashboard on Apache (optional)
+
+`sam/demo_dashboard.html` is a **static** MQTT pipeline UI (not in Docker Compose). You can host it on the same EC2 instance with Apache while Compose runs the backends.
+
+### 1. Copy static files
+
+```bash
+sudo mkdir -p /var/www/mqtt5sr-demo
+sudo cp /opt/mqtt5sr/mqtt5SRDemo/sam/demo_dashboard.html /var/www/mqtt5sr-demo/index.html
+# Optional: serve the whole sam/ tree if you add assets later
+```
+
+### 2. Enable Apache modules
+
+```bash
+sudo a2enmod proxy proxy_http headers rewrite
+sudo systemctl reload apache2
+```
+
+### 3. Site config (reverse proxy to Compose on localhost)
+
+Replace `your-host` with your DNS name or use the EC2 public IP over HTTP for demos.
+
+```apache
+<VirtualHost *:80>
+    ServerName your-host
+    DocumentRoot /var/www/mqtt5sr-demo
+
+    <Directory /var/www/mqtt5sr-demo>
+        Require all granted
+        Options -Indexes
+    </Directory>
+
+    # SAM Web UI (HTTP/SSE gateway — sam-control-plane :8000)
+    ProxyPass        /sam/     http://127.0.0.1:8000/
+    ProxyPassReverse /sam/     http://127.0.0.1:8000/
+
+    # chart-query API (:8010)
+    ProxyPass        /charts/  http://127.0.0.1:8010/
+    ProxyPassReverse /charts/  http://127.0.0.1:8010/
+
+    RequestHeader set X-Forwarded-Proto "http"
+</VirtualHost>
+```
+
+Enable the site, reload Apache, and open `http://your-host/` (or `http://<ec2-ip>/`).
+
+### 4. Dashboard URL settings
+
+The dashboard (**rev 14+**) has a **Fleet chat (SAM)** tab (iframe) and config fields:
+
+| Field | Apache example | Backend |
+|--------|----------------|---------|
+| Chart API | `http://your-host/charts` | `chart-query` |
+| SAM Web UI | `http://your-host/sam` | `sam-control-plane` |
+
+Or use query params once:
+
+`http://your-host/?chartQuery=http://your-host/charts&samWebui=http://your-host/sam`
+
+**MQTT** still connects from the **browser** to **Solace Cloud** (WebSocket credentials in the dashboard form). Apache only serves HTML and proxies chart/SAM HTTP.
+
+### 5. Security group
+
+- **80** or **443** for Apache  
+- **8000** / **8010** can stay closed publicly if you only use `/sam/` and `/charts/` proxies  
+- Solace: outbound WSS from each viewer’s browser (no inbound rule on EC2 for Solace)
+
+For HTTPS, terminate TLS on Apache (e.g. Let’s Encrypt) and use `https://` in the dashboard SAM/chart URLs.
+
 ## Files
 
 | Path | Purpose |
