@@ -121,6 +121,30 @@
   }
   .dash-view.hidden { display: none !important; }
 
+  /* SAM Web UI (HTTP/SSE gateway) embedded via iframe */
+  .sam-chat-panel {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 12px 20px 16px;
+    gap: 8px;
+  }
+  .sam-chat-hint {
+    font-size: 0.74rem;
+    color: var(--muted);
+    line-height: 1.45;
+  }
+  .sam-chat-hint code { color: #60a5fa; font-size: 0.72rem; }
+  .sam-chat-frame {
+    flex: 1;
+    min-height: 320px;
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #0a0f1e;
+  }
+
   /* 2D digital twin (demo schematic — matches demo_publisher machine-00x / m*-temp-*) */
   .main-wrap {
     display: flex;
@@ -486,7 +510,7 @@
 <header>
   <div>
     <h1>⚡ Solace Agent Mesh | Live Pipeline Demo</h1>
-    <div class="subtitle">Filter → Trigger → Summarize → Act &nbsp;|&nbsp; Real-time sensor intelligence &nbsp;|&nbsp; <span id="dash-rev" title="If this label is missing, the browser is serving an old cached copy of this file. Hard-reload: Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows).">dashboard <strong style="color:#60a5fa">rev&nbsp;13</strong> · Col&nbsp;3 = rule MQTT + sketch escalations · <code>?dcBroker=DC1</code> = spoke publish prefix</span></div>
+    <div class="subtitle">Filter → Trigger → Summarize → Act &nbsp;|&nbsp; Real-time sensor intelligence &nbsp;|&nbsp; <span id="dash-rev" title="If this label is missing, the browser is serving an old cached copy of this file. Hard-reload: Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows).">dashboard <strong style="color:#60a5fa">rev&nbsp;14</strong> · SAM chat tab · <code>?chartQuery=</code> <code>?samWebui=</code> · <code>?dcBroker=DC1</code></span></div>
   </div>
   <div id="conn-badge" class="conn-badge">● Disconnected</div>
 </header>
@@ -497,12 +521,15 @@
   <div><label>Username</label><br><input id="cfg-user" value="" placeholder="broker-username" /></div>
   <div><label>Password</label><br><input id="cfg-pass" type="password" value="" placeholder="broker-password" style="width:140px" /></div>
   <div><label>Raw topic base (twin sliders)</label><br><input id="cfg-raw-base-top" spellcheck="false" placeholder="dc/Hub/v1/raw/dc1/hall-a/row-a3/rack-12" style="width:min(360px,92vw)" title="Synced with twin tab manual publish (dc/&lt;Hub|DC1|DC2&gt;/v1/…)" /></div>
-  <div style="align-self:flex-end;"><button onclick="connectBroker()">Connect ▶</button></div>
+  <div><label>Chart API (trends)</label><br><input id="cfg-chart-query" spellcheck="false" placeholder="http://127.0.0.1:8010" style="width:min(240px,40vw)" title="chart-query base URL (e.g. https://your-host/charts/ behind Apache)" /></div>
+  <div><label>SAM Web UI (chat)</label><br><input id="cfg-sam-webui" spellcheck="false" placeholder="http://127.0.0.1:8000" style="width:min(240px,40vw)" title="HTTP/SSE gateway (e.g. https://your-host/sam/ behind Apache)" /></div>
+  <div style="align-self:flex-end; display:flex; gap:8px; flex-wrap:wrap;"><button type="button" onclick="applyServiceUrls()">Apply URLs</button><button type="button" onclick="connectBroker()">Connect ▶</button></div>
 </div>
 
 <nav class="dash-tabs" aria-label="Dashboard views">
   <button type="button" class="dash-tab active" id="tab-pipeline">Pipeline · 3 columns</button>
   <button type="button" class="dash-tab" id="tab-twin">2D digital twin</button>
+  <button type="button" class="dash-tab" id="tab-sam">Fleet chat (SAM)</button>
 </nav>
 
 <div id="view-pipeline" class="dash-view">
@@ -665,6 +692,17 @@
   </section>
 </div>
 
+<div id="view-sam" class="dash-view hidden">
+  <section class="sam-chat-panel" aria-label="SAM Fleet chat">
+    <p class="sam-chat-hint">
+      Embeds the <strong>SAM HTTP/SSE Web UI gateway</strong> (<code>configs/gateways/webui.yaml</code>, port <strong>8000</strong> in Docker).
+      Requires <code>sam-control-plane</code> (or local <code>./start_demo_stack.sh</code>).
+      On EC2 behind Apache, set SAM URL to <code>https://your-host/sam/</code> (see <code>deploy/aws/README.md</code>).
+    </p>
+    <iframe id="sam-chat-frame" class="sam-chat-frame" title="SAM Fleet Chat" src="about:blank"></iframe>
+  </section>
+</div>
+
 <!-- Stats bar -->
 <div id="stats-bar">
   <div class="stat"><div class="val" id="stat-total">0</div><div class="lbl">Total Events</div></div>
@@ -698,7 +736,92 @@
   ]);
   const twinState = {};
   const TWIN_STALE_MS = 45000;
-  const CHART_QUERY_BASE_URL = window.localStorage.getItem('chartQueryBaseUrl') || 'http://127.0.0.1:8010';
+  const LS_CHART_QUERY = 'chartQueryBaseUrl';
+  const LS_SAM_WEBUI = 'samWebuiBaseUrl';
+
+  function defaultChartQueryBase() {
+    if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+      return window.location.origin.replace(/\/$/, '') + '/charts';
+    }
+    return 'http://127.0.0.1:8010';
+  }
+
+  function defaultSamWebuiBase() {
+    if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+      return window.location.origin.replace(/\/$/, '') + '/sam';
+    }
+    return 'http://127.0.0.1:8000';
+  }
+
+  function normalizeServiceBase(url, fallback) {
+    const s = String(url || '').trim();
+    if (!s) return fallback;
+    return s.replace(/\/+$/, '');
+  }
+
+  function getChartQueryBaseUrl() {
+    const el = document.getElementById('cfg-chart-query');
+    const fromInput = el && el.value.trim();
+    if (fromInput) return normalizeServiceBase(fromInput, defaultChartQueryBase());
+    try {
+      return normalizeServiceBase(
+        localStorage.getItem(LS_CHART_QUERY),
+        defaultChartQueryBase()
+      );
+    } catch (e) {
+      return defaultChartQueryBase();
+    }
+  }
+
+  function getSamWebuiBaseUrl() {
+    const el = document.getElementById('cfg-sam-webui');
+    const fromInput = el && el.value.trim();
+    if (fromInput) return normalizeServiceBase(fromInput, defaultSamWebuiBase());
+    try {
+      return normalizeServiceBase(
+        localStorage.getItem(LS_SAM_WEBUI),
+        defaultSamWebuiBase()
+      );
+    } catch (e) {
+      return defaultSamWebuiBase();
+    }
+  }
+
+  function applyServiceUrls() {
+    const chartEl = document.getElementById('cfg-chart-query');
+    const samEl = document.getElementById('cfg-sam-webui');
+    const chartBase = getChartQueryBaseUrl();
+    const samBase = getSamWebuiBaseUrl();
+    try {
+      localStorage.setItem(LS_CHART_QUERY, chartBase);
+      localStorage.setItem(LS_SAM_WEBUI, samBase);
+    } catch (e) { /* ignore */ }
+    if (chartEl) chartEl.value = chartBase;
+    if (samEl) samEl.value = samBase;
+    const frame = document.getElementById('sam-chat-frame');
+    if (frame) frame.src = samBase + '/';
+    refreshTwinTrends();
+  }
+
+  function initServiceUrlInputs() {
+    const chartParam = urlParams && urlParams.get('chartQuery');
+    const samParam = urlParams && urlParams.get('samWebui');
+    let chartBase = chartParam || null;
+    let samBase = samParam || null;
+    try {
+      if (!chartBase) chartBase = localStorage.getItem(LS_CHART_QUERY);
+      if (!samBase) samBase = localStorage.getItem(LS_SAM_WEBUI);
+    } catch (e) { /* ignore */ }
+    chartBase = normalizeServiceBase(chartBase, defaultChartQueryBase());
+    samBase = normalizeServiceBase(samBase, defaultSamWebuiBase());
+    const chartEl = document.getElementById('cfg-chart-query');
+    const samEl = document.getElementById('cfg-sam-webui');
+    if (chartEl) chartEl.value = chartBase;
+    if (samEl) samEl.value = samBase;
+    const frame = document.getElementById('sam-chat-frame');
+    if (frame && frame.src === 'about:blank') frame.src = samBase + '/';
+  }
+
   const TREND_GROUPS = [
     {
       key: 'm1',
@@ -1701,7 +1824,7 @@
         const sensorId = group.sensors[i];
         const label = group.labels[i];
         try {
-          const u = new URL(`${CHART_QUERY_BASE_URL}/series`);
+          const u = new URL(`${getChartQueryBaseUrl()}/series`);
           u.searchParams.set("sensor_id", sensorId);
           u.searchParams.set("minutes", "30");
           u.searchParams.set("max_points", "60");
@@ -1757,15 +1880,21 @@
   function setupDashTabs() {
     const tabP = document.getElementById('tab-pipeline');
     const tabT = document.getElementById('tab-twin');
+    const tabS = document.getElementById('tab-sam');
     const viewP = document.getElementById('view-pipeline');
     const viewT = document.getElementById('view-twin');
+    const viewS = document.getElementById('view-sam');
     if (!tabP || !tabT || !viewP || !viewT) return;
 
+    function clearTabs() {
+      [tabP, tabT, tabS].forEach((t) => { if (t) t.classList.remove('active'); });
+      [viewP, viewT, viewS].forEach((v) => { if (v) v.classList.add('hidden'); });
+    }
+
     function goPipeline() {
+      clearTabs();
       viewP.classList.remove('hidden');
-      viewT.classList.add('hidden');
       tabP.classList.add('active');
-      tabT.classList.remove('active');
       try {
         localStorage.setItem('mqtt5dashTab', 'pipeline');
       } catch (e) { /* private mode */ }
@@ -1777,10 +1906,9 @@
     }
 
     function goTwin() {
+      clearTabs();
       viewT.classList.remove('hidden');
-      viewP.classList.add('hidden');
       tabT.classList.add('active');
-      tabP.classList.remove('active');
       try {
         localStorage.setItem('mqtt5dashTab', 'twin');
       } catch (e) { /* */ }
@@ -1791,17 +1919,40 @@
       startTwinTrendRefresh();
     }
 
+    function goSam() {
+      clearTabs();
+      if (viewS) viewS.classList.remove('hidden');
+      if (tabS) tabS.classList.add('active');
+      applyServiceUrls();
+      try {
+        localStorage.setItem('mqtt5dashTab', 'sam');
+      } catch (e) { /* */ }
+      if (window.history && window.history.replaceState) {
+        const base = window.location.href.split('#')[0];
+        window.history.replaceState(null, '', base + '#sam');
+      }
+      stopTwinTrendRefresh();
+    }
+
     tabP.addEventListener('click', goPipeline);
     tabT.addEventListener('click', goTwin);
+    if (tabS) tabS.addEventListener('click', goSam);
 
-    if (window.location.hash === '#twin') {
+    const hash = window.location.hash;
+    if (hash === '#twin') {
       goTwin();
+    } else if (hash === '#sam') {
+      goSam();
     } else {
       try {
-        if (localStorage.getItem('mqtt5dashTab') === 'twin') goTwin();
+        const saved = localStorage.getItem('mqtt5dashTab');
+        if (saved === 'twin') goTwin();
+        else if (saved === 'sam') goSam();
       } catch (e) { /* */ }
     }
   }
+
+  initServiceUrlInputs();
   setupDashTabs();
 </script>
 </body>
