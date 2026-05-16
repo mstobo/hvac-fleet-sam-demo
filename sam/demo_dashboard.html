@@ -241,14 +241,28 @@
     display: flex;
     flex-direction: column;
     overflow: auto;
-    padding: 16px 24px 20px;
+    padding: 10px 20px 16px;
+    gap: 10px;
+  }
+  .twin-schematic-block .header-row {
+    margin-bottom: 4px;
+  }
+  .twin-schematic-block #twin-detail {
+    margin-top: 0;
+    text-align: right;
+    max-width: 55%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .twin-panel--solo .twin-schematic-block {
+    flex: 0 0 auto;
   }
   .twin-panel--solo .twin-svg-wrap {
-    flex: 1;
-    min-height: 220px;
-    max-height: none;
+    min-height: 0;
+    max-height: 168px;
   }
-  .twin-panel--solo .twin-svg-wrap svg { max-height: min(55vh, 420px); }
+  .twin-panel--solo .twin-svg-wrap svg { max-height: 168px; }
   .twin-rack {
     fill: rgba(26,34,53,0.85);
     stroke: rgba(0,193,118,0.25);
@@ -282,15 +296,16 @@
   .twin-dot.CRITICAL { fill: var(--red); }
   .twin-dot.STALE    { fill: #3d4a5e; stroke: #2a3444; }
   #twin-detail {
-    margin-top: 8px;
-    font-size: 0.78rem;
+    margin-top: 4px;
+    font-size: 0.72rem;
     color: #94a3b8;
-    min-height: 1.2em;
+    min-height: 1em;
+    line-height: 1.3;
   }
   #twin-detail strong { color: var(--text); }
 
   .twin-trends {
-    margin-top: 14px;
+    margin-top: 0;
     border: 1px solid var(--border);
     border-radius: 8px;
     background: rgba(19,25,41,0.75);
@@ -309,19 +324,35 @@
     letter-spacing: 0.08em;
   }
   .twin-trends-meta { font-size: 0.72rem; color: var(--muted); }
-  .twin-manual {
-    margin-top: 14px;
-    padding: 14px 16px;
-    background: var(--card2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    max-width: 920px;
+  .twin-sliders-top {
+    flex: 0 0 auto;
+    padding: 0 0 8px;
   }
-  .twin-manual h3 { font-size: 0.88rem; color: var(--green); margin-bottom: 6px; }
-  .twin-manual .twin-manual-hint { font-size: 0.72rem; color: var(--muted); line-height: 1.45; margin-bottom: 10px; }
+  .twin-advanced {
+    flex: 0 0 auto;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .twin-advanced summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: #94a3b8;
+    list-style: none;
+    user-select: none;
+  }
+  .twin-advanced summary::-webkit-details-marker { display: none; }
+  .twin-advanced summary::before { content: '▸ '; }
+  .twin-advanced[open] summary::before { content: '▾ '; }
+  .twin-advanced .twin-manual-options {
+    margin-top: 8px;
+    margin-bottom: 6px;
+  }
   .twin-manual-options {
-    display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center;
-    margin-bottom: 12px; font-size: 0.75rem; color: var(--muted);
+    display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center;
+    margin-bottom: 8px; font-size: 0.75rem; color: var(--muted);
   }
   .twin-manual-options label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
   .twin-manual-options input[type="text"] {
@@ -361,8 +392,8 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
-    margin-bottom: 8px;
+    gap: 8px;
+    margin-bottom: 6px;
   }
   .twin-demo-fleet-btn {
     background: rgba(96, 165, 250, 0.22);
@@ -569,7 +600,7 @@
 <header>
   <div>
     <h1>⚡ Solace Agent Mesh | Live Pipeline Demo</h1>
-    <div class="subtitle">Filter → Trigger → Summarize → Act &nbsp;|&nbsp; Real-time sensor intelligence &nbsp;|&nbsp; <span id="dash-rev" title="If this label is missing, the browser is serving an old cached copy of this file. Hard-reload: Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows).">dashboard <strong class="solace-text-primary">rev&nbsp;16</strong> · Solace brand · <code>demo_dashboard.config.json</code> optional</span></div>
+    <div class="subtitle">Filter → Trigger → Summarize → Act &nbsp;|&nbsp; Real-time sensor intelligence &nbsp;|&nbsp; <span id="dash-rev" title="If this label is missing, the browser is serving an old cached copy of this file. Hard-reload: Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows).">dashboard <strong class="solace-text-primary">rev&nbsp;18</strong> · Solace brand · <code>demo_dashboard.config.json</code> optional</span></div>
   </div>
   <div id="conn-badge" class="conn-badge">● Disconnected</div>
 </header>
@@ -644,10 +675,14 @@
 </div>
 
 <div id="view-twin" class="dash-view hidden">
-  <section class="twin-panel twin-panel--solo" aria-label="2D digital twin schematic">
+  <section class="twin-panel twin-panel--solo" aria-label="2D digital twin" id="twin-manual-panel">
+    <div class="twin-sliders-top">
+      <div id="twin-manual-sliders" class="twin-manual-machines-wrap"></div>
+    </div>
+    <div class="twin-schematic-block">
     <div class="header-row">
-      <h2>🏭 Row schematic (2D twin · demo)</h2>
-      <span class="hint">Placeholder layout · matches <code style="color:#60a5fa">m*-temp-*</code> from demo publisher</span>
+      <h2>Schematic</h2>
+      <span id="twin-detail" class="hint"></span>
     </div>
     <div class="twin-svg-wrap">
       <svg viewBox="0 0 900 210" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Three assets with inlet, outlet, and motor sensors">
@@ -678,37 +713,7 @@
         <circle id="twin-dot-m3-temp-motor" class="twin-dot STALE" r="13" cx="805" cy="118"><title>m3-temp-motor — no data yet</title></circle>
       </svg>
     </div>
-    <div id="twin-detail">Connect to the broker to populate nodes. Click a sensor for the last reading shown here.</div>
-    <section class="twin-manual" id="twin-manual-panel" aria-label="Manual MQTT ingress">
-      <h3>Manual raw publish (digital twin)</h3>
-      <p class="twin-manual-hint">
-        Sliders publish to the same <code>dc/&lt;Hub|DC1|DC2&gt;/v1/raw/…/machine-00x/supply_temp_c</code> prefix as <code>demo_publisher.py</code> (deadband ingress). Optional <strong>°C in the topic</strong> after <code>supply_temp_c</code>: deadband prefers that; otherwise it uses JSON <code>temperature</code> / <code>value</code>.
-        <strong>Note:</strong> brokers typically do <em>not</em> echo self-publishes to this same WebSocket client—the twin schematic updates from slider moves and from the timed stream. Trend charts refresh after stream ticks (debounced).
-      </p>
-      <div class="twin-manual-options">
-        <label>
-          <span>Raw topic base</span>
-          <input type="text" id="cfg-raw-base" spellcheck="false"
-            placeholder="dc/Hub/v1/raw/dc1/hall-a/row-a3/rack-12" />
-        </label>
-        <label>
-          <input type="checkbox" id="twin-temp-in-topic" checked />
-          <span>Append <code>/°C</code> after metric in topic</span>
-        </label>
-        <label title="Matches demo_publisher batch interval (2s)">
-          <input type="checkbox" id="twin-stream-publish" checked />
-          <span>Every <strong>2s</strong>, publish <strong>all</strong> slider values while connected</span>
-        </label>
-      </div>
-      <div class="twin-manual-demo-row">
-        <button type="button" id="twin-demo-fleet-critical-btn" class="twin-demo-fleet-btn" disabled
-          title="Six sensors ≥70°C + one publish burst for all nine (needs default FLEET_CRITICAL_FRACTION=0.5 on anomaly_service)">
-          Demo: FLEET_CRITICAL preset (6 hot + burst)</button>
-        <span class="hint" style="max-width:42rem">Lowers setup vs dragging alone. Optional: set <code>FLEET_CRITICAL_FRACTION=0.34</code> in <code>.env</code> so ~3/9 CRITICAL triggers LLM. After burst, wait ~10s fleet tick + 60s analysis debounce.</span>
-      </div>
-      <p id="twin-manual-status" class="twin-manual-status" aria-live="polite"></p>
-      <div id="twin-manual-sliders" class="twin-manual-machines-wrap"></div>
-    </section>
+    </div>
 
     <section class="twin-trends" aria-label="Machine trends">
       <div class="twin-trends-head">
@@ -748,7 +753,25 @@
         </article>
       </div>
     </section>
-  </section>
+
+    <details class="twin-advanced">
+      <summary>Publish settings</summary>
+      <div class="twin-manual-options">
+        <label>
+          <input type="checkbox" id="twin-temp-in-topic" checked />
+          <span>°C in topic</span>
+        </label>
+        <label title="Publish all sliders every 2s while connected">
+          <input type="checkbox" id="twin-stream-publish" checked />
+          <span>Stream 2s</span>
+        </label>
+        <button type="button" id="twin-demo-fleet-critical-btn" class="twin-demo-fleet-btn" disabled
+          title="Six sensors at or above 70C plus burst for all nine">
+          FLEET_CRITICAL preset</button>
+      </div>
+      <p id="twin-manual-status" class="twin-manual-status" aria-live="polite"></p>
+    </details>
+    </section>
 </div>
 
 <div id="view-sam" class="dash-view hidden">
@@ -865,9 +888,7 @@
     }
     if (cfg.rawTopicBase) {
       const top = document.getElementById('cfg-raw-base-top');
-      const twin = document.getElementById('cfg-raw-base');
       if (top && !top.value.trim()) top.value = cfg.rawTopicBase;
-      if (twin && !twin.value.trim()) twin.value = cfg.rawTopicBase;
     }
   }
 
@@ -1096,8 +1117,7 @@
 
   function getRawTopicBase() {
     const top = document.getElementById('cfg-raw-base-top');
-    const twin = document.getElementById('cfg-raw-base');
-    const v = ((twin && twin.value.trim()) || (top && top.value.trim()) || '').replace(/\/+$/, '');
+    const v = ((top && top.value.trim()) || '').replace(/\/+$/, '');
     return migrateLegacyRawTopicBase(v || DEFAULT_RAW_TOPIC_BASE);
   }
 
@@ -1113,20 +1133,12 @@
       saved = migrateLegacyRawTopicBase(localStorage.getItem(LS_RAW_TOPIC_BASE) || DEFAULT_RAW_TOPIC_BASE);
     } catch (e) { /* ignore */ }
     const top = document.getElementById('cfg-raw-base-top');
-    const twin = document.getElementById('cfg-raw-base');
     if (top) top.value = saved;
-    if (twin) twin.value = saved;
   }
 
   function wireRawBaseInputSync() {
     const top = document.getElementById('cfg-raw-base-top');
-    const twin = document.getElementById('cfg-raw-base');
-    function mirror(from, to) {
-      if (to && from) to.value = from.value;
-      saveRawTopicBaseToLS();
-    }
-    if (top) top.addEventListener('input', () => mirror(top, twin));
-    if (twin) twin.addEventListener('input', () => mirror(twin, top));
+    if (top) top.addEventListener('input', saveRawTopicBaseToLS);
   }
 
   function syncTwinStreamCheckboxFromLS() {
@@ -1237,8 +1249,7 @@
     tickTwinContinuousPublish();
     const stEl = document.getElementById('twin-manual-status');
     if (stEl) {
-      stEl.textContent =
-        'Demo preset: 6 sensors ≥70°C + publish all 9. For LLM: need ≥50% CRITICAL (set FLEET_CRITICAL_FRACTION in .env to lower) · ~10s fleet + 60s debounce';
+      stEl.textContent = 'FLEET_CRITICAL preset applied — published all 9 sensors';
     }
   }
 
@@ -1583,7 +1594,7 @@
     });
     const detail = document.getElementById('twin-detail');
     if (detail) {
-      detail.textContent = 'Connect to the broker to populate nodes. Click a sensor for the last reading shown here.';
+      detail.textContent = 'Click a sensor';
     }
   }
 
