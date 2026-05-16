@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HVAC Fleet Demo — Executive Deck</title>
+  <link rel="stylesheet" href="../sam/solace-brand.css">
+  <style>
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--solace-dark);
+      color: var(--solace-text-on-dark);
+      font-family: var(--solace-font-primary);
+    }
+    .deck-page {
+      min-height: 100vh;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      padding: var(--solace-space-6) var(--solace-space-8);
+      position: relative;
+    }
+    .deck-page::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(0, 200, 149, 0.07) 0%, transparent 55%);
+      pointer-events: none;
+    }
+    .deck-inner { position: relative; z-index: 1; flex: 1; display: flex; flex-direction: column; }
+    .deck-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--solace-space-4);
+      margin-bottom: var(--solace-space-5);
+      padding-bottom: var(--solace-space-4);
+      border-bottom: 1px solid var(--solace-dark-border);
+    }
+    .deck-logo {
+      display: flex;
+      align-items: center;
+      gap: var(--solace-space-3);
+      font-weight: var(--solace-weight-bold);
+      font-size: var(--solace-text-lg);
+      color: var(--solace-white);
+    }
+    .deck-logo-mark {
+      width: 36px;
+      height: 36px;
+      background: var(--solace-primary);
+      border-radius: var(--solace-radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--solace-text-xs);
+      font-weight: var(--solace-weight-extrabold);
+      color: var(--solace-dark);
+    }
+    .deck-page-num {
+      font-size: var(--solace-text-xs);
+      color: var(--solace-text-on-dark-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .deck-hero-title {
+      font-size: var(--solace-text-2xl);
+      font-weight: var(--solace-weight-extrabold);
+      color: var(--solace-white);
+      margin-bottom: var(--solace-space-2);
+      line-height: 1.2;
+    }
+    .deck-hero-title span { color: var(--solace-primary); }
+    .deck-lead {
+      font-size: var(--solace-text-base);
+      color: var(--solace-text-on-dark-muted);
+      max-width: 52rem;
+      margin-bottom: var(--solace-space-5);
+      line-height: 1.55;
+    }
+    .tokenburn-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 0;
+      padding: var(--solace-space-2) 0;
+    }
+    .tokenburn-wrap img {
+      max-width: 100%;
+      max-height: min(72vh, 820px);
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      border-radius: var(--solace-radius-lg);
+      border: 1px solid var(--solace-dark-border);
+      box-shadow: var(--solace-shadow-lg);
+    }
+    .deck-footnote {
+      margin-top: var(--solace-space-4);
+      font-size: var(--solace-text-sm);
+      color: var(--solace-text-on-dark-muted);
+      text-align: center;
+    }
+    .deck-footnote strong { color: var(--solace-primary); }
+
+    /* Page 2 */
+    .flow-section { margin-bottom: var(--solace-space-6); }
+    .flow-section h2 {
+      font-size: var(--solace-text-sm);
+      font-weight: var(--solace-weight-semibold);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--solace-accent);
+      margin-bottom: var(--solace-space-4);
+    }
+    .flow-track {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: stretch;
+      gap: var(--solace-space-2);
+    }
+    .flow-node {
+      flex: 1 1 120px;
+      min-width: 110px;
+      max-width: 160px;
+      background: var(--solace-dark-mid);
+      border: 1px solid var(--solace-dark-border);
+      border-radius: var(--solace-radius-md);
+      padding: var(--solace-space-3) var(--solace-space-3);
+      text-align: center;
+      border-top: 3px solid var(--solace-primary);
+    }
+    .flow-node.sam { border-top-color: var(--solace-accent); }
+    .flow-node.store { border-top-color: var(--solace-warning); }
+    .flow-node .name {
+      font-size: var(--solace-text-sm);
+      font-weight: var(--solace-weight-semibold);
+      color: var(--solace-white);
+      margin-bottom: var(--solace-space-1);
+    }
+    .flow-node .svc {
+      font-family: var(--solace-font-mono);
+      font-size: 0.65rem;
+      color: var(--solace-primary);
+      word-break: break-all;
+      line-height: 1.35;
+    }
+    .flow-node .note {
+      font-size: 0.68rem;
+      color: var(--solace-text-on-dark-muted);
+      margin-top: var(--solace-space-2);
+      line-height: 1.35;
+    }
+    .flow-arrow {
+      display: flex;
+      align-items: center;
+      color: var(--solace-mid-gray);
+      font-size: 1.25rem;
+      flex: 0 0 auto;
+      padding: 0 2px;
+    }
+    .flow-branch {
+      margin-top: var(--solace-space-4);
+      padding: var(--solace-space-4);
+      background: rgba(0, 130, 195, 0.08);
+      border: 1px dashed var(--solace-accent);
+      border-radius: var(--solace-radius-md);
+      font-size: var(--solace-text-sm);
+      color: var(--solace-text-on-dark-muted);
+      line-height: 1.5;
+    }
+    .flow-branch strong { color: var(--solace-accent-light); }
+    .value-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: var(--solace-space-4);
+      margin-bottom: var(--solace-space-6);
+    }
+    @media (max-width: 900px) {
+      .value-grid { grid-template-columns: repeat(2, 1fr); }
+      .flow-arrow { display: none; }
+      .flow-track { justify-content: center; }
+    }
+    .value-card {
+      background: var(--solace-dark-mid);
+      border: 1px solid var(--solace-dark-border);
+      border-radius: var(--solace-radius-lg);
+      padding: var(--solace-space-5);
+    }
+    .value-card .metric {
+      font-size: var(--solace-text-3xl);
+      font-weight: var(--solace-weight-extrabold);
+      color: var(--solace-primary);
+      line-height: 1;
+      margin-bottom: var(--solace-space-2);
+    }
+    .value-card h3 {
+      font-size: var(--solace-text-sm);
+      font-weight: var(--solace-weight-semibold);
+      color: var(--solace-white);
+      margin-bottom: var(--solace-space-2);
+    }
+    .value-card p {
+      font-size: var(--solace-text-xs);
+      color: var(--solace-text-on-dark-muted);
+      margin: 0;
+      line-height: 1.45;
+    }
+    .map-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: var(--solace-text-sm);
+      margin-top: var(--solace-space-2);
+    }
+    .map-table th,
+    .map-table td {
+      text-align: left;
+      padding: var(--solace-space-3) var(--solace-space-4);
+      border-bottom: 1px solid var(--solace-dark-border);
+    }
+    .map-table th {
+      color: var(--solace-text-on-dark-muted);
+      font-weight: var(--solace-weight-medium);
+      font-size: var(--solace-text-xs);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .map-table td:first-child { color: var(--solace-primary-light); font-weight: var(--solace-weight-medium); }
+    .map-table td code {
+      font-family: var(--solace-font-mono);
+      font-size: 0.8em;
+      color: var(--solace-accent-light);
+      background: rgba(0, 130, 195, 0.12);
+      padding: 0.1em 0.35em;
+      border-radius: var(--solace-radius-sm);
+    }
+    .deck-nav-hint {
+      position: fixed;
+      bottom: var(--solace-space-4);
+      right: var(--solace-space-6);
+      font-size: var(--solace-text-xs);
+      color: var(--solace-mid-gray);
+      z-index: 10;
+    }
+    .deck-nav-hint a { color: var(--solace-primary); text-decoration: none; }
+    .deck-nav-hint a:hover { text-decoration: underline; }
+
+    @media print {
+      .deck-page { page-break-after: always; min-height: auto; padding: 0.4in; }
+      .deck-nav-hint { display: none; }
+      .tokenburn-wrap img { max-height: 6.5in; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- PAGE 1: Token burn problem (context) -->
+<section class="deck-page" id="page-1">
+  <div class="deck-inner">
+    <header class="deck-header">
+      <div class="deck-logo">
+        <div class="deck-logo-mark">S+</div>
+        <span>PubSub+ · Agent Mesh</span>
+      </div>
+      <span class="deck-page-num">Page 1 of 2</span>
+    </header>
+    <h1 class="deck-hero-title">The token burn problem — <span>and how this demo fixes it</span></h1>
+    <p class="deck-lead">
+      For audiences who already run Solace: the issue is not MQTT or agents — it is putting the LLM on the telemetry firehose.
+      This reference architecture keeps AI off the hot path and applies it where value is concentrated.
+    </p>
+    <div class="tokenburn-wrap">
+      <img src="Tokenburn.png" alt="The Token Burn Problem: Why IIoT AI Projects Fail at Scale — architecture comparison (naive vs value-based)" />
+    </div>
+    <p class="deck-footnote">
+      <strong>Page 2</strong> maps this diagram to the live <code style="background:rgba(0,200,149,0.12);color:var(--solace-primary-light);padding:0.1em 0.35em;border-radius:4px;">mqtt5SRDemo</code> microservices on your broker.
+    </p>
+  </div>
+</section>
+
+<!-- PAGE 2: Demo flow + value -->
+<section class="deck-page" id="page-2">
+  <div class="deck-inner">
+    <header class="deck-header">
+      <div class="deck-logo">
+        <div class="deck-logo-mark">S+</div>
+        <span>mqtt5SRDemo — live pipeline</span>
+      </div>
+      <span class="deck-page-num">Page 2 of 2</span>
+    </header>
+    <h1 class="deck-hero-title">Deterministic data plane · <span>SAM on demand</span></h1>
+    <p class="deck-lead" style="margin-bottom: var(--solace-space-6);">
+      High-frequency HVAC telemetry on <code style="background:rgba(0,200,149,0.12);color:var(--solace-primary-light);padding:0.1em 0.35em;border-radius:4px;">dc/&lt;Hub|DC1|DC2&gt;/v1/…</code> —
+      filtered, sketched, and rule-detected on the broker path before any model sees curated state.
+    </p>
+
+    <div class="value-grid">
+      <div class="value-card">
+        <div class="metric">~99%</div>
+        <h3>Noise suppressed</h3>
+        <p>Deadband + heartbeat forwarding — MQTT volume to downstream stages drops sharply.</p>
+      </div>
+      <div class="value-card">
+        <div class="metric">0</div>
+        <h3>LLM per reading</h3>
+        <p>Sketches are template natural language, not generative AI on every sample.</p>
+      </div>
+      <div class="value-card">
+        <div class="metric">Rules</div>
+        <h3>Detect before AI</h3>
+        <p>Zones, spikes, fleet fraction — alerts and <code style="font-size:0.85em;color:var(--solace-accent-light);">FLEET_CRITICAL</code> fire deterministically.</p>
+      </div>
+      <div class="value-card">
+        <div class="metric">$</div>
+        <h3>AI when it pays</h3>
+        <p>SAM Fleet Query + gateways: human questions and rare fleet automation over SQLite + MQTT triggers.</p>
+      </div>
+    </div>
+
+    <div class="flow-section">
+      <h2>Data plane (no LLM) — microservice chain</h2>
+      <div class="flow-track">
+        <div class="flow-node">
+          <div class="name">Ingress</div>
+          <div class="svc">dc/…/v1/raw/#</div>
+          <div class="note">demo_publisher · dashboard twin</div>
+        </div>
+        <span class="flow-arrow" aria-hidden="true">→</span>
+        <div class="flow-node">
+          <div class="name">Filter</div>
+          <div class="svc">deadband_service</div>
+          <div class="note">Suppressed vs forwarded · zones</div>
+        </div>
+        <span class="flow-arrow" aria-hidden="true">→</span>
+        <div class="flow-node">
+          <div class="name">Summarize</div>
+          <div class="svc">sketch_service</div>
+          <div class="note">Template NL sketches · SQLite</div>
+        </div>
+        <span class="flow-arrow" aria-hidden="true">→</span>
+        <div class="flow-node">
+          <div class="name">Detect</div>
+          <div class="svc">anomaly_service</div>
+          <div class="note">pipeline/alerts · fleet status</div>
+        </div>
+        <span class="flow-arrow" aria-hidden="true">→</span>
+        <div class="flow-node store">
+          <div class="name">Store &amp; chart</div>
+          <div class="svc">chart_writer · chart-query</div>
+          <div class="note">Rollups for trends &amp; agent tools</div>
+        </div>
+      </div>
+      <div class="flow-branch">
+        <strong>Control plane (on demand):</strong>
+        <code style="color:var(--solace-accent-light);">sensors/fleet/analysis-request</code> →
+        fleet-analysis gateway → FleetQueryAgent →
+        <code style="color:var(--solace-accent-light);">analysis-response</code> → Slack / Web UI (:8000).
+        Optional hub-and-spoke: bridge <code style="color:var(--solace-accent-light);">dc/DC1/v1/raw/#</code> to Hub; one pipeline stack with <code style="color:var(--solace-accent-light);">DC_PIPELINE_MULTISITE_RAW</code>.
+      </div>
+    </div>
+
+    <div class="flow-section">
+      <h2>Maps to the token-burn diagram</h2>
+      <table class="map-table">
+        <thead>
+          <tr><th>Reference architecture</th><th>This demo</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Ingest &amp; normalize</td><td>MQTT publishers → <code>dc/&lt;site&gt;/v1/raw/…</code> on Solace</td></tr>
+          <tr><td>Filter &amp; detect value</td><td><code>deadband_service</code> → <code>pipeline/filtered</code> · <code>suppressed</code></td></tr>
+          <tr><td>Low-value at scale</td><td>Suppressed topic + chart rollups — dashboards, no LLM</td></tr>
+          <tr><td>High-value events</td><td><code>anomaly_service</code> → <code>pipeline/alerts</code> · fleet triggers</td></tr>
+          <tr><td>Event-mesh gateway → AI</td><td>SAM <code>fleet-analysis-gateway</code> + FleetQueryAgent tools</td></tr>
+          <tr><td>Fan-out to operators</td><td>Slack gateway · analysis-to-slack · live pipeline dashboard</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="deck-footnote" style="text-align: left; margin-top: auto; padding-top: var(--solace-space-4);">
+      Live demo: <strong>demo_dashboard.html</strong> (MQTT) · <strong>SAM :8000</strong> · <strong>DEMO_SCRIPT.md</strong> for walkthrough
+    </p>
+  </div>
+</section>
+
+<p class="deck-nav-hint"><a href="#page-1">↑ Page 1</a> · <a href="#page-2">Page 2 ↓</a> · Print: Cmd/Ctrl+P (two pages)</p>
+
+</body>
+</html>
