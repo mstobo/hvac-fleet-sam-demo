@@ -13,9 +13,10 @@ These tools only READ from the database - they don't process raw sensor data.
 
 import json
 import os
+import re
 from datetime import datetime
 from typing import Optional, Tuple
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import urlopen
 
 # Import the database module
@@ -23,15 +24,74 @@ import sensor_db
 import dispatch_workforce
 
 
+_BROWSER_UNREACHABLE_HOSTS = frozenset(
+    {"chart-query", "localhost", "127.0.0.1", "0.0.0.0", "::1"}
+)
+
+
+def _is_browser_unreachable_chart_base(url: str) -> bool:
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    return host in _BROWSER_UNREACHABLE_HOSTS
+
+
+def _derive_public_chart_base_from_dashboard_host() -> str:
+    """
+    When CHART_PUBLIC_BASE_URL is unset, build a browser/Slack-safe base from
+    DASHBOARD_PUBLIC_HOST (same host used for demo_dashboard.config.json).
+    """
+    host = os.getenv("DASHBOARD_PUBLIC_HOST", "").strip()
+    if not host:
+        return ""
+    prefix = os.getenv("CHART_PUBLIC_PATH_PREFIX", "/charts").strip()
+    if prefix:
+        prefix = "/" + prefix.strip("/")
+        return f"http://{host}{prefix}".rstrip("/")
+    port = os.getenv("CHART_QUERY_PUBLISH_PORT", os.getenv("CHART_QUERY_PORT", "8010"))
+    return f"http://{host}:{port}".rstrip("/")
+
+
 def _chart_query_internal_public_bases() -> Tuple[str, str]:
     """
     Internal base: GET /series and /plotly-spec from this host (SAM tools).
-    Public base: plotly_html_url_pinned for humans (e.g. Slack); defaults to internal.
+    Public base: plotly_html_url_pinned for humans (e.g. Slack); must be reachable
+    outside Docker (not chart-query).
     """
     internal = os.getenv("CHART_QUERY_BASE_URL", "http://127.0.0.1:8010").rstrip("/")
     pub = os.getenv("CHART_PUBLIC_BASE_URL", "").strip().rstrip("/")
-    public = pub if pub else internal
-    return internal, public
+    if pub:
+        return internal, pub
+    if not _is_browser_unreachable_chart_base(internal):
+        return internal, internal
+    derived = _derive_public_chart_base_from_dashboard_host()
+    if derived:
+        return internal, derived
+    return internal, internal
+
+
+def chart_public_base_for_links() -> str:
+    """Browser/Slack-safe chart-query base URL (no trailing slash)."""
+    _, public = _chart_query_internal_public_bases()
+    return public
+
+
+_CHART_URL_INTERNAL_HOST_RE = re.compile(
+    r"https?://(?:chart-query|127\.0\.0\.1|localhost)(?::\d+)?",
+    re.IGNORECASE,
+)
+
+
+def rewrite_chart_urls_in_text(text: str) -> str:
+    """
+    Replace Docker-only chart-query hostnames in free text (e.g. LLM reports)
+    with CHART_PUBLIC_BASE_URL or DASHBOARD_PUBLIC_HOST-derived base.
+    """
+    public = chart_public_base_for_links()
+    if not public or _is_browser_unreachable_chart_base(public):
+        return text
+    return _CHART_URL_INTERNAL_HOST_RE.sub(public.rstrip("/"), text)
 
 
 def _debug_sketch_evidence_enabled() -> bool:
@@ -549,6 +609,11 @@ def get_plotly_spec(
         }
         if pinned_url:
             out["plotly_html_url_pinned"] = pinned_url
+        if pinned_url and _is_browser_unreachable_chart_base(pinned_url):
+            out["chart_link_warning"] = (
+                "plotly_html_url_pinned uses an internal Docker hostname. "
+                "Set CHART_PUBLIC_BASE_URL or DASHBOARD_PUBLIC_HOST in the SAM environment."
+            )
 
         return json.dumps(out, indent=2)
     except Exception as e:

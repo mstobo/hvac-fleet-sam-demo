@@ -27,7 +27,12 @@ x-common: &common
     - ${DATA_DIR:-./data}/sensor_data.db:/app/sam/sensor_data.db
     - ${DATA_DIR:-./data}/chart_data.db:/app/sam/chart_data.db
   environment:
+    PYTHONPATH: /app/sam/src
     CHART_QUERY_BASE_URL: http://chart-query:8010
+    # Slack/browser plot links: set in ENV_FILE (required for fleet analysis reports):
+    #   CHART_PUBLIC_BASE_URL=http://<ec2-ip>:8010
+    #   or CHART_PUBLIC_BASE_URL=http://<ec2-ip>/charts  (Apache ProxyPass /charts/)
+    #   or DASHBOARD_PUBLIC_HOST=<ec2-ip>  (derives http://<host>/charts)
     FASTAPI_HOST: 0.0.0.0
     CHART_QUERY_HOST: 0.0.0.0
     PLATFORM_API_HOST: 0.0.0.0

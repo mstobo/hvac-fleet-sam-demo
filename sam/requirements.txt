@@ -1,4 +1,5 @@
-solace-agent-mesh~=1.18.40
+# 1.18.x: streaming path can raise UnboundLocalError on finish_reason (lite_llm.py ~1411).
+solace-agent-mesh~=1.25.1
 # Fleet analysis gateway (`configs/gateways/fleet-analysis-gateway.yaml` uses `sam_event_mesh_gateway.app`).
 sam-event-mesh-gateway>=1.1.0,<2
 # Slack gateway (`configs/gateways/slack-bot.yaml`) + anomaly/analysis_to_slack (`slack_notifier.py`).
