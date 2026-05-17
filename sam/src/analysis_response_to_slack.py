@@ -15,6 +15,7 @@ import hashlib
 import paho.mqtt.client as mqtt
 
 import pipeline_config as config
+from fleet_query_tools import rewrite_chart_urls_in_text
 from slack_notifier import send_message
 
 
@@ -33,7 +34,8 @@ def _trace_id(topic: str, payload_text: str) -> str:
 def _format_message(topic: str, payload_text: str) -> str:
     trace_id = _trace_id(topic, payload_text)
     if topic == RESPONSE_TOPIC:
-        return f"*Automated Fleet Analysis*  \n`Trace ID: {trace_id}`\n{payload_text}"
+        body = rewrite_chart_urls_in_text(payload_text)
+        return f"*Automated Fleet Analysis*  \n`Trace ID: {trace_id}`\n{body}"
     return f"*Automated Fleet Analysis Error*  \n`Trace ID: {trace_id}`\n```{payload_text}```"
 
 

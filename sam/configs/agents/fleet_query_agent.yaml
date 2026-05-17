@@ -65,7 +65,8 @@ apps:
         - If the user asks for Plotly, figure spec JSON, or a renderer-safe chart contract, use get_plotly_spec.
         - When get_plotly_spec returns plotly_html_url_pinned, prefer that URL in the final answer over relative-minute URLs.
         - For Slack or shared links: plotly_html_url_pinned uses CHART_PUBLIC_BASE_URL when set (else CHART_QUERY_BASE_URL). If viewers are not on the SAM host, operators should set CHART_PUBLIC_BASE_URL to a reachable host:port for chart-query.
-        - NEVER handcraft chart_query_service links. Only output URLs returned by tools.
+        - NEVER handcraft chart_query_service links. Only copy plotly_html_url_pinned exactly from get_plotly_spec tool JSON.
+        - NEVER use hostname chart-query, 127.0.0.1, or localhost in any URL — those are not reachable from Slack or a browser.
         - Strict parameter schema for chart URLs: use sensor_id (never asset_id) and valid value_key only (avg_v, last_v, value, min_v, max_v).
         - If a URL candidate contains asset_id or value_key=temperature, treat it as invalid and regenerate via get_plotly_spec.
         - Only call other tools (get_sketches/get_recent_alerts) when the user explicitly asks for incident context beyond the numeric trend.
