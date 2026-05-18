@@ -40,6 +40,46 @@
           Most IIoT + AI pilots fail at scale because cost and latency grow linearly with sensor volume.
           The fix is architectural: <strong>deterministic processing first</strong>, agents second.
         </p>
+
+        <div class="arch-diagram" role="img" aria-label="Two-layer architecture: Layer 1 deterministic pipeline from DC1 to Hub, Layer 2 SAM and Slack reasoning">
+          <article class="arch-layer arch-layer--data">
+            <header class="arch-layer-head">
+              <span class="arch-layer-badge">Layer 1</span>
+              <span class="arch-layer-title">Deterministic data plane</span>
+            </header>
+            <div class="arch-site-row">
+              <span class="arch-site">DC1</span>
+              <span class="arch-bridge" aria-hidden="true">bridge →</span>
+              <span class="arch-site arch-site--hub">Hub</span>
+            </div>
+            <div class="arch-pipeline" aria-label="Pipeline stages at Hub">
+              <span class="arch-stage">Ingress</span>
+              <span class="arch-pipe" aria-hidden="true">→</span>
+              <span class="arch-stage">Filter</span>
+              <span class="arch-pipe" aria-hidden="true">→</span>
+              <span class="arch-stage">Deadband</span>
+              <span class="arch-pipe" aria-hidden="true">→</span>
+              <span class="arch-stage">Sketch</span>
+              <span class="arch-pipe" aria-hidden="true">→</span>
+              <span class="arch-stage">Anomaly</span>
+            </div>
+            <p class="arch-note">Real-time MQTT on Solace · no LLM on the hot path</p>
+          </article>
+
+          <div class="arch-connector" aria-hidden="true">↓ curated state &amp; triggers</div>
+
+          <article class="arch-layer arch-layer--control">
+            <header class="arch-layer-head">
+              <span class="arch-layer-badge">Layer 2</span>
+              <span class="arch-layer-title">Reasoning control plane</span>
+            </header>
+            <div class="arch-control-row">
+              <span class="arch-control-node">SAM<br><small>Web UI · Fleet Query · gateways</small></span>
+              <span class="arch-control-node">Slack<br><small>alerts · fleet analysis · @bot</small></span>
+            </div>
+            <p class="arch-note">Operator chat + event-triggered fleet analysis</p>
+          </article>
+        </div>
       </div>
       <figure class="hero-problem-figure">
         <div class="tokenburn-wrap">
@@ -95,7 +135,7 @@
       <p>
         A live HVAC-style fleet on Solace PubSub+ — event-driven pipeline, ~99% MQTT noise reduction,
         template sketches, rule-based detection, and SAM analysis triggered by operators <em>or</em> mesh events.
-        The live dashboard on AWS shows the stream in motion; these pages explain <em>why</em> it matters.
+        The live dashboard on AWS shows the stream in div; these pages explain <em>why</em> it matters.
       </p>
       <div class="cta-actions">
         <a class="solace-btn solace-btn--primary" href="http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/">Open live demo ↗</a>
