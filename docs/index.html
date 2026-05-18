@@ -42,8 +42,13 @@
         </p>
       </div>
 
-      <div class="hero-diagram-row">
-        <div class="arch-diagram" role="img" aria-label="Data plane and control plane architecture for the HVAC fleet demo">
+      <figure class="hero-problem-figure">
+        <div class="tokenburn-wrap">
+          <img src="token-burn-device-friendly.png" alt="The Token Burn Problem: naive architecture sends every reading to an LLM; value-based architecture filters first and applies AI on high-value events only." width="862" height="1824" loading="lazy" />
+        </div>
+      </figure>
+
+      <div class="arch-diagram" role="img" aria-label="Data plane and control plane architecture for the HVAC fleet demo">
           <article class="arch-layer arch-layer--data">
             <header class="arch-layer-head">
               <span class="arch-layer-badge">Layer 1</span>
@@ -51,8 +56,14 @@
               <span class="arch-layer-sub">(no LLM per reading)</span>
             </header>
 
+            <div class="arch-site-row">
+              <span class="arch-site">DC1</span>
+              <span class="arch-bridge" aria-hidden="true">bridge →</span>
+              <span class="arch-site arch-site--hub">Hub</span>
+            </div>
+
             <div class="arch-block">
-              <p class="arch-block-label">Ingress</p>
+              <p class="arch-block-label">Ingress @ Hub</p>
               <p class="arch-detail-line">
                 <span class="arch-svc">demo_publisher / dashboard twins</span>
                 <span class="arch-arrow-inline" aria-hidden="true">→</span>
@@ -105,14 +116,8 @@
               </li>
             </ul>
           </article>
-        </div>
-
-        <figure class="hero-problem-figure">
-          <div class="tokenburn-wrap">
-            <img src="token-burn-device-friendly.png" alt="The Token Burn Problem: naive architecture sends every reading to an LLM; value-based architecture filters first and applies AI on high-value events only." width="862" height="1824" loading="lazy" />
-          </div>
-        </figure>
       </div>
+
     </div>
 
     <p class="section-label">Value framework</p>
@@ -162,7 +167,7 @@
       <p>
         A live HVAC-style fleet on Solace PubSub+ — event-driven pipeline, ~99% MQTT noise reduction,
         template sketches, rule-based detection, and SAM analysis triggered by operators <em>or</em> mesh events.
-        The live dashboard on AWS shows the stream in div; these pages explain <em>why</em> it matters.
+        The live dashboard on AWS shows the stream in motion; these pages explain <em>why</em> it matters.
       </p>
       <div class="cta-actions">
         <a class="solace-btn solace-btn--primary" href="http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/">Open live demo ↗</a>

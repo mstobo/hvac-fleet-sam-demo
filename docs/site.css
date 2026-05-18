@@ -129,7 +129,7 @@ body {
   color: var(--solace-primary);
 }
 
-/* Hero: intro on top; architecture + token-burn diagrams side by side on laptop */
+/* Hero: token-burn top-right beside intro; architecture diagram below on left */
 .hero-problem-split {
   margin-bottom: var(--solace-space-10);
 }
@@ -139,7 +139,7 @@ body {
 }
 
 .hero-problem-intro .site-lead {
-  max-width: 42rem;
+  max-width: none;
   margin-bottom: var(--solace-space-5);
 }
 
@@ -155,21 +155,37 @@ body {
   font-size: var(--solace-text-lg);
   line-height: 1.65;
   color: var(--solace-text-on-dark);
-  max-width: 42rem;
 }
 
-.hero-diagram-row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--solace-space-6);
+.hero-problem-split .arch-diagram {
   margin-top: var(--solace-space-6);
 }
 
-.hero-diagram-row .arch-diagram {
-  margin-top: 0;
-}
-
 @media (min-width: 900px) {
+  .hero-problem-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(15rem, 36%);
+    grid-template-areas:
+      "intro token"
+      "arch  token";
+    gap: var(--solace-space-4) var(--solace-space-8);
+    align-items: start;
+  }
+
+  .hero-problem-intro {
+    grid-area: intro;
+  }
+
+  .hero-problem-figure {
+    grid-area: token;
+    align-self: start;
+  }
+
+  .hero-problem-split .arch-diagram {
+    grid-area: arch;
+    margin-top: var(--solace-space-4);
+  }
+
   .hero-problem-intro .section-label {
     font-size: var(--solace-text-xl);
     margin-bottom: var(--solace-space-5);
@@ -179,13 +195,6 @@ body {
     font-size: var(--solace-text-xl);
     line-height: 1.7;
   }
-
-  .hero-diagram-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(15rem, 34%);
-    gap: var(--solace-space-6) var(--solace-space-8);
-    align-items: start;
-  }
 }
 
 @media (min-width: 1200px) {
@@ -193,8 +202,8 @@ body {
     font-size: var(--solace-text-2xl);
   }
 
-  .hero-diagram-row {
-    grid-template-columns: minmax(0, 1fr) minmax(18rem, 32rem);
+  .hero-problem-split {
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 34rem);
   }
 }
 
@@ -202,9 +211,8 @@ body {
   margin: 0;
 }
 
-/* Two-layer architecture diagram (fills hero left column on laptop) */
+/* Two-layer architecture diagram */
 .arch-diagram {
-  margin-top: var(--solace-space-6);
   display: flex;
   flex-direction: column;
   gap: var(--solace-space-3);
@@ -495,7 +503,7 @@ body {
   box-shadow: var(--solace-shadow-lg);
 }
 
-/* Phone: architecture diagram, then token-burn centered */
+/* Phone: intro, token-burn, then architecture (DOM order) */
 @media (max-width: 899px) {
   .hero-problem-figure .tokenburn-wrap {
     justify-content: center;
@@ -509,7 +517,7 @@ body {
   }
 }
 
-/* Laptop: architecture left, token-burn sticky right — same row */
+/* Laptop: token-burn top-right beside intro; sticky while scrolling arch */
 @media (min-width: 900px) {
   .hero-problem-figure {
     position: sticky;
@@ -523,7 +531,7 @@ body {
 
   .hero-problem-figure .tokenburn-wrap img {
     max-width: 100%;
-    max-height: min(78vh, 820px);
+    max-height: min(72vh, 780px);
     width: 100%;
   }
 }
