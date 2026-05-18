@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HVAC Fleet Demo — Outcomes</title>
+  <link rel="stylesheet" href="solace-brand.css">
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+
+<main class="site-page">
+  <div class="site-inner">
+
+    <header class="site-header">
+      <a class="site-logo" href="index.html">
+        <span class="site-logo-mark">S+</span>
+        <span>HVAC Fleet · PubSub+ &amp; Agent Mesh</span>
+      </a>
+      <nav class="site-nav" aria-label="Site">
+        <a href="index.html">Value story</a>
+        <a href="outcomes.html" class="active">Outcomes</a>
+        <a href="http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/">Live demo ↗</a>
+        <a href="https://github.com/mstobo/hvac-fleet-sam-demo#readme">Technical docs ↗</a>
+      </nav>
+    </header>
+
+    <h1 class="site-hero-title">Measurable outcomes — <span>deterministic first, AI on demand</span></h1>
+    <p class="site-lead">
+      The live demo on AWS implements this pattern end to end. Below is what stakeholders should expect;
+      service names, topics, and deployment steps live in the repository README.
+    </p>
+
+    <div class="value-grid">
+      <article class="value-card">
+        <div class="metric">~99%</div>
+        <h3>Noise suppressed</h3>
+        <p>Deadband + heartbeat forwarding — MQTT volume to downstream stages drops sharply.</p>
+      </article>
+      <article class="value-card">
+        <div class="metric">0</div>
+        <h3>LLM per reading</h3>
+        <p>Sketches use templates, not generative AI on every sample.</p>
+      </article>
+      <article class="value-card">
+        <div class="metric">Rules</div>
+        <h3>Detect before AI</h3>
+        <p>Zones, spikes, and fleet criticality fire deterministically — operators get signal fast.</p>
+      </article>
+      <article class="value-card">
+        <div class="metric">$</div>
+        <h3>AI when it pays</h3>
+        <p>Human questions and rare fleet automation over curated history, not raw telemetry.</p>
+      </article>
+    </div>
+
+    <p class="section-label">Cost pattern</p>
+    <div class="cost-compare">
+      <article class="cost-card bad">
+        <h3>Naive: every reading → LLM</h3>
+        <div class="price">$1k+ / day</div>
+        <p>Millions of inference calls as sensor count scales. Unsustainable for production IIoT.</p>
+      </article>
+      <article class="cost-card good">
+        <h3>This architecture</h3>
+        <div class="price">Cents / day</div>
+        <p>Queries and occasional fleet automation only. Pipeline work stays on the broker path.</p>
+      </article>
+    </div>
+
+    <p class="section-label">How it flows (business view)</p>
+    <div class="flow-simple">
+      <article class="flow-step">
+        <div class="name">Ingest</div>
+        <p class="desc">Fleet sensors publish to Solace at high frequency.</p>
+      </article>
+      <article class="flow-step">
+        <div class="name">Filter</div>
+        <p class="desc">Suppress unchanged readings; forward meaningful change.</p>
+      </article>
+      <article class="flow-step">
+        <div class="name">Summarize</div>
+        <p class="desc">Human-readable rollups stored for trends and tools.</p>
+      </article>
+      <article class="flow-step">
+        <div class="name">Detect</div>
+        <p class="desc">Rule-based alerts and fleet status — no model required.</p>
+      </article>
+      <article class="flow-step control">
+        <div class="name">Act (on demand)</div>
+        <p class="desc">SAM agents, Slack, dashboards when operators or automation need insight.</p>
+      </article>
+    </div>
+
+    <p class="section-label">Maps to the value-based reference architecture</p>
+    <table class="map-table">
+      <thead>
+        <tr><th>Reference pattern</th><th>Outcome in this demo</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Ingest &amp; normalize</td><td>MQTT fleet telemetry on Solace — multi-site ready</td></tr>
+        <tr><td>Filter &amp; detect value</td><td>~99% traffic reduction before downstream consumers</td></tr>
+        <tr><td>Low-value at scale</td><td>Dashboards and rollups without LLM cost</td></tr>
+        <tr><td>High-value events</td><td>Deterministic alerts and fleet-critical triggers</td></tr>
+        <tr><td>Event mesh → AI</td><td>SAM gateways and Fleet Query on curated state</td></tr>
+        <tr><td>Fan-out to operators</td><td>Web UI, optional Slack, live pipeline views on AWS</td></tr>
+      </tbody>
+    </table>
+
+    <div class="cta-panel">
+      <h2>Go deeper</h2>
+      <p>
+        <strong>Technical documentation</strong> — setup, topics, Compose services, troubleshooting — is in the GitHub README.
+        <strong>Live demo</strong> — pipeline dashboard, digital twin, and SAM fleet chat on EC2.
+      </p>
+      <div class="cta-actions">
+        <a class="solace-btn solace-btn--primary" href="http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/">Open live demo ↗</a>
+        <a class="solace-btn solace-btn--secondary" href="https://github.com/mstobo/hvac-fleet-sam-demo#readme">Technical README ↗</a>
+        <a class="solace-btn solace-btn--ghost" href="https://github.com/mstobo/hvac-fleet-sam-demo/blob/main/deploy/aws/README.md">AWS deployment guide ↗</a>
+        <a class="solace-btn solace-btn--ghost" href="index.html">← Value story</a>
+      </div>
+    </div>
+
+    <footer class="site-footer">
+      Page 2 of 2 · Presenter deck also in <a href="https://github.com/mstobo/hvac-fleet-sam-demo/blob/main/demo/EXECUTIVE_DECK.html">demo/EXECUTIVE_DECK.html</a>
+    </footer>
+
+  </div>
+</main>
+
+</body>
+</html>
