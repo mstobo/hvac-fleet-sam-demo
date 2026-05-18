@@ -25,20 +25,28 @@
       </nav>
     </header>
 
-    <h1 class="site-hero-title">Industrial telemetry at scale — <span>without burning tokens</span></h1>
-    <p class="site-lead">
-      High-volume MQTT is not an LLM input stream. This reference demo shows how to keep AI off the hot path,
-      surface signal where operators need it, and apply generative models only when the business case is clear.
-    </p>
-
-    <p class="section-label">The problem</p>
-    <div class="tokenburn-wrap">
-      <img src="Tokenburn.png" alt="The Token Burn Problem: naive architecture sends every reading to an LLM; value-based architecture filters first and applies AI on high-value events only." />
+    <div class="hero-problem-split">
+      <div class="hero-problem-text">
+        <h1 class="site-hero-title">Industrial telemetry at scale — <span>without burning tokens</span></h1>
+        <p class="site-lead">
+          High-volume MQTT is not an LLM input stream. This reference demo is built on a
+          <strong>real-time, event-driven</strong>
+          pipeline on Solace — each sensor reading is a broker event, and every stage reacts in flow, not in batch.
+          Generative models sit behind <strong>event-triggered reasoning</strong>
+          as well as operator chat, so AI runs when the mesh signals value, not on a schedule.
+        </p>
+        <p class="section-label">The problem</p>
+        <p class="tokenburn-caption">
+          Most IIoT + AI pilots fail at scale because cost and latency grow linearly with sensor volume.
+          The fix is architectural: <strong>deterministic processing first</strong>, agents second.
+        </p>
+      </div>
+      <figure class="hero-problem-figure">
+        <div class="tokenburn-wrap">
+          <img src="token-burn-device-friendly.png" alt="The Token Burn Problem: naive architecture sends every reading to an LLM; value-based architecture filters first and applies AI on high-value events only." width="862" height="1824" loading="lazy" />
+        </div>
+      </figure>
     </div>
-    <p style="font-size: var(--solace-text-sm); color: var(--solace-text-on-dark-muted); text-align: center; margin: 0 0 var(--solace-space-8); max-width: 40rem; margin-left: auto; margin-right: auto;">
-      Most IIoT + AI pilots fail at scale because cost and latency grow linearly with sensor volume.
-      The fix is architectural: <strong style="color: var(--solace-primary);">deterministic processing first</strong>, agents second.
-    </p>
 
     <p class="section-label">Value framework</p>
     <div class="framework-grid">
@@ -49,26 +57,44 @@
       </article>
       <article class="framework-card">
         <span class="step">2 · Signal over noise</span>
-        <h2>Filter before you forward</h2>
-        <p>Deadband and heartbeat logic suppress the bulk of MQTT traffic so downstream systems see meaningful change, not raw churn.</p>
+        <h2>Filter in the event stream</h2>
+        <p>Deadband and heartbeat logic run on live MQTT events — suppressing noise and forwarding only meaningful change as it happens, not after a batch job.</p>
       </article>
       <article class="framework-card">
-        <span class="step">3 · Rules before models</span>
-        <h2>Detect with deterministic logic</h2>
-        <p>Zones, spikes, and fleet-wide critical fractions trigger alerts and workflows without waiting on inference.</p>
+        <span class="step">3 · Sketch, don’t spell out</span>
+        <h2>Compact summaries at publish time</h2>
+        <p>Template natural-language sketches turn telemetry into operator-ready signal without generative cost — aligned with the sketch-not-every-token pattern in <a href="https://arxiv.org/abs/2503.05179">Sketch-of-Thought (SoT)</a> research.</p>
       </article>
       <article class="framework-card">
-        <span class="step">4 · AI where ROI is clear</span>
-        <h2>Agents on curated state</h2>
-        <p>Solace Agent Mesh answers operator questions and runs rare fleet automation over rollups and alerts — not per-reading streams.</p>
+        <span class="step">4 · Rules before models</span>
+        <h2>Detect on events, not inference</h2>
+        <p>Zones, spikes, and fleet-critical fractions emit alerts and MQTT triggers deterministically as events arrive — sub-second operator signal.</p>
       </article>
+      <article class="framework-card">
+        <span class="step">5 · AI where ROI is clear</span>
+        <h2>Event-triggered reasoning + chat</h2>
+        <p>SAM Fleet Query answers in the Web UI, but fleet-wide automation also fires when the mesh publishes a high-value trigger — reasoning driven by events, not chat alone.</p>
+      </article>
+    </div>
+
+    <div class="event-callout">
+      <h2>Two planes, one broker</h2>
+      <p>
+        <strong style="color: var(--solace-accent-light);">Data plane</strong> — microservices subscribe and publish on MQTT topics in real time:
+        filter → sketch → detect → store. No LLM on the hot path; latency stays bounded by broker delivery and deterministic code.
+      </p>
+      <p>
+        <strong style="color: var(--solace-accent-light);">Control plane</strong> — Solace Agent Mesh gateways react to curated state and mesh events:
+        operator questions over HTTP/SSE, plus automated fleet analysis when rules declare <em>fleet critical</em> and publish an analysis request.
+      </p>
     </div>
 
     <div class="cta-panel">
       <h2>What this demo proves</h2>
       <p>
-        A live HVAC-style fleet on Solace PubSub+ with ~99% MQTT noise reduction, rule-based detection,
-        and SAM-powered analysis on demand. The live pipeline dashboard runs on AWS; these pages explain <em>why</em> it matters.
+        A live HVAC-style fleet on Solace PubSub+ — event-driven pipeline, ~99% MQTT noise reduction,
+        template sketches, rule-based detection, and SAM analysis triggered by operators <em>or</em> mesh events.
+        The live dashboard on AWS shows the stream in motion; these pages explain <em>why</em> it matters.
       </p>
       <div class="cta-actions">
         <a class="solace-btn solace-btn--primary" href="http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/">Open live demo ↗</a>
