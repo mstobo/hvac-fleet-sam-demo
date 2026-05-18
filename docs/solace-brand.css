@@ -1,0 +1,863 @@
+/* ============================================================
+   SOLACE BRAND CSS STYLESHEET
+   Reverse-engineered from solace.com & docs.solace.com
+   For use in web demos and prototypes.
+   ⚠️  No official public design system was found. These values
+       are derived from visual inspection of Solace's public
+       website. Verify hex codes against current site if needed.
+   ============================================================ */
+
+/* --- Google Fonts Import (Solace uses a clean sans-serif) --- */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* ============================================================
+   CSS CUSTOM PROPERTIES (DESIGN TOKENS)
+   ============================================================ */
+:root {
+  /* --- Brand Colors --- */
+  /* Primary: Solace signature teal-green */
+  --solace-primary:        #00C895;  /* Main brand green/teal */
+  --solace-primary-dark:   #00A87D;  /* Darker hover state */
+  --solace-primary-light:  #33D4A9;  /* Lighter variant */
+  --solace-primary-subtle: #E6FAF5;  /* Very light tint for backgrounds */
+
+  /* Secondary / Accent */
+  --solace-accent:         #0082C3;  /* Blue accent used in docs/CTAs */
+  --solace-accent-dark:    #006DA3;
+  --solace-accent-light:   #33A3D4;
+
+  /* Dark / Neutral (from Solace dark nav/footer) */
+  --solace-dark:           #1B1C20;  /* Primary dark background */
+  --solace-dark-mid:       #252730;  /* Card/section dark bg */
+  --solace-dark-surface:   #2E3040;  /* Elevated surface on dark */
+  --solace-dark-border:    #3A3D4F;  /* Borders on dark bg */
+
+  /* Light / Neutral */
+  --solace-white:          #FFFFFF;
+  --solace-off-white:      #F7F8FA;  /* Page background */
+  --solace-light-gray:     #EDEEF2;  /* Dividers, borders */
+  --solace-mid-gray:       #9EA3B5;  /* Placeholder, muted text */
+  --solace-dark-gray:      #4A4F66;  /* Secondary text */
+
+  /* Text Colors */
+  --solace-text-primary:   #1B1C20;  /* Body text on light bg */
+  --solace-text-secondary: #4A4F66;
+  --solace-text-muted:     #9EA3B5;
+  --solace-text-on-dark:   #FFFFFF;
+  --solace-text-on-dark-muted: #B0B5CC;
+
+  /* Status Colors */
+  --solace-success:        #00C895;
+  --solace-warning:        #F5A623;
+  --solace-error:          #E8394D;
+  --solace-info:           #0082C3;
+
+  /* --- Typography --- */
+  --solace-font-primary:   'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --solace-font-mono:      'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+
+  /* Font Sizes */
+  --solace-text-xs:    0.75rem;
+  --solace-text-sm:    0.875rem;
+  --solace-text-base:  1rem;
+  --solace-text-lg:    1.125rem;
+  --solace-text-xl:    1.25rem;
+  --solace-text-2xl:   1.5rem;
+  --solace-text-3xl:   1.875rem;
+  --solace-text-4xl:   2.25rem;
+  --solace-text-5xl:   3rem;
+
+  /* Font Weights */
+  --solace-weight-light:     300;
+  --solace-weight-regular:   400;
+  --solace-weight-medium:    500;
+  --solace-weight-semibold:  600;
+  --solace-weight-bold:      700;
+  --solace-weight-extrabold: 800;
+
+  /* --- Spacing (8px base grid) --- */
+  --solace-space-1:  0.25rem;
+  --solace-space-2:  0.5rem;
+  --solace-space-3:  0.75rem;
+  --solace-space-4:  1rem;
+  --solace-space-5:  1.25rem;
+  --solace-space-6:  1.5rem;
+  --solace-space-8:  2rem;
+  --solace-space-10: 2.5rem;
+  --solace-space-12: 3rem;
+  --solace-space-16: 4rem;
+  --solace-space-20: 5rem;
+  --solace-space-24: 6rem;
+
+  /* --- Border Radius --- */
+  --solace-radius-sm:   4px;
+  --solace-radius-md:   8px;
+  --solace-radius-lg:   12px;
+  --solace-radius-xl:   16px;
+  --solace-radius-full: 9999px;
+
+  /* --- Shadows --- */
+  --solace-shadow-sm:   0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+  --solace-shadow-md:   0 4px 12px rgba(0,0,0,0.10), 0 2px 4px rgba(0,0,0,0.06);
+  --solace-shadow-lg:   0 10px 30px rgba(0,0,0,0.12), 0 4px 8px rgba(0,0,0,0.06);
+  --solace-shadow-xl:   0 20px 50px rgba(0,0,0,0.15);
+  --solace-shadow-glow: 0 0 20px rgba(0,200,149,0.3);
+
+  /* --- Transitions --- */
+  --solace-transition-fast:   150ms ease;
+  --solace-transition-normal: 250ms ease;
+  --solace-transition-slow:   400ms ease;
+
+  /* --- Layout --- */
+  --solace-container-max:  1200px;
+  --solace-container-wide: 1440px;
+  --solace-nav-height:     72px;
+}
+
+/* ============================================================
+   RESET & BASE STYLES
+   ============================================================ */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--solace-font-primary);
+  font-size: var(--solace-text-base);
+  font-weight: var(--solace-weight-regular);
+  color: var(--solace-text-primary);
+  background-color: var(--solace-off-white);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================================
+   TYPOGRAPHY
+   ============================================================ */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--solace-font-primary);
+  font-weight: var(--solace-weight-bold);
+  line-height: 1.2;
+  color: var(--solace-text-primary);
+  margin-bottom: var(--solace-space-4);
+}
+
+h1 { font-size: var(--solace-text-5xl); font-weight: var(--solace-weight-extrabold); }
+h2 { font-size: var(--solace-text-4xl); }
+h3 { font-size: var(--solace-text-3xl); }
+h4 { font-size: var(--solace-text-2xl); }
+h5 { font-size: var(--solace-text-xl);  }
+h6 { font-size: var(--solace-text-lg);  }
+
+p {
+  margin-bottom: var(--solace-space-4);
+  color: var(--solace-text-secondary);
+  line-height: 1.7;
+}
+
+a {
+  color: var(--solace-primary);
+  text-decoration: none;
+  transition: color var(--solace-transition-fast);
+}
+a:hover { color: var(--solace-primary-dark); text-decoration: underline; }
+
+code, pre {
+  font-family: var(--solace-font-mono);
+  font-size: var(--solace-text-sm);
+}
+
+code {
+  background-color: var(--solace-primary-subtle);
+  color: var(--solace-primary-dark);
+  padding: 0.15em 0.4em;
+  border-radius: var(--solace-radius-sm);
+}
+
+pre {
+  background-color: var(--solace-dark);
+  color: var(--solace-text-on-dark);
+  padding: var(--solace-space-6);
+  border-radius: var(--solace-radius-lg);
+  overflow-x: auto;
+  border-left: 4px solid var(--solace-primary);
+  margin-bottom: var(--solace-space-6);
+}
+
+pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+}
+
+/* ============================================================
+   LAYOUT & CONTAINERS
+   ============================================================ */
+.solace-container {
+  width: 100%;
+  max-width: var(--solace-container-max);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--solace-space-6);
+  padding-right: var(--solace-space-6);
+}
+
+.solace-container--wide {
+  max-width: var(--solace-container-wide);
+}
+
+.solace-section {
+  padding-top: var(--solace-space-20);
+  padding-bottom: var(--solace-space-20);
+}
+
+.solace-section--sm {
+  padding-top: var(--solace-space-12);
+  padding-bottom: var(--solace-space-12);
+}
+
+/* Grid helpers */
+.solace-grid {
+  display: grid;
+  gap: var(--solace-space-6);
+}
+.solace-grid--2 { grid-template-columns: repeat(2, 1fr); }
+.solace-grid--3 { grid-template-columns: repeat(3, 1fr); }
+.solace-grid--4 { grid-template-columns: repeat(4, 1fr); }
+
+@media (max-width: 1024px) {
+  .solace-grid--4 { grid-template-columns: repeat(2, 1fr); }
+  .solace-grid--3 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 640px) {
+  .solace-grid--2,
+  .solace-grid--3,
+  .solace-grid--4 { grid-template-columns: 1fr; }
+
+  h1 { font-size: var(--solace-text-4xl); }
+  h2 { font-size: var(--solace-text-3xl); }
+  h3 { font-size: var(--solace-text-2xl); }
+
+  .solace-container {
+    padding-left: var(--solace-space-4);
+    padding-right: var(--solace-space-4);
+  }
+}
+
+/* ============================================================
+   NAVIGATION
+   ============================================================ */
+.solace-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  height: var(--solace-nav-height);
+  background-color: var(--solace-dark);
+  border-bottom: 1px solid var(--solace-dark-border);
+  display: flex;
+  align-items: center;
+}
+
+.solace-nav__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.solace-nav__logo {
+  display: flex;
+  align-items: center;
+  gap: var(--solace-space-3);
+  color: var(--solace-white);
+  font-size: var(--solace-text-xl);
+  font-weight: var(--solace-weight-bold);
+  text-decoration: none;
+}
+
+.solace-nav__logo-mark {
+  width: 32px;
+  height: 32px;
+  background: var(--solace-primary);
+  border-radius: var(--solace-radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: var(--solace-weight-extrabold);
+  font-size: var(--solace-text-sm);
+  color: var(--solace-dark);
+  letter-spacing: -0.5px;
+}
+
+.solace-nav__links {
+  display: flex;
+  align-items: center;
+  gap: var(--solace-space-8);
+  list-style: none;
+}
+
+.solace-nav__links a {
+  color: var(--solace-text-on-dark-muted);
+  font-size: var(--solace-text-sm);
+  font-weight: var(--solace-weight-medium);
+  transition: color var(--solace-transition-fast);
+}
+.solace-nav__links a:hover,
+.solace-nav__links a.active {
+  color: var(--solace-white);
+  text-decoration: none;
+}
+
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+.solace-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--solace-space-2);
+  padding: 0.625rem var(--solace-space-6);
+  font-family: var(--solace-font-primary);
+  font-size: var(--solace-text-sm);
+  font-weight: var(--solace-weight-semibold);
+  line-height: 1.5;
+  border-radius: var(--solace-radius-md);
+  border: 2px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all var(--solace-transition-fast);
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* Primary */
+.solace-btn--primary {
+  background-color: var(--solace-primary);
+  color: var(--solace-dark);
+  border-color: var(--solace-primary);
+}
+.solace-btn--primary:hover {
+  background-color: var(--solace-primary-dark);
+  border-color: var(--solace-primary-dark);
+  color: var(--solace-dark);
+  text-decoration: none;
+  box-shadow: var(--solace-shadow-glow);
+  transform: translateY(-1px);
+}
+
+/* Secondary / Outline */
+.solace-btn--secondary {
+  background-color: transparent;
+  color: var(--solace-primary);
+  border-color: var(--solace-primary);
+}
+.solace-btn--secondary:hover {
+  background-color: var(--solace-primary);
+  color: var(--solace-dark);
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+/* Ghost (dark bg) */
+.solace-btn--ghost {
+  background-color: transparent;
+  color: var(--solace-white);
+  border-color: var(--solace-dark-border);
+}
+.solace-btn--ghost:hover {
+  border-color: var(--solace-primary);
+  color: var(--solace-primary);
+  text-decoration: none;
+}
+
+/* Sizes */
+.solace-btn--sm {
+  padding: 0.375rem var(--solace-space-4);
+  font-size: var(--solace-text-xs);
+}
+.solace-btn--lg {
+  padding: 0.875rem var(--solace-space-8);
+  font-size: var(--solace-text-base);
+  border-radius: var(--solace-radius-lg);
+}
+
+.solace-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ============================================================
+   CARDS
+   ============================================================ */
+.solace-card {
+  background-color: var(--solace-white);
+  border-radius: var(--solace-radius-lg);
+  border: 1px solid var(--solace-light-gray);
+  padding: var(--solace-space-8);
+  box-shadow: var(--solace-shadow-sm);
+  transition: box-shadow var(--solace-transition-normal),
+              transform var(--solace-transition-normal);
+}
+
+.solace-card:hover {
+  box-shadow: var(--solace-shadow-md);
+  transform: translateY(-2px);
+}
+
+.solace-card--dark {
+  background-color: var(--solace-dark-mid);
+  border-color: var(--solace-dark-border);
+  color: var(--solace-text-on-dark);
+}
+
+.solace-card--dark h1,
+.solace-card--dark h2,
+.solace-card--dark h3,
+.solace-card--dark h4,
+.solace-card--dark h5,
+.solace-card--dark h6 {
+  color: var(--solace-white);
+}
+
+.solace-card--dark p {
+  color: var(--solace-text-on-dark-muted);
+}
+
+.solace-card--highlighted {
+  border-color: var(--solace-primary);
+  border-width: 2px;
+}
+
+.solace-card__icon {
+  width: 48px;
+  height: 48px;
+  background-color: var(--solace-primary-subtle);
+  border-radius: var(--solace-radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--solace-space-4);
+  color: var(--solace-primary);
+  font-size: 1.5rem;
+}
+
+.solace-card--dark .solace-card__icon {
+  background-color: rgba(0, 200, 149, 0.15);
+}
+
+/* ============================================================
+   HERO / BANNER SECTIONS
+   ============================================================ */
+.solace-hero {
+  background-color: var(--solace-dark);
+  color: var(--solace-white);
+  padding: var(--solace-space-24) 0;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.solace-hero::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(ellipse at center,
+    rgba(0, 200, 149, 0.08) 0%,
+    transparent 60%);
+  pointer-events: none;
+}
+
+.solace-hero h1 {
+  color: var(--solace-white);
+  margin-bottom: var(--solace-space-6);
+}
+
+.solace-hero h1 span {
+  color: var(--solace-primary);
+}
+
+.solace-hero p {
+  font-size: var(--solace-text-xl);
+  color: var(--solace-text-on-dark-muted);
+  max-width: 680px;
+  margin: 0 auto var(--solace-space-10);
+}
+
+.solace-hero__actions {
+  display: flex;
+  gap: var(--solace-space-4);
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* ============================================================
+   FORMS & INPUTS
+   ============================================================ */
+.solace-form-group {
+  margin-bottom: var(--solace-space-5);
+}
+
+.solace-label {
+  display: block;
+  font-size: var(--solace-text-sm);
+  font-weight: var(--solace-weight-medium);
+  color: var(--solace-text-primary);
+  margin-bottom: var(--solace-space-2);
+}
+
+.solace-input,
+.solace-select,
+.solace-textarea {
+  width: 100%;
+  padding: 0.625rem var(--solace-space-4);
+  font-family: var(--solace-font-primary);
+  font-size: var(--solace-text-sm);
+  color: var(--solace-text-primary);
+  background-color: var(--solace-white);
+  border: 1.5px solid var(--solace-light-gray);
+  border-radius: var(--solace-radius-md);
+  transition: border-color var(--solace-transition-fast),
+              box-shadow var(--solace-transition-fast);
+  outline: none;
+}
+
+.solace-input:focus,
+.solace-select:focus,
+.solace-textarea:focus {
+  border-color: var(--solace-primary);
+  box-shadow: 0 0 0 3px rgba(0, 200, 149, 0.15);
+}
+
+.solace-input::placeholder,
+.solace-textarea::placeholder {
+  color: var(--solace-mid-gray);
+}
+
+.solace-textarea {
+  min-height: 120px;
+  resize: vertical;
+  line-height: 1.6;
+}
+
+/* ============================================================
+   BADGES & TAGS
+   ============================================================ */
+.solace-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2em 0.65em;
+  font-size: var(--solace-text-xs);
+  font-weight: var(--solace-weight-semibold);
+  border-radius: var(--solace-radius-full);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.solace-badge--primary {
+  background-color: var(--solace-primary-subtle);
+  color: var(--solace-primary-dark);
+}
+.solace-badge--dark {
+  background-color: var(--solace-dark-surface);
+  color: var(--solace-text-on-dark-muted);
+}
+.solace-badge--success {
+  background-color: rgba(0,200,149,0.12);
+  color: var(--solace-success);
+}
+.solace-badge--warning {
+  background-color: rgba(245,166,35,0.12);
+  color: var(--solace-warning);
+}
+.solace-badge--error {
+  background-color: rgba(232,57,77,0.12);
+  color: var(--solace-error);
+}
+.solace-badge--info {
+  background-color: rgba(0,130,195,0.12);
+  color: var(--solace-info);
+}
+
+/* ============================================================
+   STATUS INDICATORS (for live messaging demos)
+   ============================================================ */
+.solace-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--solace-space-2);
+  font-size: var(--solace-text-sm);
+  font-weight: var(--solace-weight-medium);
+}
+
+.solace-status__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--solace-radius-full);
+  flex-shrink: 0;
+}
+
+.solace-status--connected .solace-status__dot {
+  background-color: var(--solace-success);
+  box-shadow: 0 0 6px rgba(0,200,149,0.6);
+  animation: solace-pulse 2s infinite;
+}
+
+.solace-status--disconnected .solace-status__dot {
+  background-color: var(--solace-error);
+}
+
+.solace-status--connecting .solace-status__dot {
+  background-color: var(--solace-warning);
+  animation: solace-pulse 1s infinite;
+}
+
+@keyframes solace-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* ============================================================
+   MESSAGE / EVENT LOG (for PubSub+ demos)
+   ============================================================ */
+.solace-event-log {
+  background-color: var(--solace-dark);
+  border-radius: var(--solace-radius-lg);
+  border: 1px solid var(--solace-dark-border);
+  overflow: hidden;
+}
+
+.solace-event-log__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--solace-space-3) var(--solace-space-5);
+  background-color: var(--solace-dark-mid);
+  border-bottom: 1px solid var(--solace-dark-border);
+}
+
+.solace-event-log__title {
+  font-size: var(--solace-text-xs);
+  font-weight: var(--solace-weight-semibold);
+  color: var(--solace-text-on-dark-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0;
+}
+
+.solace-event-log__body {
+  padding: var(--solace-space-4);
+  max-height: 300px;
+  overflow-y: auto;
+  font-family: var(--solace-font-mono);
+  font-size: var(--solace-text-xs);
+}
+
+.solace-event-log__entry {
+  display: flex;
+  gap: var(--solace-space-3);
+  padding: var(--solace-space-2) 0;
+  border-bottom: 1px solid var(--solace-dark-border);
+  color: var(--solace-text-on-dark);
+}
+.solace-event-log__entry:last-child { border-bottom: none; }
+
+.solace-event-log__timestamp {
+  color: var(--solace-mid-gray);
+  flex-shrink: 0;
+}
+
+.solace-event-log__topic {
+  color: var(--solace-primary);
+  flex-shrink: 0;
+}
+
+.solace-event-log__payload {
+  color: var(--solace-text-on-dark-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============================================================
+   STAT / METRIC CARDS
+   ============================================================ */
+.solace-metric {
+  text-align: center;
+  padding: var(--solace-space-8);
+}
+
+.solace-metric__value {
+  font-size: var(--solace-text-5xl);
+  font-weight: var(--solace-weight-extrabold);
+  color: var(--solace-primary);
+  line-height: 1;
+  margin-bottom: var(--solace-space-2);
+}
+
+.solace-metric__label {
+  font-size: var(--solace-text-sm);
+  font-weight: var(--solace-weight-medium);
+  color: var(--solace-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ============================================================
+   ALERTS / NOTIFICATIONS
+   ============================================================ */
+.solace-alert {
+  display: flex;
+  gap: var(--solace-space-3);
+  padding: var(--solace-space-4) var(--solace-space-5);
+  border-radius: var(--solace-radius-md);
+  border-left: 4px solid;
+  margin-bottom: var(--solace-space-4);
+  font-size: var(--solace-text-sm);
+}
+
+.solace-alert--success {
+  background-color: rgba(0,200,149,0.08);
+  border-color: var(--solace-success);
+  color: var(--solace-text-primary);
+}
+.solace-alert--warning {
+  background-color: rgba(245,166,35,0.08);
+  border-color: var(--solace-warning);
+}
+.solace-alert--error {
+  background-color: rgba(232,57,77,0.08);
+  border-color: var(--solace-error);
+}
+.solace-alert--info {
+  background-color: rgba(0,130,195,0.08);
+  border-color: var(--solace-info);
+}
+
+/* ============================================================
+   SECTION BACKGROUNDS
+   ============================================================ */
+.solace-bg-dark    { background-color: var(--solace-dark); }
+.solace-bg-dark-mid{ background-color: var(--solace-dark-mid); }
+.solace-bg-light   { background-color: var(--solace-off-white); }
+.solace-bg-white   { background-color: var(--solace-white); }
+.solace-bg-primary { background-color: var(--solace-primary); }
+.solace-bg-subtle  { background-color: var(--solace-primary-subtle); }
+
+/* ============================================================
+   DIVIDERS
+   ============================================================ */
+.solace-divider {
+  border: none;
+  border-top: 1px solid var(--solace-light-gray);
+  margin: var(--solace-space-8) 0;
+}
+.solace-divider--dark {
+  border-color: var(--solace-dark-border);
+}
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+.solace-footer {
+  background-color: var(--solace-dark);
+  color: var(--solace-text-on-dark-muted);
+  padding: var(--solace-space-12) 0;
+  font-size: var(--solace-text-sm);
+  border-top: 1px solid var(--solace-dark-border);
+}
+
+.solace-footer__brand {
+  font-size: var(--solace-text-lg);
+  font-weight: var(--solace-weight-bold);
+  color: var(--solace-white);
+  margin-bottom: var(--solace-space-2);
+}
+
+.solace-footer__copy {
+  color: var(--solace-text-on-dark-muted);
+  font-size: var(--solace-text-xs);
+  margin-top: var(--solace-space-8);
+  padding-top: var(--solace-space-6);
+  border-top: 1px solid var(--solace-dark-border);
+  text-align: center;
+}
+
+/* ============================================================
+   UTILITY CLASSES
+   ============================================================ */
+.solace-text-primary   { color: var(--solace-primary) !important; }
+.solace-text-on-dark   { color: var(--solace-text-on-dark) !important; }
+.solace-text-muted     { color: var(--solace-text-muted) !important; }
+
+.solace-font-mono      { font-family: var(--solace-font-mono) !important; }
+.solace-font-bold      { font-weight: var(--solace-weight-bold) !important; }
+.solace-font-semibold  { font-weight: var(--solace-weight-semibold) !important; }
+
+.solace-rounded        { border-radius: var(--solace-radius-md); }
+.solace-rounded-full   { border-radius: var(--solace-radius-full); }
+
+.solace-shadow         { box-shadow: var(--solace-shadow-md); }
+.solace-glow           { box-shadow: var(--solace-shadow-glow); }
+
+.solace-flex           { display: flex; }
+.solace-flex-center    { display: flex; align-items: center; justify-content: center; }
+.solace-flex-between   { display: flex; align-items: center; justify-content: space-between; }
+.solace-gap-2          { gap: var(--solace-space-2); }
+.solace-gap-4          { gap: var(--solace-space-4); }
+.solace-gap-6          { gap: var(--solace-space-6); }
+.solace-gap-8          { gap: var(--solace-space-8); }
+
+.solace-mt-4           { margin-top: var(--solace-space-4); }
+.solace-mt-8           { margin-top: var(--solace-space-8); }
+.solace-mb-4           { margin-bottom: var(--solace-space-4); }
+.solace-mb-8           { margin-bottom: var(--solace-space-8); }
+.solace-mb-0           { margin-bottom: 0 !important; }
+
+.solace-text-center    { text-align: center; }
+.solace-text-left      { text-align: left; }
+
+.solace-w-full         { width: 100%; }
+
+/* Gradient text for headings */
+.solace-gradient-text {
+  background: linear-gradient(135deg, var(--solace-primary) 0%, var(--solace-accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Green top-border accent card */
+.solace-card--accent-top {
+  border-top: 3px solid var(--solace-primary);
+  border-radius: 0 0 var(--solace-radius-lg) var(--solace-radius-lg);
+}
+
+/* ============================================================
+   SCROLLBAR (webkit)
+   ============================================================ */
+.solace-event-log__body::-webkit-scrollbar {
+  width: 6px;
+}
+.solace-event-log__body::-webkit-scrollbar-track {
+  background: var(--solace-dark-mid);
+}
+.solace-event-log__body::-webkit-scrollbar-thumb {
+  background: var(--solace-dark-border);
+  border-radius: var(--solace-radius-full);
+}
+.solace-event-log__body::-webkit-scrollbar-thumb:hover {
+  background: var(--solace-primary);
+}

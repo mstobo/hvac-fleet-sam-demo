@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HVAC Fleet Demo — Value Story</title>
+  <link rel="stylesheet" href="solace-brand.css">
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+
+<main class="site-page">
+  <div class="site-inner">
+
+    <header class="site-header">
+      <a class="site-logo" href="index.html">
+        <span class="site-logo-mark">S+</span>
+        <span>HVAC Fleet · PubSub+ &amp; Agent Mesh</span>
+      </a>
+      <nav class="site-nav" aria-label="Site">
+        <a href="index.html" class="active">Value story</a>
+        <a href="outcomes.html">Outcomes</a>
+        <a href="http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/">Live demo ↗</a>
+        <a href="https://github.com/mstobo/hvac-fleet-sam-demo#readme">Technical docs ↗</a>
+      </nav>
+    </header>
+
+    <h1 class="site-hero-title">Industrial telemetry at scale — <span>without burning tokens</span></h1>
+    <p class="site-lead">
+      High-volume MQTT is not an LLM input stream. This reference demo shows how to keep AI off the hot path,
+      surface signal where operators need it, and apply generative models only when the business case is clear.
+    </p>
+
+    <p class="section-label">The problem</p>
+    <div class="tokenburn-wrap">
+      <img src="Tokenburn.png" alt="The Token Burn Problem: naive architecture sends every reading to an LLM; value-based architecture filters first and applies AI on high-value events only." />
+    </div>
+    <p style="font-size: var(--solace-text-sm); color: var(--solace-text-on-dark-muted); text-align: center; margin: 0 0 var(--solace-space-8); max-width: 40rem; margin-left: auto; margin-right: auto;">
+      Most IIoT + AI pilots fail at scale because cost and latency grow linearly with sensor volume.
+      The fix is architectural: <strong style="color: var(--solace-primary);">deterministic processing first</strong>, agents second.
+    </p>
+
+    <p class="section-label">Value framework</p>
+    <div class="framework-grid">
+      <article class="framework-card">
+        <span class="step">1 · Protect spend</span>
+        <h2>Keep the LLM off the firehose</h2>
+        <p>Every unchanged temperature reading does not need a model call. Budget and latency stay predictable as fleet size grows.</p>
+      </article>
+      <article class="framework-card">
+        <span class="step">2 · Signal over noise</span>
+        <h2>Filter before you forward</h2>
+        <p>Deadband and heartbeat logic suppress the bulk of MQTT traffic so downstream systems see meaningful change, not raw churn.</p>
+      </article>
+      <article class="framework-card">
+        <span class="step">3 · Rules before models</span>
+        <h2>Detect with deterministic logic</h2>
+        <p>Zones, spikes, and fleet-wide critical fractions trigger alerts and workflows without waiting on inference.</p>
+      </article>
+      <article class="framework-card">
+        <span class="step">4 · AI where ROI is clear</span>
+        <h2>Agents on curated state</h2>
+        <p>Solace Agent Mesh answers operator questions and runs rare fleet automation over rollups and alerts — not per-reading streams.</p>
+      </article>
+    </div>
+
+    <div class="cta-panel">
+      <h2>What this demo proves</h2>
+      <p>
+        A live HVAC-style fleet on Solace PubSub+ with ~99% MQTT noise reduction, rule-based detection,
+        and SAM-powered analysis on demand. The live pipeline dashboard runs on AWS; these pages explain <em>why</em> it matters.
+      </p>
+      <div class="cta-actions">
+        <a class="solace-btn solace-btn--primary" href="http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/">Open live demo ↗</a>
+        <a class="solace-btn solace-btn--secondary" href="outcomes.html">See outcomes →</a>
+        <a class="solace-btn solace-btn--ghost" href="https://github.com/mstobo/hvac-fleet-sam-demo#readme">Technical README ↗</a>
+      </div>
+    </div>
+
+    <footer class="site-footer">
+      Page 1 of 2 · Demonstration / educational use · <a href="https://github.com/mstobo/hvac-fleet-sam-demo">Source on GitHub</a>
+    </footer>
+
+  </div>
+</main>
+
+</body>
+</html>
