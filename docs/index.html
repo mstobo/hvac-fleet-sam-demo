@@ -26,7 +26,7 @@
     </header>
 
     <div class="hero-problem-split">
-      <div class="hero-problem-text">
+      <div class="hero-problem-intro">
         <h1 class="site-hero-title">Industrial telemetry at scale — <span>without burning tokens</span></h1>
         <p class="site-lead">
           High-volume MQTT is not an LLM input stream. This reference demo is built on a
@@ -40,7 +40,9 @@
           Most IIoT + AI pilots fail at scale because cost and latency grow linearly with sensor volume.
           The fix is architectural: <strong>deterministic processing first</strong>, agents second.
         </p>
+      </div>
 
+      <div class="hero-diagram-row">
         <div class="arch-diagram" role="img" aria-label="Data plane and control plane architecture for the HVAC fleet demo">
           <article class="arch-layer arch-layer--data">
             <header class="arch-layer-head">
@@ -104,13 +106,13 @@
             </ul>
           </article>
         </div>
-        </div>
+
+        <figure class="hero-problem-figure">
+          <div class="tokenburn-wrap">
+            <img src="token-burn-device-friendly.png" alt="The Token Burn Problem: naive architecture sends every reading to an LLM; value-based architecture filters first and applies AI on high-value events only." width="862" height="1824" loading="lazy" />
+          </div>
+        </figure>
       </div>
-      <figure class="hero-problem-figure">
-        <div class="tokenburn-wrap">
-          <img src="token-burn-device-friendly.png" alt="The Token Burn Problem: naive architecture sends every reading to an LLM; value-based architecture filters first and applies AI on high-value events only." width="862" height="1824" loading="lazy" />
-        </div>
-      </figure>
     </div>
 
     <p class="section-label">Value framework</p>
