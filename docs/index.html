@@ -41,44 +41,69 @@
           The fix is architectural: <strong>deterministic processing first</strong>, agents second.
         </p>
 
-        <div class="arch-diagram" role="img" aria-label="Two-layer architecture: Layer 1 deterministic pipeline from DC1 to Hub, Layer 2 SAM and Slack reasoning">
+        <div class="arch-diagram" role="img" aria-label="Data plane and control plane architecture for the HVAC fleet demo">
           <article class="arch-layer arch-layer--data">
             <header class="arch-layer-head">
               <span class="arch-layer-badge">Layer 1</span>
-              <span class="arch-layer-title">Deterministic data plane</span>
+              <span class="arch-layer-title">Data plane</span>
+              <span class="arch-layer-sub">(no LLM per reading)</span>
             </header>
-            <div class="arch-site-row">
-              <span class="arch-site">DC1</span>
-              <span class="arch-bridge" aria-hidden="true">bridge →</span>
-              <span class="arch-site arch-site--hub">Hub</span>
+
+            <div class="arch-block">
+              <p class="arch-block-label">Ingress</p>
+              <p class="arch-detail-line">
+                <span class="arch-svc">demo_publisher / dashboard twins</span>
+                <span class="arch-arrow-inline" aria-hidden="true">→</span>
+                <code class="arch-code">dc/&lt;Hub|DC1|DC2&gt;/v1/raw/…</code>
+              </p>
             </div>
-            <div class="arch-pipeline" aria-label="Pipeline stages at Hub">
-              <span class="arch-stage">Ingress</span>
-              <span class="arch-pipe" aria-hidden="true">→</span>
-              <span class="arch-stage">Filter</span>
-              <span class="arch-pipe" aria-hidden="true">→</span>
-              <span class="arch-stage">Deadband</span>
-              <span class="arch-pipe" aria-hidden="true">→</span>
-              <span class="arch-stage">Sketch</span>
-              <span class="arch-pipe" aria-hidden="true">→</span>
-              <span class="arch-stage">Anomaly</span>
+
+            <div class="arch-vflow" aria-hidden="true">▼</div>
+
+            <div class="arch-block">
+              <p class="arch-block-label">Pipeline</p>
+              <div class="arch-pipeline">
+                <span class="arch-stage">deadband</span>
+                <span class="arch-pipe" aria-hidden="true">→</span>
+                <span class="arch-stage">sketch</span>
+                <span class="arch-pipe" aria-hidden="true">→</span>
+                <span class="arch-stage">anomaly</span>
+              </div>
+              <p class="arch-branch">+ chart-writer → <code class="arch-code">chart_data.db</code></p>
             </div>
-            <p class="arch-note">Real-time MQTT on Solace · no LLM on the hot path</p>
+
+            <p class="arch-fanout">
+              <span class="arch-fanout-label">MQTT</span>
+              <code class="arch-code">dc/&lt;site&gt;/v1/pipeline/*</code>
+            </p>
           </article>
 
-          <div class="arch-connector" aria-hidden="true">↓ curated state &amp; triggers</div>
+          <div class="arch-connector" aria-hidden="true">▼</div>
 
           <article class="arch-layer arch-layer--control">
             <header class="arch-layer-head">
               <span class="arch-layer-badge">Layer 2</span>
-              <span class="arch-layer-title">Reasoning control plane</span>
+              <span class="arch-layer-title">Control plane</span>
+              <span class="arch-layer-sub">(LLM on demand + automation)</span>
             </header>
-            <div class="arch-control-row">
-              <span class="arch-control-node">SAM<br><small>Web UI · Fleet Query · gateways</small></span>
-              <span class="arch-control-node">Slack<br><small>alerts · fleet analysis · @bot</small></span>
-            </div>
-            <p class="arch-note">Operator chat + event-triggered fleet analysis</p>
+
+            <ul class="arch-control-list">
+              <li>
+                <span class="arch-control-strong">SAM</span>
+                Web UI <code class="arch-code">:8000</code> · FleetQueryAgent · MqttOrchestratorAgent
+              </li>
+              <li>
+                <span class="arch-control-strong">fleet-analysis gateway</span>
+                <span class="arch-arrow-inline" aria-hidden="true">←</span>
+                <code class="arch-code">sensors/fleet/analysis-request</code>
+              </li>
+              <li class="arch-control-optional">
+                <span class="arch-control-strong">Optional Slack</span>
+                slack-gateway <code class="arch-code">@bot</code> · analysis-to-slack bridge
+              </li>
+            </ul>
           </article>
+        </div>
         </div>
       </div>
       <figure class="hero-problem-figure">
