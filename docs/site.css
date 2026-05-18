@@ -520,8 +520,38 @@ body {
   color: var(--solace-accent-light);
 }
 
+.team-credits {
+  margin-top: var(--solace-space-10);
+  padding: var(--solace-space-6);
+  border-top: 1px solid var(--solace-dark-border);
+  text-align: center;
+}
+
+.team-credits h2 {
+  font-size: var(--solace-text-sm);
+  font-weight: var(--solace-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--solace-primary);
+  margin-bottom: var(--solace-space-2);
+}
+
+.team-credits .team-name {
+  font-size: var(--solace-text-lg);
+  font-weight: var(--solace-weight-bold);
+  color: var(--solace-white);
+  margin-bottom: var(--solace-space-3);
+}
+
+.team-credits .team-members {
+  font-size: var(--solace-text-sm);
+  color: var(--solace-text-on-dark-muted);
+  line-height: 1.6;
+  margin: 0;
+}
+
 .site-footer {
-  margin-top: var(--solace-space-8);
+  margin-top: var(--solace-space-6);
   padding-top: var(--solace-space-5);
   border-top: 1px solid var(--solace-dark-border);
   font-size: var(--solace-text-xs);
