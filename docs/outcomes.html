@@ -41,8 +41,8 @@
       <article class="value-card">
         <div class="metric">0</div>
         <h3>LLM per reading</h3>
-        <p>Template sketches compress telemetry at event time — same sketch-not-every-token idea as <a href="https://arxiv.org/abs/2503.05179">Sketch-of-Thought</a>.</p>
-        <p class="pattern-note">Research: Aytes et al., EMNLP 2025 — up to 84% fewer tokens with minimal accuracy loss on reasoning tasks.</p>
+        <p>Template sketches compress telemetry at event time—conceptually parallel to <a href="https://arxiv.org/abs/2503.05179">Sketch-of-Thought</a>, but on the data plane with deterministic templates, not LLM chain-of-thought.</p>
+        <p class="pattern-note">SoT (Aytes et al., EMNLP 2025) reports up to 84% shorter <em>reasoning traces</em> on benchmarks; this demo’s main savings are deadband suppression and no LLM per reading.</p>
       </article>
       <article class="value-card">
         <div class="metric">Rules</div>
@@ -82,7 +82,7 @@
       </article>
       <article class="flow-step">
         <div class="name">Sketch</div>
-        <p class="desc">Compact template summaries on forwarded events — operator language without an LLM per sample. See <a href="https://arxiv.org/abs/2503.05179">Sketch-of-Thought</a>.</p>
+        <p class="desc">Deterministic NL summaries on forwarded events—operator language without an LLM per sample. Related idea: <a href="https://arxiv.org/abs/2503.05179">Sketch-of-Thought</a> (reasoning compression, not this pipeline).</p>
       </article>
       <article class="flow-step">
         <div class="name">Detect</div>
@@ -102,7 +102,7 @@
       <tbody>
         <tr><td>Ingest &amp; normalize</td><td>Real-time MQTT fleet events on Solace — multi-site ready</td></tr>
         <tr><td>Filter &amp; detect value</td><td>~99% in-stream suppression before downstream consumers</td></tr>
-        <tr><td>Sketch / summarize</td><td>Template NL sketches at publish time (<a href="https://arxiv.org/abs/2503.05179">SoT</a>-aligned pattern)</td></tr>
+        <tr><td>Sketch / summarize</td><td>Deterministic NL sketches at publish time (SoT-inspired principle at ingress—not SoT prompting)</td></tr>
         <tr><td>Low-value at scale</td><td>Live dashboards and rollups without LLM cost</td></tr>
         <tr><td>High-value events</td><td>Deterministic alerts and fleet-critical MQTT triggers</td></tr>
         <tr><td>Event mesh → AI</td><td>Chat + event-triggered fleet analysis via SAM gateways</td></tr>
