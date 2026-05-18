@@ -27,8 +27,9 @@
 
     <h1 class="site-hero-title">Measurable outcomes — <span>deterministic first, AI on demand</span></h1>
     <p class="site-lead">
-      The live demo on AWS implements this pattern end to end. Below is what stakeholders should expect;
-      service names, topics, and deployment steps live in the repository README.
+      The live demo on AWS runs an event-driven MQTT pipeline in real time, with SAM reasoning on operator chat
+      <em>and</em> on mesh events (e.g. fleet-critical triggers) — not batch analytics and not chat-only AI.
+      Service names, topics, and deployment steps live in the repository README.
     </p>
 
     <div class="value-grid">
@@ -40,7 +41,8 @@
       <article class="value-card">
         <div class="metric">0</div>
         <h3>LLM per reading</h3>
-        <p>Sketches use templates, not generative AI on every sample.</p>
+        <p>Template sketches compress telemetry at event time — same sketch-not-every-token idea as <a href="https://arxiv.org/abs/2503.05179">Sketch-of-Thought</a>.</p>
+        <p class="pattern-note">Research: Aytes et al., EMNLP 2025 — up to 84% fewer tokens with minimal accuracy loss on reasoning tasks.</p>
       </article>
       <article class="value-card">
         <div class="metric">Rules</div>
@@ -50,7 +52,7 @@
       <article class="value-card">
         <div class="metric">$</div>
         <h3>AI when it pays</h3>
-        <p>Human questions and rare fleet automation over curated history, not raw telemetry.</p>
+        <p>Chat over curated rollups plus event-triggered fleet analysis when rules cross a critical threshold — reasoning on signals, not streams.</p>
       </article>
     </div>
 
@@ -64,31 +66,31 @@
       <article class="cost-card good">
         <h3>This architecture</h3>
         <div class="price">Cents / day</div>
-        <p>Queries and occasional fleet automation only. Pipeline work stays on the broker path.</p>
+        <p>Operator chat plus rare event-triggered fleet analysis. Pipeline work stays on the real-time broker path.</p>
       </article>
     </div>
 
-    <p class="section-label">How it flows (business view)</p>
+    <p class="section-label">How it flows (real-time, event-driven)</p>
     <div class="flow-simple">
       <article class="flow-step">
         <div class="name">Ingest</div>
-        <p class="desc">Fleet sensors publish to Solace at high frequency.</p>
+        <p class="desc">Sensors publish MQTT events to Solace continuously — the mesh is the nervous system.</p>
       </article>
       <article class="flow-step">
         <div class="name">Filter</div>
-        <p class="desc">Suppress unchanged readings; forward meaningful change.</p>
+        <p class="desc">Each event is evaluated in stream; noise is dropped before the next stage sees it.</p>
       </article>
       <article class="flow-step">
-        <div class="name">Summarize</div>
-        <p class="desc">Human-readable rollups stored for trends and tools.</p>
+        <div class="name">Sketch</div>
+        <p class="desc">Compact template summaries on forwarded events — operator language without an LLM per sample. See <a href="https://arxiv.org/abs/2503.05179">Sketch-of-Thought</a>.</p>
       </article>
       <article class="flow-step">
         <div class="name">Detect</div>
-        <p class="desc">Rule-based alerts and fleet status — no model required.</p>
+        <p class="desc">Rules fire on live events; fleet-critical conditions publish triggers to the mesh.</p>
       </article>
       <article class="flow-step control">
-        <div class="name">Act (on demand)</div>
-        <p class="desc">SAM agents, Slack, dashboards when operators or automation need insight.</p>
+        <div class="name">Act (events + chat)</div>
+        <p class="desc">Dashboards and Slack on alerts; SAM chat for questions; automated fleet analysis when the mesh requests it.</p>
       </article>
     </div>
 
@@ -98,11 +100,12 @@
         <tr><th>Reference pattern</th><th>Outcome in this demo</th></tr>
       </thead>
       <tbody>
-        <tr><td>Ingest &amp; normalize</td><td>MQTT fleet telemetry on Solace — multi-site ready</td></tr>
-        <tr><td>Filter &amp; detect value</td><td>~99% traffic reduction before downstream consumers</td></tr>
-        <tr><td>Low-value at scale</td><td>Dashboards and rollups without LLM cost</td></tr>
-        <tr><td>High-value events</td><td>Deterministic alerts and fleet-critical triggers</td></tr>
-        <tr><td>Event mesh → AI</td><td>SAM gateways and Fleet Query on curated state</td></tr>
+        <tr><td>Ingest &amp; normalize</td><td>Real-time MQTT fleet events on Solace — multi-site ready</td></tr>
+        <tr><td>Filter &amp; detect value</td><td>~99% in-stream suppression before downstream consumers</td></tr>
+        <tr><td>Sketch / summarize</td><td>Template NL sketches at publish time (<a href="https://arxiv.org/abs/2503.05179">SoT</a>-aligned pattern)</td></tr>
+        <tr><td>Low-value at scale</td><td>Live dashboards and rollups without LLM cost</td></tr>
+        <tr><td>High-value events</td><td>Deterministic alerts and fleet-critical MQTT triggers</td></tr>
+        <tr><td>Event mesh → AI</td><td>Chat + event-triggered fleet analysis via SAM gateways</td></tr>
         <tr><td>Fan-out to operators</td><td>Web UI, optional Slack, live pipeline views on AWS</td></tr>
       </tbody>
     </table>

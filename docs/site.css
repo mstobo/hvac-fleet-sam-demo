@@ -112,6 +112,73 @@ body {
   line-height: 1.55;
 }
 
+.site-lead strong,
+.tokenburn-caption strong {
+  color: var(--solace-white);
+  font-weight: var(--solace-weight-semibold);
+}
+
+.tokenburn-caption {
+  font-size: var(--solace-text-sm);
+  color: var(--solace-text-on-dark-muted);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.tokenburn-caption strong {
+  color: var(--solace-primary);
+}
+
+/* Hero + problem diagram: stacked on phone, side-by-side on laptop */
+.hero-problem-split {
+  margin-bottom: var(--solace-space-10);
+}
+
+.hero-problem-text .site-hero-title {
+  margin-bottom: var(--solace-space-4);
+}
+
+.hero-problem-text .site-lead {
+  max-width: none;
+  margin-bottom: var(--solace-space-5);
+}
+
+.hero-problem-text .section-label {
+  font-size: var(--solace-text-lg);
+  font-weight: var(--solace-weight-bold);
+  letter-spacing: 0.1em;
+  margin-bottom: var(--solace-space-4);
+  color: var(--solace-accent-light);
+}
+
+.hero-problem-text .tokenburn-caption {
+  font-size: var(--solace-text-lg);
+  line-height: 1.65;
+  color: var(--solace-text-on-dark);
+}
+
+@media (min-width: 900px) {
+  .hero-problem-text .section-label {
+    font-size: var(--solace-text-xl);
+    margin-bottom: var(--solace-space-5);
+  }
+
+  .hero-problem-text .tokenburn-caption {
+    font-size: var(--solace-text-xl);
+    line-height: 1.7;
+  }
+}
+
+@media (min-width: 1200px) {
+  .hero-problem-text .tokenburn-caption {
+    font-size: var(--solace-text-2xl);
+  }
+}
+
+.hero-problem-figure {
+  margin: 0;
+}
+
 .framework-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -167,14 +234,69 @@ body {
 }
 
 .tokenburn-wrap img {
-  max-width: 100%;
-  max-height: min(58vh, 720px);
+  display: block;
   width: auto;
   height: auto;
   object-fit: contain;
   border-radius: var(--solace-radius-lg);
   border: 1px solid var(--solace-dark-border);
   box-shadow: var(--solace-shadow-lg);
+}
+
+/* Phone: text first, diagram centered below */
+@media (max-width: 899px) {
+  .hero-problem-split {
+    display: flex;
+    flex-direction: column;
+    gap: var(--solace-space-6);
+  }
+
+  .hero-problem-figure .tokenburn-wrap {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .hero-problem-figure .tokenburn-wrap img {
+    max-width: min(100%, 20rem);
+    max-height: none;
+    margin: 0 auto;
+  }
+}
+
+/* Laptop / desktop: two columns, larger readable diagram */
+@media (min-width: 900px) {
+  .hero-problem-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 42%);
+    gap: var(--solace-space-8) var(--solace-space-10);
+    align-items: start;
+  }
+
+  .hero-problem-figure {
+    position: sticky;
+    top: var(--solace-space-6);
+  }
+
+  .hero-problem-figure .tokenburn-wrap {
+    padding: 0;
+    justify-content: flex-end;
+  }
+
+  .hero-problem-figure .tokenburn-wrap img {
+    max-width: 100%;
+    max-height: min(88vh, 960px);
+    width: 100%;
+  }
+}
+
+@media (min-width: 1200px) {
+  .hero-problem-split {
+    grid-template-columns: minmax(0, 1fr) minmax(22rem, 36rem);
+  }
+
+  .hero-problem-figure .tokenburn-wrap img {
+    max-height: min(90vh, 1024px);
+  }
 }
 
 .value-grid {
@@ -357,6 +479,45 @@ body {
   letter-spacing: 0.08em;
   color: var(--solace-accent);
   margin-bottom: var(--solace-space-4);
+}
+
+.event-callout {
+  background: var(--solace-dark-mid);
+  border: 1px solid var(--solace-dark-border);
+  border-left: 4px solid var(--solace-accent);
+  border-radius: var(--solace-radius-lg);
+  padding: var(--solace-space-6);
+  margin-bottom: var(--solace-space-8);
+}
+
+.event-callout h2 {
+  font-size: var(--solace-text-lg);
+  color: var(--solace-white);
+  margin-bottom: var(--solace-space-3);
+}
+
+.event-callout p {
+  font-size: var(--solace-text-sm);
+  color: var(--solace-text-on-dark-muted);
+  margin: 0 0 var(--solace-space-3);
+  line-height: 1.55;
+}
+
+.event-callout p:last-child { margin-bottom: 0; }
+
+.event-callout a {
+  color: var(--solace-primary);
+}
+
+.pattern-note {
+  font-size: var(--solace-text-xs);
+  color: var(--solace-text-on-dark-muted);
+  margin-top: var(--solace-space-3);
+  line-height: 1.45;
+}
+
+.pattern-note a {
+  color: var(--solace-accent-light);
 }
 
 .site-footer {
