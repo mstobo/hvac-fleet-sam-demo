@@ -14,6 +14,7 @@ Tables:
 
 import sqlite3
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
@@ -21,6 +22,11 @@ from contextlib import contextmanager
 import pipeline_config as _config
 
 log = _config.get_logger("sensor_db")
+
+# Thread-local connection cache. SQLite Connection objects are not thread-safe to share,
+# so each thread gets its own; reuse across get_connection() calls saves the
+# file-open + per-connection pragma overhead on hot read paths.
+_tls = threading.local()
 
 
 def _cutoff_iso(seconds_ago: float = 0.0, *, minutes: float = 0.0, days: float = 0.0) -> str:
@@ -44,19 +50,44 @@ def get_db_path() -> str:
     return os.path.abspath(DB_PATH)
 
 
+def close_thread_connection() -> None:
+    """Close this thread's pooled connection. Idempotent. Call on graceful shutdown
+    or between test runs that swap the underlying DB path."""
+    conn = getattr(_tls, "conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            log.debug("close raised during pool cleanup", exc_info=True)
+        finally:
+            _tls.conn = None
+
+
 @contextmanager
 def get_connection():
-    """Context manager for database connections."""
-    conn = sqlite3.connect(get_db_path())
-    conn.row_factory = sqlite3.Row
-    # journal_mode=WAL is persisted in the file header by init_database(); synchronous is per-connection
-    # so it must be set on every open. NORMAL is the SQLite-recommended pair for WAL.
-    conn.execute("PRAGMA synchronous=NORMAL")
+    """Thread-local connection context manager.
+
+    First call per thread opens a connection and caches it on a threading.local();
+    subsequent calls reuse it. Commits on successful exit (same as before); rolls
+    back on exception (the previous close-on-finally implicitly discarded uncommitted
+    state — explicit rollback is required now that the connection lives on).
+    """
+    conn = getattr(_tls, "conn", None)
+    if conn is None:
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        # journal_mode=WAL is persisted in the file header by init_database();
+        # synchronous is per-connection, so it must be set on every new connection.
+        # NORMAL is the SQLite-recommended pair for WAL.
+        conn.execute("PRAGMA synchronous=NORMAL")
+        _tls.conn = conn
+
     try:
         yield conn
         conn.commit()
-    finally:
-        conn.close()
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def init_database():
