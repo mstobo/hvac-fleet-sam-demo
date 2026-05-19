@@ -63,6 +63,38 @@ def _resolve_broker_from_env():
 BROKER_HOST, BROKER_PORT, USERNAME, PASSWORD = _resolve_broker_from_env()
 USE_TLS = os.getenv("SOLACE_TLS", "true").lower() in ("true", "1", "yes")
 
+# Placeholder values returned by _resolve_broker_from_env when env vars are missing.
+# Any of these reaching a connect() call almost certainly means a missing/wrong .env.
+_PLACEHOLDER_VALUES = frozenset({
+    "YOUR_BROKER.messaging.solace.cloud",
+    "YOUR_USERNAME",
+    "YOUR_PASSWORD",
+})
+_broker_config_validated = False
+
+
+def validate_broker_config() -> None:
+    """
+    Fail fast when broker env vars are missing or still placeholders. Idempotent —
+    safe to call from multiple entry points. Catches the common "I forgot to source
+    .env" mistake before paho buries it under a confusing TLS/DNS error.
+    """
+    global _broker_config_validated
+    if _broker_config_validated:
+        return
+    problems = []
+    if not BROKER_HOST or BROKER_HOST in _PLACEHOLDER_VALUES:
+        problems.append(f"BROKER_HOST={BROKER_HOST!r} — set SOLACE_BROKER_URL or SOLACE_HOST")
+    if not USERNAME or USERNAME in _PLACEHOLDER_VALUES:
+        problems.append(f"USERNAME={USERNAME!r} — set SOLACE_BROKER_USERNAME (or SOLACE_USER)")
+    if not PASSWORD or PASSWORD in _PLACEHOLDER_VALUES:
+        problems.append("PASSWORD is empty or placeholder — set SOLACE_BROKER_PASSWORD (or SOLACE_PASS)")
+    if problems:
+        msg = "Broker configuration is incomplete:\n  - " + "\n  - ".join(problems)
+        msg += "\nSource sam/.env (laptop) or deploy/aws/.env (compose) before starting the service."
+        raise SystemExit(msg)
+    _broker_config_validated = True
+
 # ── Topic Namespace and Schemas ──────────────────────────────────────────────
 DC_NAMESPACE = os.getenv("DC_NAMESPACE", "dc")
 DC_TOPIC_VERSION = os.getenv("DC_TOPIC_VERSION", "v1")
@@ -225,9 +257,10 @@ def publish_checked(client, topic: str, payload, *, qos: int = 0, source: str = 
 
 def create_mqtt_client(service_name: str, userdata: dict = None):
     """Create and configure an MQTT client for a pipeline service."""
+    validate_broker_config()
     if userdata is None:
         userdata = {}
-    
+
     client = mqtt.Client(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         client_id=f"{service_name}-{int(time.time())}",

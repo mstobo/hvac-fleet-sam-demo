@@ -114,10 +114,13 @@ def _normalize_notes(notes: str) -> str:
 def _get_mqtt_client() -> Optional[mqtt.Client]:
     """Get or create MQTT client for publishing analysis requests."""
     global _mqtt_client, _mqtt_connected
-    
+
     if _mqtt_client is not None and _mqtt_connected:
         return _mqtt_client
-    
+
+    if CONFIG_AVAILABLE:
+        config.validate_broker_config()
+
     try:
         def on_connect(client, userdata, flags, reason_code, properties=None):
             global _mqtt_connected
