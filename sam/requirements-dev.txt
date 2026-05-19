@@ -1,0 +1,11 @@
+# Dev/test-only dependencies. NOT installed into the production Docker image
+# (deploy/aws/Dockerfile uses requirements.txt). Install locally with:
+#
+#   cd sam
+#   pip install -r requirements.txt -r requirements-dev.txt
+#
+# Then run the test suite:
+#
+#   pytest tests/
+
+pytest>=8,<9

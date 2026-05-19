@@ -18,8 +18,11 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
-# Database file location
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "sensor_data.db")
+# Database file location. Override via SENSOR_DB_PATH env var (parity with chart_db).
+DB_PATH = os.getenv(
+    "SENSOR_DB_PATH",
+    os.path.join(os.path.dirname(__file__), "..", "sensor_data.db"),
+)
 
 
 def get_db_path() -> str:
