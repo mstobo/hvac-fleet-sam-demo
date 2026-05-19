@@ -16,6 +16,7 @@ Environment variables:
                    publishes on DC_BROKER_SITE pipeline topics (hub aggregation).
 """
 
+import logging
 import os
 import re
 import ssl
@@ -24,6 +25,37 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import paho.mqtt.client as mqtt
+
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+# Shared logger factory for pipeline services. Controlled by LOG_LEVEL env var
+# (default INFO). Operators can flip to DEBUG to see every per-message
+# disposition; production stays quiet at INFO.
+_LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+_logging_configured = False
+
+
+def _configure_logging_once() -> None:
+    """Set up basicConfig the first time a logger is requested. Skipped if some other
+    framework (SAM, pytest, custom dictConfig) has already attached a root handler —
+    so this never clobbers a more sophisticated logging setup."""
+    global _logging_configured
+    if _logging_configured:
+        return
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=_LOG_LEVEL,
+            format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%S",
+        )
+    _logging_configured = True
+
+
+def get_logger(name: str) -> logging.Logger:
+    """Return a logger whose name is rendered as %(name)s in the format string,
+    reproducing the historical [ServiceName] prefix without any per-message work."""
+    _configure_logging_once()
+    return logging.getLogger(name)
 
 
 def _resolve_broker_from_env():
@@ -250,7 +282,7 @@ def publish_checked(client, topic: str, payload, *, qos: int = 0, source: str = 
     """
     info = client.publish(topic, payload, qos=qos)
     if info.rc != mqtt.MQTT_ERR_SUCCESS:
-        print(f"[{source}] PUBLISH-DROPPED rc={info.rc} topic={topic}")
+        get_logger(source).warning("PUBLISH-DROPPED rc=%s topic=%s", info.rc, topic)
         return False
     return True
 

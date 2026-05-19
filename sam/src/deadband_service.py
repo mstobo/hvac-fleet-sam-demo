@@ -22,6 +22,8 @@ from datetime import datetime
 
 import pipeline_config as config
 
+log = config.get_logger("Deadband")
+
 # ── Deadband State ───────────────────────────────────────────────────────────
 _last_value = {}          # sensor_id -> last temperature value
 _last_forward_ts = {}     # sensor_id -> timestamp of last forwarded reading
@@ -124,11 +126,11 @@ def apply_deadband(sensor_id, temperature, timestamp):
 
 def on_connect(client, userdata, flags, reason_code, properties=None):
     if reason_code == 0:
-        print(f"[Deadband] Connected to {config.BROKER_HOST}")
+        log.info("connected to %s", config.BROKER_HOST)
         client.subscribe(config.TOPIC_SENSOR_RAW)
-        print(f"[Deadband] Subscribed to {config.TOPIC_SENSOR_RAW}")
+        log.info("subscribed to %s", config.TOPIC_SENSOR_RAW)
     else:
-        print(f"[Deadband] Connection failed (rc={reason_code})")
+        log.error("connection failed rc=%s", reason_code)
 
 
 def on_message(client, userdata, msg):
@@ -164,15 +166,14 @@ def on_message(client, userdata, msg):
         config.copy_raw_metadata_to_result(payload, result)
         
         if action == "suppress":
-            print(f"[Deadband] SUPPRESS {sensor_id} | {result['reason']}")
+            log.debug("SUPPRESS %s | %s", sensor_id, result["reason"])
             config.publish_checked(client, config.TOPIC_SUPPRESSED, json.dumps(result), source="Deadband")
         else:
-            zone = result["zone"]
-            print(f"[Deadband] FORWARD {sensor_id} | {temperature:.1f}°C | zone={zone}")
+            log.debug("FORWARD %s | %.1f°C | zone=%s", sensor_id, temperature, result["zone"])
             config.publish_checked(client, config.TOPIC_FILTERED, json.dumps(result), source="Deadband")
-        
-    except Exception as e:
-        print(f"[Deadband] Error: {e}")
+
+    except Exception:
+        log.exception("error processing message on %s", msg.topic)
 
 
 def main():
@@ -190,7 +191,7 @@ def main():
         client.connect(config.BROKER_HOST, config.BROKER_PORT, keepalive=60)
         client.loop_forever()
     except KeyboardInterrupt:
-        print("\n[Deadband] Stopped by user.")
+        log.info("stopped by user")
     finally:
         client.disconnect()
 

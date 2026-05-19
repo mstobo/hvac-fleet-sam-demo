@@ -20,6 +20,8 @@ from datetime import datetime
 import chart_db
 import pipeline_config as config
 
+log = config.get_logger("ChartWriter")
+
 
 def _coerce_ts(payload: dict) -> str:
     return payload.get("timestamp", payload.get("ts", datetime.utcnow().isoformat() + "Z"))
@@ -53,13 +55,12 @@ def _write(payload: dict, source: str):
 
 def on_connect(client, userdata, flags, reason_code, properties=None):
     if reason_code == 0:
-        print(f"[ChartWriter] Connected to {config.BROKER_HOST}")
+        log.info("connected to %s", config.BROKER_HOST)
         client.subscribe(config.TOPIC_SUPPRESSED)
         client.subscribe(config.TOPIC_FILTERED)
-        print(f"[ChartWriter] Subscribed to {config.TOPIC_SUPPRESSED}")
-        print(f"[ChartWriter] Subscribed to {config.TOPIC_FILTERED}")
+        log.info("subscribed to %s and %s", config.TOPIC_SUPPRESSED, config.TOPIC_FILTERED)
     else:
-        print(f"[ChartWriter] Connection failed (rc={reason_code})")
+        log.error("connection failed rc=%s", reason_code)
 
 
 def on_message(client, userdata, msg):
@@ -70,16 +71,17 @@ def on_message(client, userdata, msg):
         ok = _write(payload, source=source)
         if ok:
             userdata["processed"] += 1
-            # Throttle logs for throughput.
+            log.debug("wrote %s sample from %s", source, topic)
+            # Heartbeat at INFO so logs aren't silent at the default level.
             if userdata["processed"] % 100 == 0:
-                print(f"[ChartWriter] processed={userdata['processed']}")
-    except Exception as e:
-        print(f"[ChartWriter] Error: {e}")
+                log.info("processed=%d", userdata["processed"])
+    except Exception:
+        log.exception("error processing message on %s", msg.topic)
 
 
 def main():
     chart_db.init_database()
-    print(f"[ChartWriter] DB initialized at {chart_db.get_db_path()}")
+    log.info("DB initialized at %s", chart_db.get_db_path())
 
     config.print_service_banner(
         "Chart Writer",
@@ -96,7 +98,7 @@ def main():
         client.connect(config.BROKER_HOST, config.BROKER_PORT, keepalive=60)
         client.loop_forever()
     except KeyboardInterrupt:
-        print("\n[ChartWriter] Stopped by user.")
+        log.info("stopped by user")
     finally:
         client.disconnect()
 
