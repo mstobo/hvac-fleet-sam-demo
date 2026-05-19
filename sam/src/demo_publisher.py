@@ -347,6 +347,7 @@ def on_disconnect(client, userdata, flags, reason_code, properties=None):
 
 def create_client() -> mqtt.Client:
     """Create and configure the MQTT client."""
+    _broker.validate_broker_config()
     userdata = {"connected": False}
 
     client = mqtt.Client(

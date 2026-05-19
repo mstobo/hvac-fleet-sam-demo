@@ -25,8 +25,7 @@ The new architecture uses **deterministic microservices** for data processing:
 | `sketch_agent_sam.py` | `sketch_service.py` |
 | `anomaly_agent_sam.py` | `anomaly_service.py` |
 | `fleet_agent_sam.py` | (merged into `anomaly_service.py`) |
-
-Or use `mock_pipeline.py` for a combined single-process version.
+| `mock_pipeline.py` | (combined single-process variant — not launched by any script; superseded by the microservices above) |
 
 ## Key Difference
 

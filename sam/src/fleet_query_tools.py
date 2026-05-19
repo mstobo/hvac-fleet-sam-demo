@@ -7,7 +7,8 @@ SAM Agent tools for querying the sensor pipeline SQLite database.
 These tools are used by SAM agents (with LLM) to answer user questions
 about sensor status, alerts, and fleet health.
 
-The actual data processing happens in the deterministic pipeline (mock_pipeline.py).
+The actual data processing happens in the deterministic pipeline
+(deadband_service.py → sketch_service.py → anomaly_service.py).
 These tools only READ from the database - they don't process raw sensor data.
 """
 
