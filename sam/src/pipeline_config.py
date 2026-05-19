@@ -210,6 +210,19 @@ def now_utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def publish_checked(client, topic: str, payload, *, qos: int = 0, source: str = "pipeline") -> bool:
+    """
+    Wrapper around client.publish that surfaces *local* publish failures (Paho can't queue —
+    e.g. disconnected, queue full, message too large). At QoS 0 there's no broker ack to wait for,
+    so this is the best we can do without changing semantics. Returns True when queued, else False.
+    """
+    info = client.publish(topic, payload, qos=qos)
+    if info.rc != mqtt.MQTT_ERR_SUCCESS:
+        print(f"[{source}] PUBLISH-DROPPED rc={info.rc} topic={topic}")
+        return False
+    return True
+
+
 def create_mqtt_client(service_name: str, userdata: dict = None):
     """Create and configure an MQTT client for a pipeline service."""
     if userdata is None:
