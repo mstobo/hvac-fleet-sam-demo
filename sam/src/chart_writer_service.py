@@ -15,7 +15,6 @@ Writes:
 
 import json
 import time
-from datetime import datetime
 
 import chart_db
 import pipeline_config as config
@@ -24,7 +23,7 @@ log = config.get_logger("ChartWriter")
 
 
 def _coerce_ts(payload: dict) -> str:
-    return payload.get("timestamp", payload.get("ts", datetime.utcnow().isoformat() + "Z"))
+    return payload.get("timestamp", payload.get("ts", config.now_utc_iso()))
 
 
 def _extract_sensor_id(payload: dict) -> str:

@@ -21,7 +21,7 @@ Usage:
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 import threading
 
@@ -155,7 +155,7 @@ class SlackNotifier:
             return False
         
         if timestamp is None:
-            timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         
         # Build Slack message with blocks for rich formatting
         blocks = [
@@ -243,7 +243,7 @@ class SlackNotifier:
             return False
         is_correlated_fleet = fs == "FLEET_CRITICAL"
 
-        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
         blocks = [
             {

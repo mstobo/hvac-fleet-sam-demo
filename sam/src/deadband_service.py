@@ -18,7 +18,6 @@ This is the first stage of the deterministic data plane - no LLM involved.
 import collections
 import json
 import time
-from datetime import datetime
 
 import pipeline_config as config
 
@@ -144,7 +143,7 @@ def on_message(client, userdata, msg):
             if temp_from_topic is not None
             else payload.get("temperature", payload.get("value"))
         )
-        timestamp = payload.get("timestamp", payload.get("ts", datetime.utcnow().isoformat() + "Z"))
+        timestamp = payload.get("timestamp", payload.get("ts", config.now_utc_iso()))
         
         if not sensor_id or temperature is None:
             return

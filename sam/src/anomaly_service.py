@@ -18,7 +18,6 @@ All detection logic is deterministic threshold-based rules.
 import json
 import os
 import time
-from datetime import datetime
 
 import pipeline_config as config
 import sensor_db
@@ -128,7 +127,7 @@ def generate_alert(data):
         return None
     
     alert_type = get_alert_type(zone, delta_pct, forwarded_reason)
-    timestamp = datetime.utcnow().isoformat() + "Z"
+    timestamp = config.now_utc_iso()
     
     # Generate description based on alert type
     if alert_type == "SPIKE":
@@ -240,7 +239,7 @@ def update_fleet_status():
         notes = "All sensors operating normally"
         correlation = False
     
-    timestamp = datetime.utcnow().isoformat() + "Z"
+    timestamp = config.now_utc_iso()
     
     sensor_db.insert_fleet_status(
         active_sensors=active_sensors,
@@ -318,7 +317,7 @@ def on_message(client, userdata, msg):
         sensor_db.insert_reading(
             sensor_id=sensor_id,
             temperature=temperature,
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
+            timestamp=data.get("timestamp", config.now_utc_iso()),
             delta_percent=data.get("delta_pct", 0)
         )
         

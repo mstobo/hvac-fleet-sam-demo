@@ -14,9 +14,19 @@ Tables:
 
 import sqlite3
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
+
+
+def _cutoff_iso(seconds_ago: float = 0.0, *, minutes: float = 0.0, days: float = 0.0) -> str:
+    """
+    Return an ISO timestamp `now - delta` in *naive* form (no tz suffix). Matches the
+    format we get from upstream services that write `<iso>Z` strings — naive-vs-Z compares
+    correctly for "newer than cutoff" queries since Z > '' alphabetically.
+    """
+    delta = timedelta(seconds=seconds_ago, minutes=minutes, days=days)
+    return (datetime.now(timezone.utc) - delta).replace(tzinfo=None).isoformat()
 
 # Database file location. Override via SENSOR_DB_PATH env var (parity with chart_db).
 DB_PATH = os.getenv(
@@ -214,7 +224,7 @@ def insert_fleet_status(active_sensors: int, sensors_in_warning: int, sensors_in
 def get_recent_alerts(minutes: int = 60, severity: str = None, limit: int = 50) -> List[Dict]:
     """Get recent alerts, optionally filtered by severity."""
     with get_connection() as conn:
-        cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).isoformat()
+        cutoff = _cutoff_iso(minutes=minutes)
         
         if severity:
             rows = conn.execute(
@@ -237,7 +247,7 @@ def get_recent_alerts(minutes: int = 60, severity: str = None, limit: int = 50) 
 def get_recent_sketches(minutes: int = 60, sensor_id: str = None, zone: str = None, limit: int = 100) -> List[Dict]:
     """Get recent sketches, optionally filtered."""
     with get_connection() as conn:
-        cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).isoformat()
+        cutoff = _cutoff_iso(minutes=minutes)
         
         query = "SELECT * FROM sketches WHERE timestamp > ?"
         params = [cutoff]
@@ -266,7 +276,7 @@ def get_sketches_since_days(
     ``sensor_ids`` None or empty = all sensors. Ordered oldest-first for timeline audits.
     """
     with get_connection() as conn:
-        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        cutoff = _cutoff_iso(days=days)
         if sensor_ids is not None and len(sensor_ids) > 0:
             placeholders = ",".join("?" * len(sensor_ids))
             query = (
@@ -284,7 +294,7 @@ def get_sketches_since_days(
 def get_sensor_history(sensor_id: str, minutes: int = 30, limit: int = 50) -> List[Dict]:
     """Get recent readings for a specific sensor."""
     with get_connection() as conn:
-        cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).isoformat()
+        cutoff = _cutoff_iso(minutes=minutes)
         
         rows = conn.execute(
             """SELECT * FROM sensor_readings 
@@ -299,7 +309,7 @@ def get_sensor_history(sensor_id: str, minutes: int = 30, limit: int = 50) -> Li
 def get_fleet_status_history(minutes: int = 60, limit: int = 20) -> List[Dict]:
     """Get recent fleet status snapshots."""
     with get_connection() as conn:
-        cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).isoformat()
+        cutoff = _cutoff_iso(minutes=minutes)
         
         rows = conn.execute(
             """SELECT * FROM fleet_status 
@@ -314,7 +324,7 @@ def get_fleet_status_history(minutes: int = 60, limit: int = 20) -> List[Dict]:
 def get_alert_summary(minutes: int = 60) -> Dict:
     """Get a summary of alerts in the time window."""
     with get_connection() as conn:
-        cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).isoformat()
+        cutoff = _cutoff_iso(minutes=minutes)
         
         # Count by severity
         severity_counts = {}
