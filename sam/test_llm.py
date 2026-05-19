@@ -8,9 +8,12 @@ import os
 import json
 import requests
 
-# Load from .env or use defaults
+# Load from environment. LLM_SERVICE_API_KEY is required (no fallback — never bake secrets into source).
 API_BASE = os.getenv("LLM_SERVICE_ENDPOINT", "https://lite-llm.mymaas.net")
-API_KEY = os.getenv("LLM_SERVICE_API_KEY", "sk-ILr2HRGauft443Wjwbo1sQ")
+try:
+    API_KEY = os.environ["LLM_SERVICE_API_KEY"]
+except KeyError:
+    raise SystemExit("LLM_SERVICE_API_KEY is not set. Source sam/.env or export it before running.")
 MODEL = os.getenv("LLM_SERVICE_GENERAL_MODEL_NAME", "openai/claude-opus-4-5-20251101")
 
 print("=" * 60)

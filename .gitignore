@@ -80,7 +80,9 @@ sam/.env
 sam/demo_dashboard.config.json
 deploy/aws/.env
 deploy/aws/morning.env
-.cursor/solace-mcp.env
+# Cursor IDE local config (may contain MCP tokens). Allow .example files only.
+.cursor/
+!.cursor/*.example
 *.db
 **/__pycache__/
 
