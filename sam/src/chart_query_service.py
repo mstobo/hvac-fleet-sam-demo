@@ -19,6 +19,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 import chart_db
+import pipeline_config as _config
+
+log = _config.get_logger("ChartQuery")
 
 
 HOST = os.getenv("CHART_QUERY_HOST", "127.0.0.1")
@@ -359,8 +362,9 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
             self._send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def log_message(self, fmt: str, *args):
-        # Keep service logs concise and aligned with other microservices.
-        print(f"[ChartQuery] {self.address_string()} - {fmt % args}")
+        # Route BaseHTTPRequestHandler's access logs through our logger.
+        # Per-request lines at DEBUG so default INFO stays quiet under normal traffic.
+        log.debug("%s - %s", self.address_string(), fmt % args)
 
     def _handle_health(self):
         with chart_db.get_connection() as conn:
@@ -615,18 +619,18 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
 
 def main():
     chart_db.init_database()
-    print(f"[ChartQuery] DB initialized at {chart_db.get_db_path()}")
+    log.info("DB initialized at %s", chart_db.get_db_path())
     server = ThreadingHTTPServer((HOST, PORT), ChartQueryHandler)
-    print(f"[ChartQuery] Listening on http://{HOST}:{PORT}")
-    print("[ChartQuery] Endpoints: /health, /sensors, /series, /plotly-spec, /plotly-html")
+    log.info("listening on http://%s:%s", HOST, PORT)
+    log.info("endpoints: /health, /sensors, /series, /plotly-spec, /plotly-html")
     auth_state = "ENABLED (X-API-Key or ?key=)" if API_KEY else "disabled (set CHART_QUERY_API_KEY to enable)"
     cors_state = "* (open)" if ALLOWED_ORIGINS is None else ", ".join(ALLOWED_ORIGINS)
-    print(f"[ChartQuery] Auth: {auth_state}")
-    print(f"[ChartQuery] CORS allow-origin: {cors_state}")
+    log.info("Auth: %s", auth_state)
+    log.info("CORS allow-origin: %s", cors_state)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n[ChartQuery] Stopped by user.")
+        log.info("stopped by user")
     finally:
         server.server_close()
 
