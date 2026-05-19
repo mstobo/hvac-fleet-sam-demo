@@ -32,8 +32,13 @@ x-common: &common
   # WAL frames are visible to every writer. SENSOR_DB_PATH / CHART_DB_PATH below point
   # the code at the new in-container path; sensor_db.py and chart_db.py already read
   # those env vars (see commit f644504 / chart_db.py:14).
+  #
+  # Mount target is /app/dbdata (outside /app/sam/) so the runtime DB dir can't
+  # mask static content baked into the image. An earlier version mounted at
+  # /app/sam/data and silently hid sam/data/dispatch_technicians.json (the mock
+  # CMMS fixture) which lives there in the image.
   volumes:
-    - ${DATA_DIR:-./data}:/app/sam/data
+    - ${DATA_DIR:-./data}:/app/dbdata
   environment:
     PYTHONPATH: /app/sam/src
     CHART_QUERY_BASE_URL: http://chart-query:8010
@@ -44,8 +49,8 @@ x-common: &common
     FASTAPI_HOST: 0.0.0.0
     CHART_QUERY_HOST: 0.0.0.0
     PLATFORM_API_HOST: 0.0.0.0
-    SENSOR_DB_PATH: /app/sam/data/sensor_data.db
-    CHART_DB_PATH: /app/sam/data/chart_data.db
+    SENSOR_DB_PATH: /app/dbdata/sensor_data.db
+    CHART_DB_PATH: /app/dbdata/chart_data.db
 
 services:
   deadband:
