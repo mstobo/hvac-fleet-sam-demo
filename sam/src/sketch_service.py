@@ -17,7 +17,6 @@ The sketch generation is pure Python string formatting, not AI.
 
 import json
 import time
-from datetime import datetime
 
 import pipeline_config as config
 import sensor_db
@@ -75,7 +74,7 @@ def generate_sketch(data):
     win_max = window.get("max", temperature)
     delta_pct_pct = delta_pct * 100
     
-    timestamp = datetime.utcnow().isoformat() + "Z"
+    timestamp = config.now_utc_iso()
     
     # Generate natural language summary
     if forwarded_reason == "heartbeat":

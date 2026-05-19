@@ -229,7 +229,8 @@ def build_fleet_sketch_audit_report(
             db_error = str(exc)
 
     agg = _aggregate_rows(rows)
-    trigger_ts = analysis_event.get("timestamp") or datetime.utcnow().isoformat() + "Z"
+    _now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    trigger_ts = analysis_event.get("timestamp") or _now_iso
     avoid = _avoidability_assessment(rows, agg, trigger_ts, days)
 
     report = {
@@ -238,7 +239,7 @@ def build_fleet_sketch_audit_report(
         "correlation_id": correlation_id,
         "parent_event_type": analysis_event.get("event_type"),
         "audit_window_days": days,
-        "generated_at_utc": datetime.utcnow().isoformat() + "Z",
+        "generated_at_utc": _now_iso,
         "fleet_context": {
             "fleet_status": analysis_event.get("fleet_status"),
             "critical_count": analysis_event.get("critical_count"),
