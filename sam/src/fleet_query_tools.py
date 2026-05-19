@@ -17,7 +17,7 @@ import re
 from datetime import datetime
 from typing import Optional, Tuple
 from urllib.parse import urlencode, urlparse
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 # Import the database module
 import sensor_db
@@ -75,6 +75,19 @@ def chart_public_base_for_links() -> str:
     """Browser/Slack-safe chart-query base URL (no trailing slash)."""
     _, public = _chart_query_internal_public_bases()
     return public
+
+
+def _chart_query_api_key() -> str:
+    """Optional auth token for chart-query. Empty string means auth is disabled."""
+    return os.getenv("CHART_QUERY_API_KEY", "").strip()
+
+
+def _open_chart_query(url: str, timeout: int = 8):
+    """urlopen wrapper that sends X-API-Key when CHART_QUERY_API_KEY is set."""
+    key = _chart_query_api_key()
+    if key:
+        return urlopen(Request(url, headers={"X-API-Key": key}), timeout=timeout)
+    return urlopen(url, timeout=timeout)
 
 
 _CHART_URL_INTERNAL_HOST_RE = re.compile(
@@ -509,7 +522,7 @@ def get_chart_series(
         }
         url = f"{internal}/series?{urlencode(params)}"
 
-        with urlopen(url, timeout=8) as resp:
+        with _open_chart_query(url, timeout=8) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
         if not isinstance(data, dict) or "meta" not in data:
@@ -570,7 +583,7 @@ def get_plotly_spec(
         }
         url = f"{internal}/plotly-spec?{urlencode(params)}"
 
-        with urlopen(url, timeout=8) as resp:
+        with _open_chart_query(url, timeout=8) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
         if not isinstance(data, dict) or "plotly_spec" not in data:
@@ -598,6 +611,11 @@ def get_plotly_spec(
                 "window_start": pinned_start,
                 "window_end": pinned_end,
             }
+            # Slack-clickable URLs hit /plotly-html as plain GETs in a browser — no headers, so the
+            # API key (when configured) has to travel as a query param.
+            api_key = _chart_query_api_key()
+            if api_key:
+                pinned_params["key"] = api_key
             pinned_url = f"{public}/plotly-html?{urlencode(pinned_params)}"
 
         out = {

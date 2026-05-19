@@ -819,6 +819,7 @@
   const twinState = {};
   const TWIN_STALE_MS = 45000;
   const LS_CHART_QUERY = 'chartQueryBaseUrl';
+  const LS_CHART_KEY = 'chartQueryApiKey';
   const LS_SAM_WEBUI = 'samWebuiBaseUrl';
   const LS_WS_HOST = 'mqttWsHost';
   const LS_WS_PORT = 'mqttWsPort';
@@ -938,6 +939,16 @@
     }
   }
 
+  // Chart-query API key. Resolved at init from ?chartKey=, demo config, then localStorage.
+  // Intentionally has no UI field — keys should not be visible in the config panel.
+  function getChartQueryKey() {
+    try {
+      return (localStorage.getItem(LS_CHART_KEY) || '').trim();
+    } catch (e) {
+      return '';
+    }
+  }
+
   function getSamWebuiBaseUrl() {
     const el = document.getElementById('cfg-sam-webui');
     const fromInput = el && el.value.trim();
@@ -986,6 +997,19 @@
     if (samEl) samEl.value = samBase;
     const frame = document.getElementById('sam-chat-frame');
     if (frame && frame.src === 'about:blank') frame.src = samBase + '/';
+
+    // Chart-query API key: ?chartKey= takes precedence, then demo config, then keep what's in localStorage.
+    // Persist to localStorage so the key survives reloads without re-passing the URL param.
+    try {
+      const keyFromUrl = urlParams && urlParams.get('chartKey');
+      const keyFromCfg = cfg.chartQueryApiKey;
+      const newKey = (keyFromUrl != null && keyFromUrl !== '') ? keyFromUrl
+                   : (keyFromCfg != null && keyFromCfg !== '') ? keyFromCfg
+                   : null;
+      if (newKey != null) {
+        localStorage.setItem(LS_CHART_KEY, String(newKey).trim());
+      }
+    } catch (e) { /* ignore */ }
   }
 
   const TREND_GROUPS = [
@@ -1985,7 +2009,9 @@
           u.searchParams.set("sensor_id", sensorId);
           u.searchParams.set("minutes", "30");
           u.searchParams.set("max_points", "60");
-          const r = await fetch(u.toString());
+          const chartKey = getChartQueryKey();
+          const fetchOpts = chartKey ? { headers: { 'X-API-Key': chartKey } } : undefined;
+          const r = await fetch(u.toString(), fetchOpts);
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const j = await r.json();
           const vals = Array.isArray(j.values) ? j.values.map(Number).filter((v)=>!Number.isNaN(v)) : [];
