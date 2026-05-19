@@ -150,14 +150,16 @@ def on_message(client, userdata, msg):
         # Generate sketch
         result = generate_sketch(data)
         payload = json.dumps(result)
-        client.publish(config.TOPIC_SKETCHED, payload)
-        client.publish(
+        config.publish_checked(client, config.TOPIC_SKETCHED, payload, source="Sketch")
+        config.publish_checked(
+            client,
             config.build_sketch_topic(
                 result["site"],
                 result["room"],
                 result["incidentId"],
             ),
             payload,
+            source="Sketch",
         )
 
         # Throttle per-message logs to reduce stdout overhead at high throughput.

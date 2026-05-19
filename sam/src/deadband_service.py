@@ -165,11 +165,11 @@ def on_message(client, userdata, msg):
         
         if action == "suppress":
             print(f"[Deadband] SUPPRESS {sensor_id} | {result['reason']}")
-            client.publish(config.TOPIC_SUPPRESSED, json.dumps(result))
+            config.publish_checked(client, config.TOPIC_SUPPRESSED, json.dumps(result), source="Deadband")
         else:
             zone = result["zone"]
             print(f"[Deadband] FORWARD {sensor_id} | {temperature:.1f}°C | zone={zone}")
-            client.publish(config.TOPIC_FILTERED, json.dumps(result))
+            config.publish_checked(client, config.TOPIC_FILTERED, json.dumps(result), source="Deadband")
         
     except Exception as e:
         print(f"[Deadband] Error: {e}")

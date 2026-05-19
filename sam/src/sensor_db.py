@@ -32,6 +32,9 @@ def get_connection():
     """Context manager for database connections."""
     conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
+    # journal_mode=WAL is persisted in the file header by init_database(); synchronous is per-connection
+    # so it must be set on every open. NORMAL is the SQLite-recommended pair for WAL.
+    conn.execute("PRAGMA synchronous=NORMAL")
     try:
         yield conn
         conn.commit()
@@ -42,8 +45,13 @@ def get_connection():
 def init_database():
     """Initialize the database schema."""
     with get_connection() as conn:
+        # WAL mode is persisted in the file header (one-time switch). synchronous=NORMAL is per-connection
+        # and is applied in get_connection() above; setting it here is a no-op on this connection but
+        # keeps the intent visible at init time.
+        conn.execute("PRAGMA journal_mode=WAL")
+
         cursor = conn.cursor()
-        
+
         # Readings that passed deadband filter
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sensor_readings (

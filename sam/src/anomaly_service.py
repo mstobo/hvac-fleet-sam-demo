@@ -326,13 +326,14 @@ def on_message(client, userdata, msg):
             alert = generate_alert(data)
             if alert:
                 print(f"[Anomaly] ALERT {alert['severity']} | {sensor_id} | {alert['alert_type']}")
-                client.publish(config.TOPIC_ALERTS, json.dumps(alert))
+                alert_payload = json.dumps(alert)
+                config.publish_checked(client, config.TOPIC_ALERTS, alert_payload, source="Anomaly")
                 event_topic = config.build_event_topic(
                     alert.get("site", config.DEFAULT_SITE),
                     alert["severity"],
                     alert["eventType"],
                 )
-                client.publish(event_topic, json.dumps(alert))
+                config.publish_checked(client, event_topic, alert_payload, source="Anomaly")
         
         # Update fleet status periodically
         update_fleet_status()
