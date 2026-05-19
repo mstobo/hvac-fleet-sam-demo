@@ -52,7 +52,7 @@ fi
 
 export WS_HOST WS_PORT CHART_BASE SAM_BASE
 mkdir -p "$(dirname "${OUT}")"
-python3 - "${OUT}" << PY
+python3 - "${OUT}" << 'PY'
 import json, os, sys
 out = sys.argv[1]
 site = os.environ.get("DC_BROKER_SITE", "Hub") or "Hub"
@@ -66,10 +66,16 @@ cfg = {
     "samWebuiBaseUrl": os.environ.get("SAM_BASE") or "",
     "autoConnect": True,
 }
+# Optional chart-query API key. When CHART_QUERY_API_KEY is set on the server, the
+# dashboard must send it on every /series request — the JS in demo_dashboard.html
+# reads `chartQueryApiKey` from this config and attaches it as the X-API-Key header.
+chart_key = (os.environ.get("CHART_QUERY_API_KEY") or "").strip()
+if chart_key:
+    cfg["chartQueryApiKey"] = chart_key
 with open(out, "w", encoding="utf-8") as f:
     json.dump(cfg, f, indent=2)
     f.write("\n")
-print(f"Wrote {out} (wsHost={cfg['wsHost']!r}, autoConnect=true)")
+print(f"Wrote {out} (wsHost={cfg['wsHost']!r}, autoConnect=true, chartKey={'set' if chart_key else 'unset'})")
 PY
 
 if [[ -n "${DEPLOY_TARGET}" && "${OUT}" != "${DEPLOY_TARGET}" ]]; then
