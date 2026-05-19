@@ -25,6 +25,10 @@ from datetime import datetime, timezone
 from typing import Optional
 import threading
 
+import pipeline_config as _config
+
+log = _config.get_logger("SlackNotifier")
+
 # Try to import slack_sdk, gracefully handle if not installed
 try:
     from slack_sdk import WebClient
@@ -65,23 +69,21 @@ class SlackNotifier:
     def _initialize(self):
         """Initialize Slack client if credentials are available."""
         if not SLACK_AVAILABLE:
-            print("[SlackNotifier] slack_sdk not installed. Run: pip install slack_sdk")
+            log.info("slack_sdk not installed (pip install slack_sdk to enable)")
             return
-        
+
         if not self.bot_token or self.bot_token == "your-slack-bot-token":
-            print("[SlackNotifier] SLACK_BOT_TOKEN not configured. Notifications disabled.")
+            log.info("SLACK_BOT_TOKEN not configured; notifications disabled")
             return
-        
+
         try:
             self.client = WebClient(token=self.bot_token)
-            # Test the connection
             auth_response = self.client.auth_test()
             bot_name = auth_response.get("user", "unknown")
-            print(f"[SlackNotifier] Connected as @{bot_name}")
-            print(f"[SlackNotifier] Alerts will be sent to {self.channel}")
+            log.info("connected as @%s; channel=%s", bot_name, self.channel)
             self.enabled = True
         except Exception as e:
-            print(f"[SlackNotifier] Failed to connect: {e}")
+            log.error("failed to connect: %s", e)
             self.enabled = False
     
     def _is_rate_limited(self, sensor_id: str) -> bool:
@@ -139,19 +141,19 @@ class SlackNotifier:
         
         # Rate limiting
         if self._is_rate_limited(sensor_id):
-            print(f"[SlackNotifier] Rate limited: {sensor_id}")
+            log.debug("rate limited: %s", sensor_id)
             return False
-        
+
         # Deduplication
         alert_key = f"{sensor_id}:{temperature:.1f}:{alert_type}"
         if self._is_duplicate(alert_key):
-            print(f"[SlackNotifier] Duplicate skipped: {sensor_id}")
+            log.debug("duplicate skipped: %s", sensor_id)
             return False
-        
+
         # Sensor-level dedupe to reduce repeated CRITICAL spam,
         # even if alert_type changes (e.g., THRESHOLD_BREACH -> SPIKE).
         if self._is_sensor_deduped(sensor_id, severity):
-            print(f"[SlackNotifier] Sensor dedupe skipped: {sensor_id} ({severity})")
+            log.debug("sensor dedupe skipped: %s (%s)", sensor_id, severity)
             return False
         
         if timestamp is None:
@@ -215,14 +217,14 @@ class SlackNotifier:
                 text=f"{severity}: {sensor_id} at {temperature:.1f}°C - {description}",
                 blocks=blocks
             )
-            print(f"[SlackNotifier] Alert sent: {sensor_id} ({severity})")
+            log.info("alert sent: %s (%s)", sensor_id, severity)
             return True
-            
+
         except SlackApiError as e:
-            print(f"[SlackNotifier] Failed to send: {e.response['error']}")
+            log.error("failed to send: %s", e.response.get("error", e))
             return False
-        except Exception as e:
-            print(f"[SlackNotifier] Error: {e}")
+        except Exception:
+            log.exception("error sending alert for %s", sensor_id)
             return False
     
     def send_fleet_alert(
@@ -328,10 +330,10 @@ class SlackNotifier:
                 text=f"FLEET {fs}: {critical_count} critical, {warning_count} warning",
                 blocks=blocks
             )
-            print(f"[SlackNotifier] Fleet alert sent: {fleet_status}")
+            log.info("fleet alert sent: %s", fleet_status)
             return True
-        except Exception as e:
-            print(f"[SlackNotifier] Fleet alert failed: {e}")
+        except Exception:
+            log.exception("fleet alert failed")
             return False
 
 
@@ -366,9 +368,9 @@ def send_message(text: str, channel: str = None) -> bool:
     """
     notifier = get_notifier()
     if not notifier.enabled or not notifier.client:
-        print("[SlackNotifier] Cannot send message - not enabled")
+        log.warning("cannot send message — notifier not enabled")
         return False
-    
+
     try:
         target_channel = channel or notifier.channel
         notifier.client.chat_postMessage(
@@ -376,8 +378,8 @@ def send_message(text: str, channel: str = None) -> bool:
             text=text,
             mrkdwn=True
         )
-        print(f"[SlackNotifier] Message sent to {target_channel}")
+        log.info("message sent to %s", target_channel)
         return True
-    except Exception as e:
-        print(f"[SlackNotifier] Failed to send message: {e}")
+    except Exception:
+        log.exception("failed to send message")
         return False

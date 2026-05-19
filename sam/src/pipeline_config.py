@@ -308,14 +308,14 @@ def create_mqtt_client(service_name: str, userdata: dict = None):
 
 
 def print_service_banner(service_name: str, subscribe_topic: str, publish_topic: str = None):
-    """Print startup banner for a pipeline service."""
-    print(f"\n{'='*65}")
-    print(f"  {service_name.upper()} SERVICE")
-    print(f"{'='*65}")
-    print(f"  Broker    : {BROKER_HOST}:{BROKER_PORT}")
-    print(f"  DC site   : {DC_BROKER_SITE}" + (" (multisite raw)" if DC_PIPELINE_MULTISITE_RAW else ""))
-    print(f"  Subscribe : {subscribe_topic}")
-    if publish_topic:
-        print(f"  Publish   : {publish_topic}")
-    print(f"  TLS       : {'Enabled' if USE_TLS else 'Disabled'}")
-    print(f"{'='*65}\n")
+    """Log startup banner for a pipeline service. Name kept for backward compatibility."""
+    banner_log = get_logger(service_name.upper())
+    banner_log.info(
+        "starting | broker=%s:%s | site=%s%s | subscribe=%s%s | TLS=%s",
+        BROKER_HOST, BROKER_PORT,
+        DC_BROKER_SITE,
+        " (multisite raw)" if DC_PIPELINE_MULTISITE_RAW else "",
+        subscribe_topic,
+        f" | publish={publish_topic}" if publish_topic else "",
+        "enabled" if USE_TLS else "disabled",
+    )

@@ -18,6 +18,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
+import pipeline_config as _config
+
+log = _config.get_logger("sensor_db")
+
 
 def _cutoff_iso(seconds_ago: float = 0.0, *, minutes: float = 0.0, days: float = 0.0) -> str:
     """
@@ -135,7 +139,7 @@ def init_database():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)")
         
         conn.commit()
-        print(f"[sensor_db] Database initialized at {get_db_path()}")
+        log.info("database initialized at %s", get_db_path())
 
 
 # ─────────────────────────────────────────────────────────────────────────────

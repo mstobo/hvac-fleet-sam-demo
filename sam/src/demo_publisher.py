@@ -50,6 +50,9 @@ import paho.mqtt.client as mqtt
 
 import pipeline_config as _broker
 
+log = _broker.get_logger("Publisher")
+_scenario_log = _broker.get_logger("Scenario")
+
 # ── Broker config (same resolution as deadband / chart writer / sketch) ───────
 BROKER_HOST = _broker.BROKER_HOST
 BROKER_PORT = _broker.BROKER_PORT
@@ -149,17 +152,17 @@ class AnomalyScenario:
     def start(self):
         """Start the scenario."""
         self.active_cycles_remaining = self.duration_cycles
-        print(f"\n[Scenario] STARTING: {self.name}")
-        print(f"           {self.description}")
-        print(f"           Affecting: {', '.join(self.affected_sensors)}")
-        print(f"           Duration: {self.duration_cycles} cycles\n")
-    
+        _scenario_log.info(
+            "STARTING %s | %s | affecting=%s | duration=%d cycles",
+            self.name, self.description, ", ".join(self.affected_sensors), self.duration_cycles,
+        )
+
     def tick(self) -> bool:
         """Tick the scenario, return True if still active."""
         if self.active_cycles_remaining > 0:
             self.active_cycles_remaining -= 1
             if self.active_cycles_remaining == 0:
-                print(f"\n[Scenario] ENDED: {self.name}\n")
+                _scenario_log.info("ENDED %s", self.name)
             return True
         return False
     
@@ -326,10 +329,10 @@ def build_payload(sensor: SensorConfig, seq: int, spike: float = 0.0) -> dict:
 def on_connect(client, userdata, flags, reason_code, properties=None):
     """Handle connection result."""
     if reason_code == 0:
-        print(f"[Publisher] Connected to {BROKER_HOST}")
+        log.info("connected to %s", BROKER_HOST)
         userdata["connected"] = True
     else:
-        print(f"[Publisher] Connection failed (rc={reason_code})")
+        log.error("connection failed rc=%s", reason_code)
         userdata["connected"] = False
 
 
@@ -337,12 +340,12 @@ def on_disconnect(client, userdata, flags, reason_code, properties=None):
     """Handle disconnection with reconnect logic."""
     userdata["connected"] = False
     if reason_code != 0:
-        print(f"[Publisher] Unexpected disconnect (rc={reason_code}). Reconnecting in {RECONNECT_DELAY}s...")
+        log.warning("unexpected disconnect rc=%s; reconnecting in %ss", reason_code, RECONNECT_DELAY)
         time.sleep(RECONNECT_DELAY)
         try:
             client.reconnect()
-        except Exception as e:
-            print(f"[Publisher] Reconnect failed: {e}")
+        except Exception:
+            log.exception("reconnect failed")
 
 
 def create_client() -> mqtt.Client:
@@ -361,7 +364,7 @@ def create_client() -> mqtt.Client:
     client.on_disconnect = on_disconnect
 
     if USE_TLS:
-        print(f"[Publisher] TLS enabled")
+        log.info("TLS enabled")
         client.tls_set(
             ca_certs=None,
             certfile=None,
@@ -375,19 +378,15 @@ def create_client() -> mqtt.Client:
 
 
 def print_machine_summary():
-    """Print summary of cooling assets and sensors."""
-    print(f"\n{'='*70}")
-    print("  DATA CENTER HVAC SIMULATOR  |  3 Assets x 3 Sensors = 9 Total")
-    print(f"{'='*70}")
+    """Log summary of cooling assets, sensors, and scenarios. Name kept for backward compat."""
+    log.info("HVAC simulator — 3 assets x 3 sensors = 9 total")
     for machine in MACHINES:
-        print(f"\n  - {machine.machine_id} ({machine.name}) - Profile: {machine.profile.upper()}")
+        log.info("  %s (%s) profile=%s", machine.machine_id, machine.name, machine.profile.upper())
         for sensor in machine.sensors:
-            print(f"      └─ {sensor.sensor_id}: {sensor.sensor_type} @ {sensor.baseline_temp}°C baseline")
-    print(f"\n{'='*70}")
-    print("  ANOMALY SCENARIOS (probabilistic):")
+            log.info("    %s | %s @ %.1f°C baseline", sensor.sensor_id, sensor.sensor_type, sensor.baseline_temp)
+    log.info("Anomaly scenarios (probabilistic):")
     for scenario in SCENARIOS:
-        print(f"    • {scenario.name} ({scenario.probability*100:.1f}% per cycle)")
-    print(f"{'='*70}\n")
+        log.info("  %s (%.1f%% per cycle)", scenario.name, scenario.probability * 100)
 
 
 def main():
@@ -395,18 +394,18 @@ def main():
     userdata = client._userdata
 
     print_machine_summary()
-    
-    print(f"  Broker   : {BROKER_HOST}:{BROKER_PORT} {'(TLS)' if USE_TLS else ''}")
-    print(f"  Topic    : {TOPIC_BASE}/<sensorId>")
-    print(f"  Interval : {PUBLISH_INTERVAL}s per batch")
-    print(f"{'='*70}\n")
+
+    log.info(
+        "broker=%s:%s %s | topic=%s/<sensorId> | interval=%ss/batch",
+        BROKER_HOST, BROKER_PORT, "(TLS)" if USE_TLS else "", TOPIC_BASE, PUBLISH_INTERVAL,
+    )
 
     # Connect to broker
     try:
         client.connect(BROKER_HOST, BROKER_PORT, keepalive=60)
         client.loop_start()
-    except Exception as e:
-        print(f"[Publisher] Failed to connect: {e}")
+    except Exception:
+        log.exception("failed to connect")
         return
 
     # Wait for connection
@@ -416,7 +415,7 @@ def main():
         time.sleep(0.5)
 
     if not userdata.get("connected"):
-        print("[Publisher] Connection timeout. Check credentials and network.")
+        log.error("connection timeout — check credentials and network")
         client.loop_stop()
         return
 
@@ -425,13 +424,13 @@ def main():
     try:
         while True:
             if not userdata.get("connected"):
-                print("[Publisher] Waiting for reconnection...")
+                log.warning("waiting for reconnection...")
                 time.sleep(RECONNECT_DELAY)
                 continue
 
             # Get active spikes from scenarios
             spikes = get_active_spikes()
-            
+
             # Publish readings for all sensors
             for sensor in ALL_SENSORS:
                 spike = spikes.get(sensor.sensor_id, 0.0)
@@ -440,26 +439,27 @@ def main():
 
                 result = client.publish(topic, json.dumps(payload), qos=0)
 
-                # Icon based on event type
-                status = "✓" if result.rc == 0 else "✗"
-                
-                # Compact logging
-                print(
-                    f"[{time.strftime('%H:%M:%S')}] {sensor.machine_id} | "
-                    f"{sensor.sensor_type:6} | {payload['temperature']:5.1f}°C | "
-                    f"{payload['eventType']:8} {status}"
-                )
+                # Per-sensor publish at DEBUG (9 lines per cycle = noisy at INFO).
+                if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                    log.warning(
+                        "PUBLISH-DROPPED rc=%s %s/%s eventType=%s",
+                        result.rc, sensor.machine_id, sensor.sensor_type, payload["eventType"],
+                    )
+                else:
+                    log.debug(
+                        "%s | %-6s | %5.1f°C | %s",
+                        sensor.machine_id, sensor.sensor_type, payload["temperature"], payload["eventType"],
+                    )
 
             seq += 1
-            print()  # Blank line between batches
             time.sleep(PUBLISH_INTERVAL)
 
     except KeyboardInterrupt:
-        print("\n[Publisher] Stopped by user.")
+        log.info("stopped by user")
     finally:
         client.loop_stop()
         client.disconnect()
-        print("[Publisher] Disconnected.")
+        log.info("disconnected")
 
 
 if __name__ == "__main__":
