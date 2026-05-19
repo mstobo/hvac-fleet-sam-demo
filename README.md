@@ -1,5 +1,9 @@
 # HVAC Fleet Monitoring — MQTT Pipeline + Solace Agent Mesh (A2A)
 
+> **Value story (2 pages):** [mstobo.github.io/hvac-fleet-sam-demo](https://mstobo.github.io/hvac-fleet-sam-demo/) — executive framing, outcomes, and cost pattern.  
+> **Live demo:** [ec2-18-116-251-212.us-east-2.compute.amazonaws.com](http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/) — pipeline dashboard, digital twin, SAM chat (AWS).  
+> **This README** — technical setup, topics, deployment, and troubleshooting.
+
 **Reduce MQTT noise by ~99% and add LLM-powered fleet analysis on demand — without sending every sensor reading to an LLM.**
 
 This repo is the **Agent-Mesh–A2A** branch: deterministic MQTT processing, SQLite/chart storage, SAM agents and gateways, optional Slack, and AWS (ECR + EC2 Compose) deployment.
@@ -261,6 +265,7 @@ SERDES is **off by default** in `MqttConfig.java` for the demo (`MQTT_JSON_SERDE
 
 | Document | Description |
 |----------|-------------|
+| [GitHub Pages — value story](https://mstobo.github.io/hvac-fleet-sam-demo/) | Two-page executive overview (enable Pages: branch `main`, folder `/docs`) |
 | [deploy/aws/README.md](deploy/aws/README.md) | ECR, EC2 Compose, Slack profile, fleet gateway |
 | [demo/DEMO_SCRIPT.md](demo/DEMO_SCRIPT.md) | Presenter runbook |
 | [DC_TOPIC_VERSIONING_README.md](DC_TOPIC_VERSIONING_README.md) | Topic taxonomy |

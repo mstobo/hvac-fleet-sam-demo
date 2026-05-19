@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HVAC Fleet Demo — Value Story</title>
+  <link rel="stylesheet" href="solace-brand.css">
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+
+<main class="site-page">
+  <div class="site-inner">
+
+    <header class="site-header">
+      <a class="site-logo" href="index.html">
+        <span class="site-logo-mark">S+</span>
+        <span>HVAC Fleet · PubSub+ &amp; Agent Mesh</span>
+      </a>
+      <nav class="site-nav" aria-label="Site">
+        <a href="index.html" class="active">Value story</a>
+        <a href="outcomes.html">Outcomes</a>
+        <a href="http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/">Live demo ↗</a>
+        <a href="https://github.com/mstobo/hvac-fleet-sam-demo#readme">Technical docs ↗</a>
+      </nav>
+    </header>
+
+    <div class="hero-problem-split">
+      <div class="hero-problem-intro">
+        <h1 class="site-hero-title">Industrial telemetry at scale — <span>without burning tokens</span></h1>
+        <p class="site-lead">
+          High-volume MQTT is not an LLM input stream. This reference demo is built on a
+          <strong>real-time, event-driven</strong>
+          pipeline on Solace — each sensor reading is a broker event, and every stage reacts in flow, not in batch.
+          Generative models sit behind <strong>event-triggered reasoning</strong>
+          as well as operator chat, so AI runs when the mesh signals value, not on a schedule.
+        </p>
+        <p class="section-label">The problem</p>
+        <p class="tokenburn-caption">
+          Most IIoT + AI pilots fail at scale because cost and latency grow linearly with sensor volume.
+          The fix is architectural: <strong>deterministic processing first</strong>, agents second.
+        </p>
+      </div>
+
+      <figure class="hero-problem-figure">
+        <div class="tokenburn-wrap">
+          <img src="token-burn-device-friendly.png" alt="The Token Burn Problem: naive architecture sends every reading to an LLM; value-based architecture filters first and applies AI on high-value events only." width="862" height="1824" loading="lazy" />
+        </div>
+      </figure>
+
+      <div class="arch-diagram" role="img" aria-label="Data plane and control plane architecture for the HVAC fleet demo">
+          <article class="arch-layer arch-layer--data">
+            <header class="arch-layer-head">
+              <span class="arch-layer-badge">Layer 1</span>
+              <span class="arch-layer-title">Data plane</span>
+              <span class="arch-layer-sub">(no LLM per reading)</span>
+            </header>
+
+            <div class="arch-site-row">
+              <span class="arch-site">DC1</span>
+              <span class="arch-bridge" aria-hidden="true">bridge →</span>
+              <span class="arch-site arch-site--hub">Hub</span>
+            </div>
+
+            <div class="arch-block">
+              <p class="arch-block-label">Ingress @ Hub</p>
+              <p class="arch-detail-line">
+                <span class="arch-svc">demo_publisher / dashboard twins</span>
+                <span class="arch-arrow-inline" aria-hidden="true">→</span>
+                <code class="arch-code">dc/&lt;Hub|DC1|DC2&gt;/v1/raw/…</code>
+              </p>
+            </div>
+
+            <div class="arch-vflow" aria-hidden="true">▼</div>
+
+            <div class="arch-block">
+              <p class="arch-block-label">Pipeline</p>
+              <div class="arch-pipeline">
+                <span class="arch-stage">deadband</span>
+                <span class="arch-pipe" aria-hidden="true">→</span>
+                <span class="arch-stage">sketch</span>
+                <span class="arch-pipe" aria-hidden="true">→</span>
+                <span class="arch-stage">anomaly</span>
+              </div>
+              <p class="arch-branch">+ chart-writer → <code class="arch-code">chart_data.db</code></p>
+            </div>
+
+            <p class="arch-fanout">
+              <span class="arch-fanout-label">MQTT</span>
+              <code class="arch-code">dc/&lt;site&gt;/v1/pipeline/*</code>
+            </p>
+          </article>
+
+          <div class="arch-connector" aria-hidden="true">▼</div>
+
+          <article class="arch-layer arch-layer--control">
+            <header class="arch-layer-head">
+              <span class="arch-layer-badge">Layer 2</span>
+              <span class="arch-layer-title">Control plane</span>
+              <span class="arch-layer-sub">(LLM on demand + automation)</span>
+            </header>
+
+            <ul class="arch-control-list">
+              <li>
+                <span class="arch-control-strong">SAM</span>
+                Web UI <code class="arch-code">:8000</code> · FleetQueryAgent · MqttOrchestratorAgent
+              </li>
+              <li>
+                <span class="arch-control-strong">fleet-analysis gateway</span>
+                <span class="arch-arrow-inline" aria-hidden="true">←</span>
+                <code class="arch-code">sensors/fleet/analysis-request</code>
+              </li>
+              <li class="arch-control-optional">
+                <span class="arch-control-strong">Optional Slack</span>
+                slack-gateway <code class="arch-code">@bot</code> · analysis-to-slack bridge
+              </li>
+            </ul>
+          </article>
+      </div>
+
+    </div>
+
+    <p class="section-label">Value framework</p>
+    <div class="framework-grid">
+      <article class="framework-card">
+        <span class="step">1 · Protect spend</span>
+        <h2>Keep the LLM off the firehose</h2>
+        <p>Every unchanged temperature reading does not need a model call. Budget and latency stay predictable as fleet size grows.</p>
+      </article>
+      <article class="framework-card">
+        <span class="step">2 · Signal over noise</span>
+        <h2>Filter in the event stream</h2>
+        <p>Deadband and heartbeat logic run on live MQTT events — suppressing noise and forwarding only meaningful change as it happens, not after a batch job.</p>
+      </article>
+      <article class="framework-card">
+        <span class="step">3 · Sketch, don’t spell out</span>
+        <h2>Compact summaries at publish time</h2>
+        <p>Template natural-language sketches turn telemetry into operator-ready signal on the event path—no generative cost. The same <em>sketch, don’t spell everything out</em> principle appears in <a href="https://arxiv.org/abs/2503.05179">Sketch-of-Thought (SoT)</a> for LLM reasoning; here it is applied deterministically on the data plane.</p>
+      </article>
+      <article class="framework-card">
+        <span class="step">4 · Rules before models</span>
+        <h2>Detect on events, not inference</h2>
+        <p>Zones, spikes, and fleet-critical fractions emit alerts and MQTT triggers deterministically as events arrive — sub-second operator signal.</p>
+      </article>
+      <article class="framework-card">
+        <span class="step">5 · AI where ROI is clear</span>
+        <h2>Event-triggered reasoning + chat</h2>
+        <p>SAM Fleet Query answers in the Web UI, but fleet-wide automation also fires when the mesh publishes a high-value trigger — reasoning driven by events, not chat alone.</p>
+      </article>
+    </div>
+
+    <div class="event-callout">
+      <h2>Two planes, one broker</h2>
+      <p>
+        <strong style="color: var(--solace-accent-light);">Data plane</strong> — microservices subscribe and publish on MQTT topics in real time:
+        filter → sketch → detect → store. No LLM on the hot path; latency stays bounded by broker delivery and deterministic code.
+      </p>
+      <p>
+        <strong style="color: var(--solace-accent-light);">Control plane</strong> — Solace Agent Mesh gateways react to curated state and mesh events:
+        operator questions over HTTP/SSE, plus automated fleet analysis when rules declare <em>fleet critical</em> and publish an analysis request.
+        Sketches curate what agents read; SoT-style compression in research targets how models write reasoning—this demo does the former on the broker path.
+      </p>
+    </div>
+
+    <div class="cta-panel">
+      <h2>What this demo proves</h2>
+      <p>
+        A live HVAC-style fleet on Solace PubSub+ — event-driven pipeline, ~99% MQTT noise reduction,
+        template sketches, rule-based detection, and SAM analysis triggered by operators <em>or</em> mesh events.
+        The live dashboard on AWS shows the stream in motion; these pages explain <em>why</em> it matters.
+      </p>
+      <div class="cta-actions">
+        <a class="solace-btn solace-btn--primary" href="http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/">Open live demo ↗</a>
+        <a class="solace-btn solace-btn--secondary" href="outcomes.html">See outcomes →</a>
+        <a class="solace-btn solace-btn--ghost" href="https://github.com/mstobo/hvac-fleet-sam-demo#readme">Technical README ↗</a>
+      </div>
+    </div>
+
+    <section class="team-credits" aria-label="Team credits">
+      <h2>Contributors</h2>
+      <p class="team-name">Team Bubba</p>
+      <p class="team-members">Rob Ottesen · Larry Norcini · Afshin Seysan · Matt Stobo</p>
+    </section>
+
+    <footer class="site-footer">
+      Page 1 of 2 · Demonstration / educational use · <a href="https://github.com/mstobo/hvac-fleet-sam-demo">Source on GitHub</a>
+    </footer>
+
+  </div>
+</main>
+
+</body>
+</html>
