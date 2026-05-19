@@ -117,16 +117,42 @@ def _normalize_notes(notes: str) -> str:
     return text
 
 
+def _quiet_loop_stop(client: Optional[mqtt.Client]) -> None:
+    """Best-effort loop_stop + disconnect. Swallows errors because this runs in
+    cleanup paths where re-raising would mask the original problem."""
+    if client is None:
+        return
+    try:
+        client.loop_stop()
+    except Exception:
+        log.debug("loop_stop raised during cleanup", exc_info=True)
+    try:
+        client.disconnect()
+    except Exception:
+        log.debug("disconnect raised during cleanup", exc_info=True)
+
+
 def _get_mqtt_client() -> Optional[mqtt.Client]:
-    """Get or create MQTT client for publishing analysis requests."""
+    """Get or (re)create MQTT client for publishing analysis requests.
+
+    If a previous client exists but is disconnected, it's torn down before a
+    new one is created — otherwise its loop_start() thread keeps running on
+    a dead Client object (real memory + thread leak across reconnects).
+    """
     global _mqtt_client, _mqtt_connected
 
     if _mqtt_client is not None and _mqtt_connected:
         return _mqtt_client
 
+    # Stale client from a prior connection — release its network thread before replacing it.
+    if _mqtt_client is not None:
+        _quiet_loop_stop(_mqtt_client)
+        _mqtt_client = None
+
     if CONFIG_AVAILABLE:
         config.validate_broker_config()
 
+    new_client: Optional[mqtt.Client] = None
     try:
         def on_connect(client, userdata, flags, reason_code, properties=None):
             global _mqtt_connected
@@ -158,34 +184,41 @@ def _get_mqtt_client() -> Optional[mqtt.Client]:
                 event = _publish_ack_events.get(mid)
             if event is not None:
                 event.set()
-        
-        _mqtt_client = mqtt.Client(
+
+        new_client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
             client_id=f"fleet-analyzer-{int(time.time())}",
             protocol=mqtt.MQTTv5
         )
-        _mqtt_client.username_pw_set(USERNAME, PASSWORD)
-        _mqtt_client.on_connect = on_connect
-        _mqtt_client.on_message = on_message
-        _mqtt_client.on_disconnect = on_disconnect
-        _mqtt_client.on_publish = on_publish
-        
+        new_client.username_pw_set(USERNAME, PASSWORD)
+        new_client.on_connect = on_connect
+        new_client.on_message = on_message
+        new_client.on_disconnect = on_disconnect
+        new_client.on_publish = on_publish
+
         if USE_TLS:
-            _mqtt_client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLS)
-        
-        _mqtt_client.connect_async(BROKER_HOST, BROKER_PORT, keepalive=60)
-        _mqtt_client.loop_start()
-        
+            new_client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLS)
+
+        new_client.connect_async(BROKER_HOST, BROKER_PORT, keepalive=60)
+        new_client.loop_start()
+        # Publish to module-global only after loop_start succeeds, so the cleanup path below
+        # can tear down a partially-constructed client without racing other callers.
+        _mqtt_client = new_client
+
         # Wait briefly for connection
         for _ in range(10):
             if _mqtt_connected:
                 break
             time.sleep(0.1)
-        
+
         return _mqtt_client
-        
+
     except Exception:
         log.exception("failed to create MQTT client")
+        # If we got far enough to spin up the loop thread, stop it before returning.
+        if new_client is not None and _mqtt_client is None:
+            _quiet_loop_stop(new_client)
+        _mqtt_client = None
         return None
 
 
@@ -446,11 +479,25 @@ def get_status() -> dict:
 
 
 def shutdown():
-    """Clean shutdown of MQTT client."""
-    global _mqtt_client
-    if _mqtt_client:
-        _mqtt_client.loop_stop()
-        _mqtt_client.disconnect()
+    """Clean shutdown: cancel any pending debounce timer, then disconnect MQTT.
+
+    Cancelling the timer before disconnect avoids a window where the debounce fires
+    after the MQTT client is gone and tries to publish to a torn-down connection.
+    Idempotent — safe to call multiple times.
+    """
+    global _mqtt_client, _pending_timer, _pending_analysis
+
+    with _lock:
+        timer = _pending_timer
+        _pending_timer = None
+        _pending_analysis = False
+
+    # Don't hold _lock while calling timer.cancel() — cancel may wait on the timer thread.
+    if timer is not None:
+        timer.cancel()
+
+    if _mqtt_client is not None:
+        _quiet_loop_stop(_mqtt_client)
         _mqtt_client = None
 
 
