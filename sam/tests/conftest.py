@@ -27,14 +27,20 @@ def tmp_sensor_db(tmp_path, monkeypatch):
     """
     Redirect sensor_db to a fresh SQLite file in tmp_path and initialise the schema.
     Yields the reloaded sensor_db module (already pointing at the tmp file).
+
+    Closes the thread-local pooled connection on both sides of the reload — otherwise
+    a prior test's connection would still hold the prior tmp DB file open.
     """
     db_path = tmp_path / "sensor_data.db"
     monkeypatch.setenv("SENSOR_DB_PATH", str(db_path))
 
     import sensor_db  # noqa: WPS433 — production module, imported here for reload
+    if hasattr(sensor_db, "close_thread_connection"):
+        sensor_db.close_thread_connection()
     importlib.reload(sensor_db)
     sensor_db.init_database()
     yield sensor_db
+    sensor_db.close_thread_connection()
 
 
 @pytest.fixture
