@@ -145,6 +145,12 @@ Each cooling asset publishes **five** signals:
 **Config:** Per-metric deadband and thresholds in `configs/domains/hvac/metrics.json`.  
 Override DB path with `SENSOR_DB_PATH`.
 
+**Charts:** `chart_query_service` accepts `metric_id` and `asset_id` query params  
+(`/series`, `/plotly-spec`, `/plotly-html`). Example:  
+`/series?sensor_id=m1-humidity&minutes=60` or  
+`/series?asset_id=machine-001&metric_id=humidity_rh&minutes=60`.  
+Threshold lines use per-metric rules from `metrics.json` (not only °C).
+
 ---
 
 ## How Agent Chaining Works in SAM
