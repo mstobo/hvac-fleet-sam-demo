@@ -117,60 +117,95 @@ def _build_sketch_debug_block(sketch_count: int) -> Optional[dict]:
 
 def _incident_telemetry_coverage(sensor_id: str) -> dict:
     """
-    What this demo models per probe id (temperature-only streams), matching
-    demo_publisher telemetry_availability on raw/filtered MQTT.
+    Describe which metrics the demo models for this probe / point id.
+    Full asset coverage requires querying sibling points on the same machine_id.
     """
     sid = (sensor_id or "").lower()
-    if "temp-outlet" in sid or sid.endswith("outlet"):
+    machine_hint = None
+    for machine in ("machine-001", "machine-002", "machine-003"):
+        if machine in sid:
+            machine_hint = machine
+            break
+    if not machine_hint:
+        prefix_map = {"m1": "machine-001", "m2": "machine-002", "m3": "machine-003"}
+        for prefix, machine in prefix_map.items():
+            if sid.startswith(prefix):
+                machine_hint = machine
+                break
+
+    if "humidity" in sid or sid.endswith("humidity_rh") or ":humidity_rh" in sid:
         return {
-            "summary": (
-                "Only outlet temperature telemetry is present in this incident bundle; "
-                "inlet airflow, humidity, and pressure signals are not included."
-            ),
-            "signals_present": ["outlet_temperature"],
-            "signals_not_in_bundle": [
-                "inlet_airflow",
-                "humidity",
-                "differential_pressure",
-            ],
-            "correlation_hint": (
-                "For cross-probe analysis, query inlet/motor sensor ids on the same machine separately."
-            ),
+            "summary": "Humidity telemetry for this probe; temperature and vibration are separate points on the asset.",
+            "signals_present": ["humidity_rh"],
+            "signals_on_same_asset": ["inlet_temp_c", "outlet_temp_c", "motor_temp_c", "motor_vibration_mm_s"],
+            "machine_id": machine_hint,
         }
-    if "temp-inlet" in sid or sid.endswith("inlet"):
+    if "vibration" in sid or "motor_vibration" in sid:
         return {
-            "summary": (
-                "Only inlet temperature appears in this simulated stream; airflow, humidity, "
-                "and pressure are not included."
-            ),
-            "signals_present": ["inlet_temperature"],
-            "signals_not_in_bundle": [
-                "airflow",
-                "humidity",
-                "differential_pressure",
-            ],
+            "summary": "Motor vibration telemetry for this probe; temperatures and humidity are separate points.",
+            "signals_present": ["motor_vibration_mm_s"],
+            "signals_on_same_asset": ["inlet_temp_c", "outlet_temp_c", "motor_temp_c", "humidity_rh"],
+            "machine_id": machine_hint,
         }
-    if "temp-motor" in sid or sid.endswith("motor"):
+    if "temp-outlet" in sid or "outlet_temp" in sid:
         return {
-            "summary": (
-                "Motor winding temperature only in this bundle; airflow, humidity, pressure, "
-                "and vibration are not modeled on this stream."
-            ),
-            "signals_present": ["motor_temperature"],
-            "signals_not_in_bundle": [
-                "inlet_airflow",
-                "humidity",
-                "differential_pressure",
-                "bearing_vibration",
-            ],
+            "summary": "Outlet temperature for this probe; query m*-humidity and m*-vibration for correlated signals.",
+            "signals_present": ["outlet_temp_c"],
+            "signals_on_same_asset": ["inlet_temp_c", "motor_temp_c", "humidity_rh", "motor_vibration_mm_s"],
+            "machine_id": machine_hint,
+        }
+    if "temp-inlet" in sid or "inlet_temp" in sid:
+        return {
+            "summary": "Inlet temperature for this probe; HVAC scenarios often correlate with humidity on the same asset.",
+            "signals_present": ["inlet_temp_c"],
+            "signals_on_same_asset": ["outlet_temp_c", "motor_temp_c", "humidity_rh", "motor_vibration_mm_s"],
+            "machine_id": machine_hint,
+        }
+    if "temp-motor" in sid or "motor_temp" in sid:
+        return {
+            "summary": "Motor temperature; bearing scenarios also elevate motor_vibration_mm_s on the same asset.",
+            "signals_present": ["motor_temp_c"],
+            "signals_on_same_asset": ["inlet_temp_c", "outlet_temp_c", "humidity_rh", "motor_vibration_mm_s"],
+            "machine_id": machine_hint,
         }
     return {
         "summary": (
-            "Demo telemetry is temperature-centric per probe; humidity, pressure, and "
-            "airflow are not included in this bundle unless integrated separately."
+            "Demo publishes 5 metrics per asset (3 temperatures, humidity, vibration). "
+            "This query targets one probe; use get_system_statistics or query sibling point ids."
         ),
-        "signals_present": ["temperature"],
-        "signals_not_in_bundle": ["inlet_airflow", "humidity", "differential_pressure"],
+        "signals_present": ["varies_by_point_id"],
+        "signals_on_same_asset": [
+            "inlet_temp_c",
+            "outlet_temp_c",
+            "motor_temp_c",
+            "humidity_rh",
+            "motor_vibration_mm_s",
+        ],
+        "machine_id": machine_hint,
+    }
+
+
+def _value_stats(readings: list) -> dict:
+    """Statistics from readings that may use value or temperature column."""
+    vals = []
+    for r in readings:
+        v = r.get("value", r.get("temperature"))
+        if v is not None:
+            vals.append(float(v))
+    if not vals:
+        return {
+            "reading_count": 0,
+            "current_value": None,
+            "avg_value": None,
+            "min_value": None,
+            "max_value": None,
+        }
+    return {
+        "reading_count": len(vals),
+        "current_value": vals[0],
+        "avg_value": round(sum(vals) / len(vals), 2),
+        "min_value": min(vals),
+        "max_value": max(vals),
     }
 
 
@@ -309,32 +344,32 @@ def get_sensor_details(sensor_id: str, minutes: int = 30) -> str:
         sketches = sensor_db.get_recent_sketches(minutes=minutes, sensor_id=sensor_id, limit=10)
         readings = sensor_db.get_sensor_history(sensor_id=sensor_id, minutes=minutes)
         
-        # Get alerts for this sensor
         all_alerts = sensor_db.get_recent_alerts(minutes=minutes, limit=100)
-        sensor_alerts = [a for a in all_alerts if a.get("sensor_id") == sensor_id]
-        
+        sensor_alerts = [
+            a
+            for a in all_alerts
+            if a.get("sensor_id") == sensor_id or a.get("point_id") == sensor_id
+        ]
+
         if not readings and not sketches:
             return json.dumps({
                 "status": "ok",
                 "message": f"No data found for sensor '{sensor_id}' in the last {minutes} minutes",
                 "sensor_id": sensor_id
             })
-        
-        # Calculate stats from readings
-        temps = [r["temperature"] for r in readings] if readings else []
-        stats = {
-            "reading_count": len(temps),
-            "current_temp": temps[0] if temps else None,
-            "avg_temp": round(sum(temps) / len(temps), 2) if temps else None,
-            "min_temp": min(temps) if temps else None,
-            "max_temp": max(temps) if temps else None,
-        }
-        
+
+        stats = _value_stats(readings)
+        if readings and readings[0].get("metric_id"):
+            stats["metric_id"] = readings[0]["metric_id"]
+            stats["unit"] = readings[0].get("unit")
+
         response = {
             "status": "ok",
             "sensor_id": sensor_id,
+            "point_id": readings[0].get("point_id") if readings else sensor_id,
             "time_window_minutes": minutes,
-            "source_order": ["sketches", "sensor_history", "alerts"],
+            "source_order": ["sketches", "telemetry_readings", "alerts"],
+            "telemetry_coverage": _incident_telemetry_coverage(sensor_id),
             "statistics": stats,
             "recent_readings": readings[:10],  # Last 10 readings
             "recent_sketches": sketches[:5],    # Last 5 sketches
@@ -417,24 +452,28 @@ def get_incident_context(sensor_id: str, minutes: int = 90) -> str:
 
         # 3) Alerts for same sensor in window
         all_alerts = sensor_db.get_recent_alerts(minutes=minutes, limit=200)
-        sensor_alerts = [a for a in all_alerts if a.get("sensor_id") == sensor_id]
+        sensor_alerts = [
+            a
+            for a in all_alerts
+            if a.get("sensor_id") == sensor_id or a.get("point_id") == sensor_id
+        ]
 
-        temps = [r["temperature"] for r in readings] if readings else []
         stats = {
             "reading_count": len(readings),
             "sketch_count": len(sketches),
             "alert_count": len(sensor_alerts),
-            "current_temp": temps[0] if temps else None,
-            "avg_temp": round(sum(temps) / len(temps), 2) if temps else None,
-            "min_temp": min(temps) if temps else None,
-            "max_temp": max(temps) if temps else None,
+            **_value_stats(readings),
         }
+        if readings and readings[0].get("metric_id"):
+            stats["metric_id"] = readings[0]["metric_id"]
+            stats["unit"] = readings[0].get("unit")
 
         response = {
             "status": "ok",
             "sensor_id": sensor_id,
+            "point_id": readings[0].get("point_id") if readings else sensor_id,
             "time_window_minutes": minutes,
-            "source_order": ["sketches", "sensor_details", "alerts"],
+            "source_order": ["sketches", "telemetry_readings", "alerts"],
             "telemetry_coverage": _incident_telemetry_coverage(sensor_id),
             "statistics": stats,
             "sketches": sketches,
@@ -459,15 +498,18 @@ def get_system_statistics() -> str:
     - How much data has been processed
     - System metrics
     - Database statistics
+    - Which metrics are being ingested (temperature, humidity, vibration)
     
     Returns:
         JSON string with system statistics
     """
     try:
         stats = sensor_db.get_statistics()
+        metrics = sensor_db.list_active_metrics(minutes=120)
         return json.dumps({
             "status": "ok",
-            **stats
+            **stats,
+            "active_metrics": metrics,
         }, indent=2)
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
@@ -644,20 +686,29 @@ def acknowledge_alert(alert_id: int) -> str:
     """
     try:
         with sensor_db.get_connection() as conn:
+            row = conn.execute(
+                "SELECT sensor_id, timestamp FROM alerts WHERE id = ?",
+                (alert_id,),
+            ).fetchone()
             result = conn.execute(
                 "UPDATE alerts SET acknowledged = TRUE WHERE id = ?",
-                (alert_id,)
+                (alert_id,),
             )
             if result.rowcount > 0:
+                if row and sensor_db.TELEMETRY_DUAL_WRITE:
+                    conn.execute(
+                        """UPDATE telemetry_alerts SET acknowledged = TRUE
+                           WHERE point_id = ? AND timestamp = ?""",
+                        (row["sensor_id"], row["timestamp"]),
+                    )
                 return json.dumps({
                     "status": "ok",
                     "message": f"Alert {alert_id} acknowledged"
                 })
-            else:
-                return json.dumps({
-                    "status": "error",
-                    "message": f"Alert {alert_id} not found"
-                })
+            return json.dumps({
+                "status": "error",
+                "message": f"Alert {alert_id} not found"
+            })
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
 
