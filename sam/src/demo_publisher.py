@@ -2,39 +2,20 @@
 """
 demo_publisher.py
 =================
-Simulates a data center row with 3 cooling assets, each having 3 temperature sensors.
+Simulates a data center row with 3 cooling assets and multiple metrics per asset:
+temperature (inlet / outlet / motor), humidity, and motor vibration.
 
-Asset/Sensor Hierarchy:
-  machine-001: m1-temp-inlet, m1-temp-outlet, m1-temp-motor
-  machine-002: m2-temp-inlet, m2-temp-outlet, m2-temp-motor
-  machine-003: m3-temp-inlet, m3-temp-outlet, m3-temp-motor
-
-Sensor Behaviors:
-  - Inlet temps: Coolest, affected by ambient/HVAC
-  - Outlet temps: Warmer than inlet, shows heat generation
-  - Motor temps: Hottest, most likely to spike
-
-Asset Profiles:
-  - Asset 1: Stable operation (baseline)
-  - Asset 2: Occasional anomalies (demonstrates spike detection)
-  - Asset 3: Running slightly hot (demonstrates sustained warnings)
-
-This structure enables realistic fleet monitoring scenarios:
-  - All inlet temps spike → Environmental issue (HVAC failure)
-  - All sensors on one asset spike → Asset-level issue
-  - Single sensor spikes → Sensor or component issue
+Publish modes (DEMO_PUBLISH_MODE):
+  - topics  — one MQTT message per telemetry point (modern MQTT devices)
+  - bundle  — one dc.raw.bundle.v1 JSON snapshot per asset (legacy gateway style)
 
 Usage:
     pip install paho-mqtt
     python demo_publisher.py
 
-Configure broker credentials via environment variables:
-    SOLACE_HOST     - Broker hostname
-    SOLACE_PORT     - Broker port (default: 8883 for TLS)
-    SOLACE_USER     - Username
-    SOLACE_PASS     - Password
-    SOLACE_TLS      - Set to "true" for TLS (default: true)
-    TOPIC_BASE      - Base topic (default: dc/<DC_BROKER_SITE>/v1/raw/… from pipeline_config)
+Environment:
+    SOLACE_* / TOPIC_BASE — see pipeline_config
+    DEMO_PUBLISH_MODE     — topics (default) or bundle
 """
 
 import json
@@ -43,14 +24,11 @@ import os
 import random
 import ssl
 import time
-from dataclasses import dataclass
-from typing import Dict, List
-
-import paho.mqtt.client as mqtt
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 import pipeline_config as _broker
 
-# ── Broker config (same resolution as deadband / chart writer / sketch) ───────
 BROKER_HOST = _broker.BROKER_HOST
 BROKER_PORT = _broker.BROKER_PORT
 USERNAME = _broker.USERNAME
@@ -60,271 +38,356 @@ TOPIC_BASE = os.getenv(
     "TOPIC_BASE",
     f"{_broker.pipeline_topic_prefix()}/raw/dc1/hall-a/row-a3/rack-12",
 )
-SCHEMA_RAW = os.getenv("RAW_SCHEMA_NAME", "dc.raw.v1")
-SCHEMA_REVISION = os.getenv("RAW_SCHEMA_REVISION", "1.0.0")
+SCHEMA_RAW = os.getenv("RAW_SCHEMA_NAME", _broker.SCHEMA_RAW)
+SCHEMA_RAW_BUNDLE = os.getenv("RAW_BUNDLE_SCHEMA_NAME", _broker.SCHEMA_RAW_BUNDLE)
+SCHEMA_REVISION = os.getenv("RAW_SCHEMA_REVISION", _broker.SCHEMA_REVISION)
+DEMO_PUBLISH_MODE = (os.getenv("DEMO_PUBLISH_MODE", "topics") or "topics").strip().lower()
 
-# ── Timing ───────────────────────────────────────────────────────────────────
-PUBLISH_INTERVAL = 2.0     # Seconds between message batches
-RECONNECT_DELAY = 5        # Seconds to wait before reconnecting
+PUBLISH_INTERVAL = float(os.getenv("DEMO_PUBLISH_INTERVAL", "2.0"))
+RECONNECT_DELAY = 5
+
+LOCATION = {
+    "site": "dc1",
+    "room": "hall-a",
+    "row": "row-a3",
+    "rack": "rack-12",
+}
 
 
 @dataclass
-class SensorConfig:
-    """Configuration for a single sensor."""
-    sensor_id: str
+class TelemetryPointConfig:
+    """One telemetry point on an asset (maps to asset + metric in MQTT)."""
+
+    point_id: str
     machine_id: str
-    sensor_type: str  # inlet, outlet, motor
-    baseline_temp: float
+    metric_id: str
+    role: str
+    baseline: float
     noise_amplitude: float
 
 
 @dataclass
 class MachineConfig:
-    """Configuration for a cooling asset with multiple sensors."""
     machine_id: str
     name: str
-    profile: str  # stable, spiky, hot
-    sensors: List[SensorConfig]
+    profile: str
+    points: List[TelemetryPointConfig] = field(default_factory=list)
 
 
-# ── Machine and Sensor Definitions ───────────────────────────────────────────
+def _temp_point(
+    legacy_id: str,
+    machine_id: str,
+    role: str,
+    metric_id: str,
+    baseline: float,
+    noise: float,
+) -> TelemetryPointConfig:
+    return TelemetryPointConfig(
+        point_id=legacy_id,
+        machine_id=machine_id,
+        metric_id=metric_id,
+        role=role,
+        baseline=baseline,
+        noise_amplitude=noise,
+    )
+
+
+def _machine_points(
+    machine_id: str,
+    prefix: str,
+    inlet: float,
+    outlet: float,
+    motor: float,
+    humidity: float = 55.0,
+    vibration: float = 0.6,
+) -> List[TelemetryPointConfig]:
+    return [
+        _temp_point(f"{prefix}-temp-inlet", machine_id, "inlet", "inlet_temp_c", inlet, 0.3),
+        _temp_point(f"{prefix}-temp-outlet", machine_id, "outlet", "outlet_temp_c", outlet, 0.4),
+        _temp_point(f"{prefix}-temp-motor", machine_id, "motor", "motor_temp_c", motor, 0.5),
+        TelemetryPointConfig(
+            point_id=f"{prefix}-humidity",
+            machine_id=machine_id,
+            metric_id="humidity_rh",
+            role="humidity",
+            baseline=humidity,
+            noise_amplitude=1.5,
+        ),
+        TelemetryPointConfig(
+            point_id=f"{prefix}-vibration",
+            machine_id=machine_id,
+            metric_id="motor_vibration_mm_s",
+            role="vibration",
+            baseline=vibration,
+            noise_amplitude=0.08,
+        ),
+    ]
+
+
 MACHINES = [
     MachineConfig(
         machine_id="machine-001",
         name="CNC Mill #1",
         profile="stable",
-        sensors=[
-            SensorConfig("m1-temp-inlet", "machine-001", "inlet", 38.0, 0.3),
-            SensorConfig("m1-temp-outlet", "machine-001", "outlet", 48.0, 0.4),
-            SensorConfig("m1-temp-motor", "machine-001", "motor", 52.0, 0.5),
-        ]
+        points=_machine_points("machine-001", "m1", 38.0, 48.0, 52.0, humidity=52.0, vibration=0.5),
     ),
     MachineConfig(
         machine_id="machine-002",
         name="CNC Mill #2",
-        profile="spiky",  # This machine has occasional anomalies
-        sensors=[
-            SensorConfig("m2-temp-inlet", "machine-002", "inlet", 39.0, 0.3),
-            SensorConfig("m2-temp-outlet", "machine-002", "outlet", 49.0, 0.4),
-            SensorConfig("m2-temp-motor", "machine-002", "motor", 54.0, 0.6),
-        ]
+        profile="spiky",
+        points=_machine_points("machine-002", "m2", 39.0, 49.0, 54.0, humidity=54.0, vibration=0.55),
     ),
     MachineConfig(
         machine_id="machine-003",
         name="CNC Mill #3",
-        profile="hot",  # This machine runs slightly hot
-        sensors=[
-            SensorConfig("m3-temp-inlet", "machine-003", "inlet", 42.0, 0.4),
-            SensorConfig("m3-temp-outlet", "machine-003", "outlet", 53.0, 0.5),
-            SensorConfig("m3-temp-motor", "machine-003", "motor", 58.0, 0.7),  # Near warning threshold
-        ]
+        profile="hot",
+        points=_machine_points("machine-003", "m3", 42.0, 53.0, 58.0, humidity=58.0, vibration=0.75),
     ),
 ]
 
-# Build flat sensor list for easy iteration
-ALL_SENSORS = [sensor for machine in MACHINES for sensor in machine.sensors]
+ALL_POINTS = [p for m in MACHINES for p in m.points]
+# Legacy alias for scenarios that reference sensor ids
+ALL_SENSORS = ALL_POINTS
 
-# ── Anomaly Scenarios ────────────────────────────────────────────────────────
-# These scenarios create realistic fleet events
 
 class AnomalyScenario:
-    """Defines an anomaly scenario that affects specific sensors."""
-    
-    def __init__(self, name: str, affected_sensors: List[str], spike_amount: float, 
-                 probability: float, duration_cycles: int, description: str):
+    def __init__(
+        self,
+        name: str,
+        affected_points: List[str],
+        spike_amount: float,
+        probability: float,
+        duration_cycles: int,
+        description: str,
+    ):
         self.name = name
-        self.affected_sensors = affected_sensors
+        self.affected_points = affected_points
+        self.affected_sensors = affected_points
         self.spike_amount = spike_amount
-        self.probability = probability  # Chance per cycle to start
+        self.probability = probability
         self.duration_cycles = duration_cycles
         self.description = description
         self.active_cycles_remaining = 0
-    
+
     def should_start(self) -> bool:
-        """Check if this scenario should start (probabilistic)."""
         if self.active_cycles_remaining > 0:
             return False
         return random.random() < self.probability
-    
+
     def start(self):
-        """Start the scenario."""
         self.active_cycles_remaining = self.duration_cycles
         print(f"\n[Scenario] STARTING: {self.name}")
         print(f"           {self.description}")
-        print(f"           Affecting: {', '.join(self.affected_sensors)}")
+        print(f"           Affecting: {', '.join(self.affected_points)}")
         print(f"           Duration: {self.duration_cycles} cycles\n")
-    
+
     def tick(self) -> bool:
-        """Tick the scenario, return True if still active."""
         if self.active_cycles_remaining > 0:
             self.active_cycles_remaining -= 1
             if self.active_cycles_remaining == 0:
                 print(f"\n[Scenario] ENDED: {self.name}\n")
             return True
         return False
-    
-    def get_spike_for_sensor(self, sensor_id: str) -> float:
-        """Get spike amount for a sensor if affected by this scenario."""
-        if self.active_cycles_remaining > 0 and sensor_id in self.affected_sensors:
+
+    def get_spike_for_point(self, point_id: str) -> float:
+        if self.active_cycles_remaining > 0 and point_id in self.affected_points:
             return self.spike_amount
         return 0.0
 
+    def get_spike_for_sensor(self, sensor_id: str) -> float:
+        return self.get_spike_for_point(sensor_id)
 
-# Define anomaly scenarios
+
 SCENARIOS = [
-    # Machine-level failure (all sensors on machine-002 spike)
     AnomalyScenario(
         name="Machine-002 Overload",
-        affected_sensors=["m2-temp-inlet", "m2-temp-outlet", "m2-temp-motor"],
+        affected_points=[
+            "m2-temp-inlet",
+            "m2-temp-outlet",
+            "m2-temp-motor",
+            "m2-humidity",
+            "m2-vibration",
+        ],
         spike_amount=20.0,
-        probability=0.02,  # 2% chance per cycle
+        probability=0.02,
         duration_cycles=3,
-        description="Machine-002 experiencing overload - all temps rising"
+        description="Machine-002 overload — temperature, humidity, and vibration rising",
     ),
-    
-    # Environmental event (all inlet sensors spike - HVAC failure)
     AnomalyScenario(
         name="HVAC Failure",
-        affected_sensors=["m1-temp-inlet", "m2-temp-inlet", "m3-temp-inlet"],
+        affected_points=[
+            "m1-temp-inlet",
+            "m2-temp-inlet",
+            "m3-temp-inlet",
+            "m1-humidity",
+            "m2-humidity",
+            "m3-humidity",
+        ],
         spike_amount=15.0,
-        probability=0.015,  # 1.5% chance per cycle
+        probability=0.015,
         duration_cycles=5,
-        description="HVAC failure detected - all inlet temperatures rising"
+        description="HVAC failure — inlet temps and humidity rising across the row",
     ),
-    
-    # Single motor issue
     AnomalyScenario(
         name="Motor-003 Bearing Wear",
-        affected_sensors=["m3-temp-motor"],
+        affected_points=["m3-temp-motor", "m3-vibration"],
         spike_amount=18.0,
-        probability=0.03,  # 3% chance per cycle
+        probability=0.03,
         duration_cycles=2,
-        description="Motor-003 showing signs of bearing wear"
+        description="Motor-003 bearing wear — motor temp and vibration elevated",
     ),
-    
-    # Fleet-wide event (simulates power surge affecting all machines)
     AnomalyScenario(
         name="Power Surge",
-        affected_sensors=[s.sensor_id for s in ALL_SENSORS],  # All sensors
+        affected_points=[p.point_id for p in ALL_POINTS],
         spike_amount=12.0,
-        probability=0.008,  # 0.8% chance per cycle (rare but dramatic)
+        probability=0.008,
         duration_cycles=2,
-        description="Power surge detected - all equipment affected"
+        description="Power surge — all points on all assets affected",
     ),
 ]
 
 
-def _telemetry_availability(sensor: SensorConfig) -> dict:
-    """
-    Realistic data-fidelity hints: the demo only models one temperature stream per
-    published message; other facility signals are intentionally absent.
-    """
-    if sensor.sensor_type == "outlet":
-        return {
-            "scope": "outlet_temperature_only",
-            "signals_present": ["outlet_temperature_c"],
-            "signals_not_in_this_stream": [
-                "inlet_airflow_cfm",
-                "humidity_rh",
-                "differential_pressure_pa",
-            ],
-            "note": (
-                "Only outlet temperature telemetry is present in this incident bundle; "
-                "inlet airflow, humidity, and pressure signals are not included."
-            ),
-        }
-    if sensor.sensor_type == "inlet":
-        return {
-            "scope": "inlet_temperature_only",
-            "signals_present": ["inlet_temperature_c"],
-            "signals_not_in_this_stream": [
-                "outlet_temperature_c",
-                "airflow_cfm",
-                "humidity_rh",
-                "differential_pressure_pa",
-            ],
-            "note": (
-                "Only inlet temperature is modeled on this stream; airflow, humidity, "
-                "and pressure are not included in the simulated bundle."
-            ),
-        }
-    return {
-        "scope": "motor_winding_temperature_only",
-        "signals_present": ["motor_temperature_c"],
-        "signals_not_in_this_stream": [
-            "inlet_airflow_cfm",
-            "humidity_rh",
-            "differential_pressure_pa",
-            "bearing_vibration",
-        ],
-        "note": (
-            "Motor winding temperature only; inlet/outlet airflow, humidity, and "
-            "pressure are not included in this simulated stream."
-        ),
-    }
-
-
 def get_active_spikes() -> Dict[str, float]:
-    """Get current spike amounts for all sensors from active scenarios."""
-    spikes = {}
+    spikes: Dict[str, float] = {}
     for scenario in SCENARIOS:
         if scenario.should_start():
             scenario.start()
         scenario.tick()
-        for sensor_id in scenario.affected_sensors:
-            spike = scenario.get_spike_for_sensor(sensor_id)
+        for point in ALL_POINTS:
+            spike = scenario.get_spike_for_point(point.point_id)
             if spike > 0:
-                spikes[sensor_id] = spikes.get(sensor_id, 0) + spike
+                spikes[point.point_id] = spikes.get(point.point_id, 0) + spike
     return spikes
 
 
-def build_payload(sensor: SensorConfig, seq: int, spike: float = 0.0) -> dict:
-    """Generate a sensor reading."""
-    # Base temperature with gentle drift
-    base = sensor.baseline_temp + math.sin(seq * 0.05) * 1.5
-    
-    # Add noise
-    noise = random.uniform(-sensor.noise_amplitude, sensor.noise_amplitude)
-    
-    # Add any active spike
-    temp = round(base + noise + spike, 2)
-    
-    # Determine event type for logging
+def _scaled_spike(point: TelemetryPointConfig, spike: float) -> float:
+    """Scale scenario spike for non-temperature metrics."""
+    if point.metric_id == "humidity_rh":
+        return spike * 0.35
+    if point.metric_id == "motor_vibration_mm_s":
+        return spike * 0.04
+    return spike
+
+
+def _sample_value(point: TelemetryPointConfig, seq: int, spike: float) -> float:
+    base = point.baseline + math.sin(seq * 0.05 + hash(point.point_id) % 7) * (
+        1.5 if point.metric_id.endswith("_temp_c") or point.metric_id == "supply_temp_c" else 0.8
+    )
+    noise = random.uniform(-point.noise_amplitude, point.noise_amplitude)
+    return round(base + noise + _scaled_spike(point, spike), 2)
+
+
+def _event_type(value: float, baseline: float, spike: float, noise_amp: float) -> str:
     if spike > 15:
-        event_type = "ANOMALY"
-    elif spike > 0:
-        event_type = "ELEVATED"
-    elif abs(noise) < sensor.noise_amplitude * 0.3:
-        event_type = "NOISY"  # Will likely be suppressed
-    else:
-        event_type = "NORMAL"
-    
+        return "ANOMALY"
+    if spike > 0:
+        return "ELEVATED"
+    if abs(value - baseline) < noise_amp * 0.3:
+        return "NOISY"
+    return "NORMAL"
+
+
+def _unit_for(metric_id: str) -> str:
+    return str(_broker._metric_rule(metric_id).get("unit", ""))
+
+
+def build_payload(point: TelemetryPointConfig, seq: int, spike: float = 0.0) -> dict:
+    value = _sample_value(point, seq, spike)
+    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    unit = _unit_for(point.metric_id)
     return {
         "schema": SCHEMA_RAW,
         "schemaRevision": SCHEMA_REVISION,
-        "sensorId": sensor.sensor_id,
-        "machineId": sensor.machine_id,
-        "sensorType": sensor.sensor_type,
-        "site": "dc1",
-        "room": "hall-a",
-        "row": "row-a3",
-        "rack": "rack-12",
-        "asset": sensor.machine_id,
-        "metric": "supply_temp_c",
+        "pointId": _broker.make_point_id(point.machine_id, point.metric_id),
+        "sensorId": point.point_id,
+        "machineId": point.machine_id,
+        "sensorType": point.role,
+        "site": LOCATION["site"],
+        "room": LOCATION["room"],
+        "row": LOCATION["row"],
+        "rack": LOCATION["rack"],
+        "asset": point.machine_id,
+        "metric": point.metric_id,
         "sourceProtocol": "MQTT",
-        "value": temp,
-        "unit": "C",
+        "value": value,
+        "unit": unit,
         "quality": "GOOD",
-        "temperature": temp,
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "eventType": event_type,
+        "temperature": value,
+        "timestamp": ts,
+        "ts": ts,
+        "eventType": _event_type(value, point.baseline, spike, point.noise_amplitude),
         "sequence": seq,
-        "telemetry_availability": _telemetry_availability(sensor),
     }
 
 
-def on_connect(client, userdata, flags, reason_code, properties=None):
-    """Handle connection result."""
+def build_bundle_payload(machine: MachineConfig, seq: int, spikes: Dict[str, float]) -> dict:
+    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    readings = []
+    for point in machine.points:
+        spike = spikes.get(point.point_id, 0.0)
+        value = _sample_value(point, seq, spike)
+        readings.append(
+            {
+                "metric": point.metric_id,
+                "value": value,
+                "unit": _unit_for(point.metric_id),
+                "quality": "GOOD",
+            }
+        )
+    return {
+        "schema": SCHEMA_RAW_BUNDLE,
+        "schemaRevision": SCHEMA_REVISION,
+        "ts": ts,
+        "timestamp": ts,
+        "site": LOCATION["site"],
+        "room": LOCATION["room"],
+        "row": LOCATION["row"],
+        "rack": LOCATION["rack"],
+        "asset": machine.machine_id,
+        "sourceProtocol": "Modbus",
+        "readings": readings,
+        "sequence": seq,
+    }
+
+
+def topic_for_point(point: TelemetryPointConfig) -> str:
+    return f"{TOPIC_BASE}/{point.machine_id}/{point.metric_id}"
+
+
+def bundle_topic_for_machine(machine_id: str) -> str:
+    return f"{TOPIC_BASE}/{machine_id}/{_broker.BUNDLE_TOPIC_METRIC}"
+
+
+def publish_cycle(client: Any, seq: int, spikes: Dict[str, float]) -> None:
+    if DEMO_PUBLISH_MODE == "bundle":
+        for machine in MACHINES:
+            payload = build_bundle_payload(machine, seq, spikes)
+            topic = bundle_topic_for_machine(machine.machine_id)
+            result = client.publish(topic, json.dumps(payload), qos=0)
+            status = "✓" if result.rc == 0 else "✗"
+            metrics = ", ".join(f"{r['metric']}={r['value']}" for r in payload["readings"])
+            print(
+                f"[{time.strftime('%H:%M:%S')}] {machine.machine_id} | BUNDLE | "
+                f"{len(payload['readings'])} pts | {status}"
+            )
+            print(f"             {metrics}")
+        return
+
+    for point in ALL_POINTS:
+        spike = spikes.get(point.point_id, 0.0)
+        payload = build_payload(point, seq, spike)
+        topic = topic_for_point(point)
+        result = client.publish(topic, json.dumps(payload), qos=0)
+        status = "✓" if result.rc == 0 else "✗"
+        unit = payload.get("unit") or ""
+        print(
+            f"[{time.strftime('%H:%M:%S')}] {point.machine_id} | "
+            f"{point.metric_id:22} | {payload['value']:6.2f} {unit:4} | "
+            f"{payload['eventType']:8} {status}"
+        )
+
+
+def on_connect(client, userdata, flags, reason_code, properties=None):  # noqa: ARG001
     if reason_code == 0:
         print(f"[Publisher] Connected to {BROKER_HOST}")
         userdata["connected"] = True
@@ -334,7 +397,6 @@ def on_connect(client, userdata, flags, reason_code, properties=None):
 
 
 def on_disconnect(client, userdata, flags, reason_code, properties=None):
-    """Handle disconnection with reconnect logic."""
     userdata["connected"] = False
     if reason_code != 0:
         print(f"[Publisher] Unexpected disconnect (rc={reason_code}). Reconnecting in {RECONNECT_DELAY}s...")
@@ -345,47 +407,42 @@ def on_disconnect(client, userdata, flags, reason_code, properties=None):
             print(f"[Publisher] Reconnect failed: {e}")
 
 
-def create_client() -> mqtt.Client:
-    """Create and configure the MQTT client."""
-    userdata = {"connected": False}
+def create_client() -> Any:
+    import paho.mqtt.client as mqtt
 
+    userdata = {"connected": False}
     client = mqtt.Client(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         client_id=f"demo-publisher-{int(time.time())}",
         protocol=mqtt.MQTTv5,
-        userdata=userdata
+        userdata=userdata,
     )
     client.username_pw_set(USERNAME, PASSWORD)
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
-
     if USE_TLS:
-        print(f"[Publisher] TLS enabled")
-        client.tls_set(
-            ca_certs=None,
-            certfile=None,
-            keyfile=None,
-            cert_reqs=ssl.CERT_REQUIRED,
-            tls_version=ssl.PROTOCOL_TLS,
-            ciphers=None
-        )
-
+        print("[Publisher] TLS enabled")
+        client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLS)
     return client
 
 
 def print_machine_summary():
-    """Print summary of cooling assets and sensors."""
     print(f"\n{'='*70}")
-    print("  DATA CENTER HVAC SIMULATOR  |  3 Assets x 3 Sensors = 9 Total")
+    print("  DATA CENTER HVAC SIMULATOR  |  3 Assets x 5 Metrics = 15 Points")
+    print(f"  Publish mode: {DEMO_PUBLISH_MODE.upper()}")
     print(f"{'='*70}")
     for machine in MACHINES:
-        print(f"\n  - {machine.machine_id} ({machine.name}) - Profile: {machine.profile.upper()}")
-        for sensor in machine.sensors:
-            print(f"      └─ {sensor.sensor_id}: {sensor.sensor_type} @ {sensor.baseline_temp}°C baseline")
+        print(f"\n  - {machine.machine_id} ({machine.name}) — {machine.profile.upper()}")
+        for point in machine.points:
+            unit = _unit_for(point.metric_id)
+            print(
+                f"      └─ {point.point_id}: {point.metric_id} "
+                f"@ {point.baseline} {unit} ({point.role})"
+            )
     print(f"\n{'='*70}")
     print("  ANOMALY SCENARIOS (probabilistic):")
     for scenario in SCENARIOS:
-        print(f"    • {scenario.name} ({scenario.probability*100:.1f}% per cycle)")
+        print(f"    • {scenario.name} ({scenario.probability * 100:.1f}% per cycle)")
     print(f"{'='*70}\n")
 
 
@@ -394,13 +451,14 @@ def main():
     userdata = client._userdata
 
     print_machine_summary()
-    
     print(f"  Broker   : {BROKER_HOST}:{BROKER_PORT} {'(TLS)' if USE_TLS else ''}")
-    print(f"  Topic    : {TOPIC_BASE}/<sensorId>")
+    if DEMO_PUBLISH_MODE == "bundle":
+        print(f"  Topic    : {TOPIC_BASE}/<asset>/{_broker.BUNDLE_TOPIC_METRIC}")
+    else:
+        print(f"  Topic    : {TOPIC_BASE}/<asset>/<metric>")
     print(f"  Interval : {PUBLISH_INTERVAL}s per batch")
     print(f"{'='*70}\n")
 
-    # Connect to broker
     try:
         client.connect(BROKER_HOST, BROKER_PORT, keepalive=60)
         client.loop_start()
@@ -408,7 +466,6 @@ def main():
         print(f"[Publisher] Failed to connect: {e}")
         return
 
-    # Wait for connection
     for _ in range(10):
         if userdata.get("connected"):
             break
@@ -420,39 +477,16 @@ def main():
         return
 
     seq = 0
-
     try:
         while True:
             if not userdata.get("connected"):
                 print("[Publisher] Waiting for reconnection...")
                 time.sleep(RECONNECT_DELAY)
                 continue
-
-            # Get active spikes from scenarios
-            spikes = get_active_spikes()
-            
-            # Publish readings for all sensors
-            for sensor in ALL_SENSORS:
-                spike = spikes.get(sensor.sensor_id, 0.0)
-                payload = build_payload(sensor, seq, spike)
-                topic = f"{TOPIC_BASE}/{sensor.machine_id}/supply_temp_c"
-
-                result = client.publish(topic, json.dumps(payload), qos=0)
-
-                # Icon based on event type
-                status = "✓" if result.rc == 0 else "✗"
-                
-                # Compact logging
-                print(
-                    f"[{time.strftime('%H:%M:%S')}] {sensor.machine_id} | "
-                    f"{sensor.sensor_type:6} | {payload['temperature']:5.1f}°C | "
-                    f"{payload['eventType']:8} {status}"
-                )
-
+            publish_cycle(client, seq, get_active_spikes())
             seq += 1
-            print()  # Blank line between batches
+            print()
             time.sleep(PUBLISH_INTERVAL)
-
     except KeyboardInterrupt:
         print("\n[Publisher] Stopped by user.")
     finally:
