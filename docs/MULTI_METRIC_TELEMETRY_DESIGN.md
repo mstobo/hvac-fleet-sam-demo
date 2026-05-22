@@ -5,7 +5,7 @@ Design reference for generalizing the HVAC fleet demo to multiple readings per a
 **Status:** In progress (`feature/multi-metric-telemetry`)  
 **Related:** [DC_TOPIC_VERSIONING_README.md](../DC_TOPIC_VERSIONING_README.md)
 
-**Implemented:** `pipeline_config` point/bundle helpers; `deadband_service` wiring; `telemetry_*` tables + dual-write in `sensor_db`; sketch/anomaly pass `point_id` / `metric` / `value`
+**Implemented:** `pipeline_config` point/bundle helpers; `deadband_service` wiring; `telemetry_*` tables + dual-write; sketch/anomaly metadata; `demo_publisher` 15 points (5 metrics × 3 assets) with `DEMO_PUBLISH_MODE=topics|bundle`
 
 ---
 
