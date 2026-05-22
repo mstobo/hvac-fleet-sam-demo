@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 import chart_db
+import pipeline_config as config
 
 
 HOST = os.getenv("CHART_QUERY_HOST", "127.0.0.1")
@@ -86,6 +87,40 @@ def _downsample_rows(rows: list[dict], max_points: int) -> list[dict]:
     return sampled[:max_points]
 
 
+def _thresholds_for_metric(metric_id: str | None) -> tuple[float | None, float | None, str | None]:
+    """Warning/critical thresholds and unit from metrics.json for chart overlays."""
+    if not metric_id:
+        return DEFAULT_WARNING_TEMP, DEFAULT_CRITICAL_TEMP, "°C"
+    warning = critical = None
+    unit = config._metric_rule(metric_id).get("unit")
+    for zone in config._metric_rule(metric_id).get("zones") or []:
+        if zone.get("op") != "gte":
+            continue
+        if zone.get("name") == "WARNING":
+            warning = float(zone["value"])
+        if zone.get("name") == "CRITICAL":
+            critical = float(zone["value"])
+    if warning is None and critical is None:
+        return None, None, str(unit) if unit else None
+    return warning, critical, str(unit) if unit else None
+
+
+def _parse_chart_query_params(q: dict) -> dict:
+    sensor_id = (q.get("sensor_id") or [""])[0].strip()
+    metric_id = (q.get("metric_id") or [""])[0].strip() or None
+    asset_id = (q.get("asset_id") or [""])[0].strip() or None
+    if not sensor_id and not (asset_id and metric_id):
+        return {"error": "Missing sensor_id or (asset_id + metric_id)"}
+    identity = chart_db.resolve_chart_identity(sensor_id, metric_id, asset_id)
+    return {
+        "sensor_id": sensor_id,
+        "metric_id": metric_id or identity.get("metric_id"),
+        "asset_id": asset_id or identity.get("asset_id"),
+        "point_id": identity.get("point_id"),
+        "unit": identity.get("unit"),
+    }
+
+
 def _series_rows(
     sensor_id: str,
     source: str,
@@ -93,6 +128,8 @@ def _series_rows(
     resolution: str,
     window_start: str | None = None,
     window_end: str | None = None,
+    metric_id: str | None = None,
+    asset_id: str | None = None,
 ) -> tuple[list[dict], dict]:
     if window_start and window_end:
         start_ts = _coerce_iso_utc(window_start)
@@ -104,37 +141,55 @@ def _series_rows(
         start_ts, end_ts = _bounded_iso_window(minutes)
         window_mode = "relative"
 
+    identity = chart_db.resolve_chart_identity(sensor_id, metric_id, asset_id)
+    filter_sql, filter_params = chart_db.build_series_filter_sql(
+        sensor_id,
+        metric_id,
+        asset_id,
+        include_metric_column=(resolution == "points"),
+    )
+
     if resolution == "points":
-        sql = """
-            SELECT ts, value, zone, source
+        sql = f"""
+            SELECT ts, value, zone, source, sensor_id, metric_id, unit
             FROM chart_points
-            WHERE sensor_id = ?
-              AND ts >= ?
+            WHERE ts >= ?
               AND ts <= ?
               AND (? = 'all' OR source = ?)
+              {filter_sql}
             ORDER BY ts ASC
         """
-        params = (sensor_id, start_ts, end_ts, source, source)
+        params: list = [start_ts, end_ts, source, source, *filter_params]
     else:
         table = "chart_rollups_1m" if resolution == "1m" else "chart_rollups_10s"
+        filter_sql, filter_params = chart_db.build_series_filter_sql(
+            sensor_id,
+            metric_id,
+            asset_id,
+            include_metric_column=False,
+        )
         sql = f"""
-            SELECT bucket_ts AS ts, source,
+            SELECT bucket_ts AS ts, source, sensor_id,
                    min_v, max_v, last_v, count_v,
                    (sum_v * 1.0 / NULLIF(count_v, 0)) AS avg_v
             FROM {table}
-            WHERE sensor_id = ?
-              AND bucket_ts >= ?
+            WHERE bucket_ts >= ?
               AND bucket_ts <= ?
               AND (? = 'all' OR source = ?)
+              {filter_sql}
             ORDER BY bucket_ts ASC
         """
-        params = (sensor_id, start_ts, end_ts, source, source)
+        params = [start_ts, end_ts, source, source, *filter_params]
 
     with chart_db.get_connection() as conn:
         rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
 
     meta = {
         "sensor_id": sensor_id,
+        "point_id": identity.get("point_id"),
+        "asset_id": identity.get("asset_id"),
+        "metric_id": identity.get("metric_id"),
+        "unit": identity.get("unit"),
         "source": source,
         "resolution": resolution,
         "window_mode": window_mode,
@@ -179,8 +234,9 @@ def _build_plotly_spec(
     value_key: str,
     source: str,
     show_thresholds: bool,
-    warning_temp: float,
-    critical_temp: float,
+    warning_temp: float | None,
+    critical_temp: float | None,
+    unit_label: str = "°C",
 ) -> dict:
     numeric_vals = [float(v) for v in y_vals if isinstance(v, (int, float))]
     y_min = min(numeric_vals) if numeric_vals else None
@@ -209,10 +265,16 @@ def _build_plotly_spec(
         },
     }
 
+    thresh_vals = [v for v in (warning_temp, critical_temp) if v is not None]
     if y_min is not None and y_max is not None:
-        spec["layout"]["yaxis"]["range"] = [min(y_min, warning_temp, critical_temp) - y_pad, max(y_max, warning_temp, critical_temp) + y_pad]
+        low = y_min
+        high = y_max
+        if thresh_vals:
+            low = min(low, *thresh_vals)
+            high = max(high, *thresh_vals)
+        spec["layout"]["yaxis"]["range"] = [low - y_pad, high + y_pad]
 
-    if show_thresholds and x_vals:
+    if show_thresholds and x_vals and warning_temp is not None and critical_temp is not None:
         # Horizontal threshold overlays for quick visual zone-crossing detection.
         shapes = [
             {
@@ -242,7 +304,7 @@ def _build_plotly_spec(
                 "y": warning_temp,
                 "xref": "x",
                 "yref": "y",
-                "text": f"WARNING {warning_temp:.1f}°C",
+                "text": f"WARNING {warning_temp:.1f}{unit_label}",
                 "showarrow": False,
                 "xanchor": "left",
                 "font": {"size": 11, "color": "#b45309"},
@@ -253,7 +315,7 @@ def _build_plotly_spec(
                 "y": critical_temp,
                 "xref": "x",
                 "yref": "y",
-                "text": f"CRITICAL {critical_temp:.1f}°C",
+                "text": f"CRITICAL {critical_temp:.1f}{unit_label}",
                 "showarrow": False,
                 "xanchor": "left",
                 "font": {"size": 11, "color": "#991b1b"},
@@ -338,32 +400,49 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
 
     def _handle_sensors(self, q: dict):
         minutes = _parse_int((q.get("minutes") or ["120"])[0], default=120, min_v=1, max_v=24 * 60)
+        metric_filter = (q.get("metric_id") or [""])[0].strip() or None
         start_ts, end_ts = _bounded_iso_window(minutes)
         with chart_db.get_connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT sensor_id, source, COUNT(*) AS buckets,
-                       MIN(bucket_ts) AS first_ts, MAX(bucket_ts) AS last_ts
-                FROM chart_rollups_1m
-                WHERE bucket_ts >= ? AND bucket_ts <= ?
-                GROUP BY sensor_id, source
-                ORDER BY buckets DESC, sensor_id ASC
-                """,
-                (start_ts, end_ts),
-            ).fetchall()
+            if metric_filter:
+                rows = conn.execute(
+                    """
+                    SELECT sensor_id, source, COUNT(*) AS buckets,
+                           MIN(bucket_ts) AS first_ts, MAX(bucket_ts) AS last_ts
+                    FROM chart_rollups_1m
+                    WHERE bucket_ts >= ? AND bucket_ts <= ?
+                      AND sensor_id LIKE ?
+                    GROUP BY sensor_id, source
+                    ORDER BY buckets DESC, sensor_id ASC
+                    """,
+                    (start_ts, end_ts, f"%:{metric_filter}"),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT sensor_id, source, COUNT(*) AS buckets,
+                           MIN(bucket_ts) AS first_ts, MAX(bucket_ts) AS last_ts
+                    FROM chart_rollups_1m
+                    WHERE bucket_ts >= ? AND bucket_ts <= ?
+                    GROUP BY sensor_id, source
+                    ORDER BY buckets DESC, sensor_id ASC
+                    """,
+                    (start_ts, end_ts),
+                ).fetchall()
         self._send_json(
             {
                 "window_start_utc": start_ts,
                 "window_end_utc": end_ts,
+                "metric_filter": metric_filter,
                 "rows": [dict(r) for r in rows],
             }
         )
 
     def _handle_series(self, q: dict):
-        sensor_id = (q.get("sensor_id") or [""])[0].strip()
-        if not sensor_id:
-            self._send_json({"error": "Missing required query parameter: sensor_id"}, status=HTTPStatus.BAD_REQUEST)
+        parsed = _parse_chart_query_params(q)
+        if parsed.get("error"):
+            self._send_json({"error": parsed["error"]}, status=HTTPStatus.BAD_REQUEST)
             return
+        sensor_id = parsed["sensor_id"]
 
         source = (q.get("source") or ["filtered"])[0].strip().lower()
         if source not in ("filtered", "suppressed", "all"):
@@ -388,6 +467,8 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
             resolution=resolution,
             window_start=window_start,
             window_end=window_end,
+            metric_id=parsed.get("metric_id"),
+            asset_id=parsed.get("asset_id"),
         )
         if resolution == "points" and value_key in ("avg_v", "last_v", "min_v", "max_v"):
             value_key = "value"
@@ -408,10 +489,11 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
         )
 
     def _handle_plotly_spec(self, q: dict):
-        sensor_id = (q.get("sensor_id") or [""])[0].strip()
-        if not sensor_id:
-            self._send_json({"error": "Missing required query parameter: sensor_id"}, status=HTTPStatus.BAD_REQUEST)
+        parsed = _parse_chart_query_params(q)
+        if parsed.get("error"):
+            self._send_json({"error": parsed["error"]}, status=HTTPStatus.BAD_REQUEST)
             return
+        sensor_id = parsed["sensor_id"]
 
         source = (q.get("source") or ["filtered"])[0].strip().lower()
         if source not in ("filtered", "suppressed", "all"):
@@ -426,8 +508,15 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
         window_start = (q.get("window_start") or [None])[0]
         window_end = (q.get("window_end") or [None])[0]
         show_thresholds = _parse_bool((q.get("show_thresholds") or [None])[0], default=True)
-        warning_temp = _parse_float((q.get("warning_temp") or [None])[0], DEFAULT_WARNING_TEMP)
-        critical_temp = _parse_float((q.get("critical_temp") or [None])[0], DEFAULT_CRITICAL_TEMP)
+        metric_id = parsed.get("metric_id")
+        warn_default, crit_default, unit_default = _thresholds_for_metric(metric_id)
+        warning_temp = _parse_float((q.get("warning_temp") or [None])[0], warn_default or DEFAULT_WARNING_TEMP)
+        critical_temp = _parse_float((q.get("critical_temp") or [None])[0], crit_default or DEFAULT_CRITICAL_TEMP)
+        if warn_default is None and crit_default is None:
+            show_thresholds = False
+        unit_label = unit_default or ""
+        if unit_label and not unit_label.startswith(("°", "%")):
+            unit_label = f" {unit_label}"
         value_key = (q.get("value_key") or ["avg_v"])[0].strip().lower()
         if value_key not in ("avg_v", "last_v", "value", "min_v", "max_v"):
             value_key = "avg_v"
@@ -439,6 +528,8 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
             resolution=resolution,
             window_start=window_start,
             window_end=window_end,
+            metric_id=parsed.get("metric_id"),
+            asset_id=parsed.get("asset_id"),
         )
         if resolution == "points" and value_key in ("avg_v", "last_v", "min_v", "max_v"):
             value_key = "value"
@@ -449,7 +540,8 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
         x_vals = [r["ts"] for r in payload["rows"]]
         y_vals = payload["values"]
 
-        title = f"{sensor_id} {source} {resolution} ({minutes}m)"
+        title_metric = metric_id or meta.get("metric_id") or "series"
+        title = f"{meta.get('point_id') or sensor_id} {title_metric} {source} {resolution} ({minutes}m)"
         plotly_spec = _build_plotly_spec(
             x_vals,
             y_vals,
@@ -457,8 +549,9 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
             value_key=value_key,
             source=source,
             show_thresholds=show_thresholds,
-            warning_temp=warning_temp,
-            critical_temp=critical_temp,
+            warning_temp=warning_temp if show_thresholds else None,
+            critical_temp=critical_temp if show_thresholds else None,
+            unit_label=unit_label,
         )
 
         self._send_json(
@@ -478,10 +571,11 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
         )
 
     def _handle_plotly_html(self, q: dict):
-        sensor_id = (q.get("sensor_id") or [""])[0].strip()
-        if not sensor_id:
-            self._send_json({"error": "Missing required query parameter: sensor_id"}, status=HTTPStatus.BAD_REQUEST)
+        parsed = _parse_chart_query_params(q)
+        if parsed.get("error"):
+            self._send_json({"error": parsed["error"]}, status=HTTPStatus.BAD_REQUEST)
             return
+        sensor_id = parsed["sensor_id"]
 
         source = (q.get("source") or ["filtered"])[0].strip().lower()
         if source not in ("filtered", "suppressed", "all"):
@@ -496,8 +590,15 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
         window_start = (q.get("window_start") or [None])[0]
         window_end = (q.get("window_end") or [None])[0]
         show_thresholds = _parse_bool((q.get("show_thresholds") or [None])[0], default=True)
-        warning_temp = _parse_float((q.get("warning_temp") or [None])[0], DEFAULT_WARNING_TEMP)
-        critical_temp = _parse_float((q.get("critical_temp") or [None])[0], DEFAULT_CRITICAL_TEMP)
+        metric_id = parsed.get("metric_id")
+        warn_default, crit_default, unit_default = _thresholds_for_metric(metric_id)
+        warning_temp = _parse_float((q.get("warning_temp") or [None])[0], warn_default or DEFAULT_WARNING_TEMP)
+        critical_temp = _parse_float((q.get("critical_temp") or [None])[0], crit_default or DEFAULT_CRITICAL_TEMP)
+        if warn_default is None and crit_default is None:
+            show_thresholds = False
+        unit_label = unit_default or ""
+        if unit_label and not unit_label.startswith(("°", "%")):
+            unit_label = f" {unit_label}"
         value_key = (q.get("value_key") or ["avg_v"])[0].strip().lower()
         if value_key not in ("avg_v", "last_v", "value", "min_v", "max_v"):
             value_key = "avg_v"
@@ -509,6 +610,8 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
             resolution=resolution,
             window_start=window_start,
             window_end=window_end,
+            metric_id=parsed.get("metric_id"),
+            asset_id=parsed.get("asset_id"),
         )
         if resolution == "points" and value_key in ("avg_v", "last_v", "min_v", "max_v"):
             value_key = "value"
@@ -518,7 +621,8 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
         payload = _series_payload(rows=rows, max_points=max_points, value_key=value_key)
         x_vals = [r["ts"] for r in payload["rows"]]
         y_vals = payload["values"]
-        title = f"{sensor_id} {source} {resolution} ({minutes}m)"
+        title_metric = metric_id or meta.get("metric_id") or "series"
+        title = f"{meta.get('point_id') or sensor_id} {title_metric} {source} {resolution} ({minutes}m)"
 
         spec = _build_plotly_spec(
             x_vals,
@@ -527,14 +631,18 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
             value_key=value_key,
             source=source,
             show_thresholds=show_thresholds,
-            warning_temp=warning_temp,
-            critical_temp=critical_temp,
+            warning_temp=warning_temp if show_thresholds else None,
+            critical_temp=critical_temp if show_thresholds else None,
+            unit_label=unit_label,
         )
 
+        thresh_note = ""
+        if show_thresholds and warning_temp is not None and critical_temp is not None:
+            thresh_note = f" (W={warning_temp:.1f}{unit_label}, C={critical_temp:.1f}{unit_label})"
         meta_html = (
             f"window={meta.get('window_start_utc')}..{meta.get('window_end_utc')} | "
             f"rows={payload['stats'].get('source_row_count')} rendered={payload['stats'].get('rendered_row_count')} | "
-            f"thresholds={'on' if show_thresholds else 'off'} (W={warning_temp:.1f} C, C={critical_temp:.1f} C)"
+            f"thresholds={'on' if show_thresholds else 'off'}{thresh_note}"
         )
 
         html = f"""<!doctype html>
@@ -576,6 +684,7 @@ def main():
     server = ThreadingHTTPServer((HOST, PORT), ChartQueryHandler)
     print(f"[ChartQuery] Listening on http://{HOST}:{PORT}")
     print("[ChartQuery] Endpoints: /health, /sensors, /series, /plotly-spec, /plotly-html")
+    print("[ChartQuery] Query params: sensor_id or asset_id+metric_id; optional metric_id filter on /sensors")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

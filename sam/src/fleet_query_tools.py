@@ -522,6 +522,8 @@ def get_chart_series(
     resolution: str = "1m",
     max_points: int = 120,
     compact: bool = True,
+    metric_id: str = None,
+    asset_id: str = None,
 ) -> str:
     """
     Fetch chart-ready deterministic series from chart_query_service.
@@ -530,7 +532,9 @@ def get_chart_series(
     It avoids large SQL payloads and returns a compact labels/values+stats bundle.
 
     Args:
-        sensor_id: Cooling asset/sensor id (e.g. m3-temp-motor)
+        sensor_id: Probe or point id (e.g. m3-temp-motor, m1-humidity, machine-001:humidity_rh)
+        metric_id: Optional metric filter (humidity_rh, motor_vibration_mm_s, inlet_temp_c, …)
+        asset_id: Optional asset when using metric_id without probe id (e.g. machine-001)
         minutes: Relative lookback window in minutes
         source: filtered|suppressed|all
         resolution: 1m|10s|points
@@ -549,6 +553,10 @@ def get_chart_series(
             "resolution": resolution,
             "max_points": int(max_points),
         }
+        if metric_id:
+            params["metric_id"] = metric_id
+        if asset_id:
+            params["asset_id"] = asset_id
         url = f"{internal}/series?{urlencode(params)}"
 
         with urlopen(url, timeout=8) as resp:
@@ -594,6 +602,8 @@ def get_plotly_spec(
     resolution: str = "1m",
     max_points: int = 120,
     value_key: str = "avg_v",
+    metric_id: str = None,
+    asset_id: str = None,
 ) -> str:
     """
     Fetch deterministic Plotly figure spec JSON from chart_query_service.
@@ -610,6 +620,10 @@ def get_plotly_spec(
             "max_points": int(max_points),
             "value_key": value_key,
         }
+        if metric_id:
+            params["metric_id"] = metric_id
+        if asset_id:
+            params["asset_id"] = asset_id
         url = f"{internal}/plotly-spec?{urlencode(params)}"
 
         with urlopen(url, timeout=8) as resp:

@@ -3,12 +3,18 @@
 chart_db.py
 ===========
 Minimal SQLite helper for charting rollups.
+
+Series key: ``sensor_id`` column stores canonical ``point_id`` (e.g. machine-001:humidity_rh).
+Optional ``asset_id`` / ``metric_id`` columns support filtered queries.
 """
 
 import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
+
+import pipeline_config as config
 
 
 DB_PATH = os.getenv(
@@ -92,6 +98,134 @@ def init_database():
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_rollups1m_sensor_ts ON chart_rollups_1m(sensor_id, bucket_ts)"
         )
+        _migrate_chart_points_columns(conn)
+
+
+def _migrate_chart_points_columns(conn: sqlite3.Connection) -> None:
+    """Add multi-metric columns to existing chart_points tables."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(chart_points)")}
+    for col, typ in (
+        ("point_id", "TEXT"),
+        ("asset_id", "TEXT"),
+        ("metric_id", "TEXT"),
+        ("unit", "TEXT"),
+    ):
+        if col not in existing:
+            conn.execute(f"ALTER TABLE chart_points ADD COLUMN {col} {typ}")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chart_points_asset_metric_ts "
+        "ON chart_points(asset_id, metric_id, ts)"
+    )
+
+
+def resolve_chart_identity(
+    sensor_id: str = "",
+    metric_id: Optional[str] = None,
+    asset_id: Optional[str] = None,
+    payload: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Optional[str]]:
+    """
+    Resolve chart series identity from probe id, point id, or asset+metric.
+
+    Returns dict with point_id (stored as sensor_id), asset_id, metric_id, unit.
+    """
+    payload = payload or {}
+    if payload:
+        fields = {
+            "point_id": payload.get("pointId"),
+            "asset_id": payload.get("asset"),
+            "metric_id": payload.get("metric"),
+            "unit": payload.get("unit"),
+            "legacy_probe": payload.get("sensorId"),
+        }
+    else:
+        fields = {
+            "point_id": None,
+            "asset_id": asset_id,
+            "metric_id": metric_id,
+            "unit": None,
+            "legacy_probe": sensor_id,
+        }
+
+    pid = (fields.get("point_id") or "").strip() or None
+    aid = (fields.get("asset_id") or "").strip() or None
+    mid = (fields.get("metric_id") or "").strip() or None
+    probe = (fields.get("legacy_probe") or sensor_id or "").strip() or None
+
+    if not pid and aid and mid:
+        pid = config.make_point_id(aid, mid)
+    if not pid and probe:
+        from sensor_db import _demo_asset_metric_from_probe
+
+        demo_asset, demo_metric = _demo_asset_metric_from_probe(probe)
+        if demo_asset and demo_metric:
+            aid = aid or demo_asset
+            mid = mid or demo_metric
+            pid = config.make_point_id(demo_asset, demo_metric)
+        else:
+            pid, resolved_asset, resolved_metric = config.resolve_point_id(
+                {"sensorId": probe, "asset": aid, "metric": mid}, {}
+            )
+            if pid:
+                aid = aid or resolved_asset
+                mid = mid or resolved_metric
+
+    if not pid and probe:
+        pid = probe
+    if not mid and pid and config.POINT_ID_SEPARATOR in pid:
+        _, mid = pid.split(config.point_id_separator(), 1)
+    if not aid and pid and config.POINT_ID_SEPARATOR in pid:
+        aid, _ = pid.split(config.point_id_separator(), 1)
+
+    unit = fields.get("unit") or (config._metric_rule(mid or "").get("unit") if mid else None)
+    return {
+        "point_id": pid,
+        "asset_id": aid,
+        "metric_id": mid,
+        "unit": str(unit) if unit else None,
+    }
+
+
+def build_series_filter_sql(
+    sensor_id: str = "",
+    metric_id: Optional[str] = None,
+    asset_id: Optional[str] = None,
+    *,
+    sensor_col: str = "sensor_id",
+    include_metric_column: bool = True,
+) -> Tuple[str, List[Any]]:
+    """
+    Build SQL ``AND (...)` clause matching a chart series.
+
+    Matches point_id/sensor_id, asset+metric pair, or demo probe ids (m1-humidity).
+    """
+    identity = resolve_chart_identity(sensor_id, metric_id, asset_id)
+    clauses: List[str] = []
+    params: List[Any] = []
+
+    pid = identity.get("point_id")
+    if pid:
+        clauses.append(f"{sensor_col} = ?")
+        params.append(pid)
+
+    aid, mid = identity.get("asset_id"), identity.get("metric_id")
+    if aid and mid:
+        if include_metric_column:
+            clauses.append("(asset_id = ? AND metric_id = ?)")
+            params.extend([aid, mid])
+        else:
+            clauses.append(f"{sensor_col} = ?")
+            params.append(config.make_point_id(aid, mid))
+
+    if metric_id and include_metric_column and not mid:
+        clauses.append("metric_id = ?")
+        params.append(metric_id)
+
+    if not clauses:
+        clauses.append(f"{sensor_col} = ?")
+        params.append(sensor_id or "")
+
+    return f" AND ({' OR '.join(clauses)})", params
 
 
 def _parse_ts(ts_str: str) -> datetime:
@@ -119,7 +253,23 @@ def _upsert_rollup(conn: sqlite3.Connection, table: str, bucket_ts: str, sensor_
     )
 
 
-def write_point_and_rollups(ts: str, sensor_id: str, value: float, source: str, zone: str = None):
+def write_point_and_rollups(
+    ts: str,
+    sensor_id: str,
+    value: float,
+    source: str,
+    zone: str = None,
+    *,
+    point_id: Optional[str] = None,
+    asset_id: Optional[str] = None,
+    metric_id: Optional[str] = None,
+    unit: Optional[str] = None,
+):
+    identity = resolve_chart_identity(sensor_id, metric_id, asset_id)
+    series_id = point_id or identity.get("point_id") or sensor_id
+    if not series_id:
+        return
+
     dt = _parse_ts(ts)
     b10s = _bucket_iso(dt, 10)
     b1m = _bucket_iso(dt, 60)
@@ -127,10 +277,21 @@ def write_point_and_rollups(ts: str, sensor_id: str, value: float, source: str, 
     with get_connection() as conn:
         conn.execute(
             """
-            INSERT INTO chart_points (ts, sensor_id, value, zone, source)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO chart_points
+                (ts, sensor_id, value, zone, source, point_id, asset_id, metric_id, unit)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (ts, sensor_id, value, zone, source),
+            (
+                ts,
+                series_id,
+                value,
+                zone,
+                source,
+                series_id,
+                identity.get("asset_id"),
+                identity.get("metric_id"),
+                unit or identity.get("unit"),
+            ),
         )
-        _upsert_rollup(conn, "chart_rollups_10s", b10s, sensor_id, source, value)
-        _upsert_rollup(conn, "chart_rollups_1m", b1m, sensor_id, source, value)
+        _upsert_rollup(conn, "chart_rollups_10s", b10s, series_id, source, value)
+        _upsert_rollup(conn, "chart_rollups_1m", b1m, series_id, source, value)

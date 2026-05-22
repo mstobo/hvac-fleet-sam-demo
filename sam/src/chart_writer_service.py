@@ -15,38 +15,33 @@ Writes:
 
 import json
 import time
-from datetime import datetime
 
 import chart_db
 import pipeline_config as config
 
 
-def _coerce_ts(payload: dict) -> str:
-    return payload.get("timestamp", payload.get("ts", datetime.utcnow().isoformat() + "Z"))
-
-
-def _extract_sensor_id(payload: dict) -> str:
-    return payload.get("sensorId") or payload.get("asset")
-
-
 def _extract_value(payload: dict):
-    return payload.get("temperature", payload.get("value"))
+    return config.observation_value(payload)
 
 
 def _write(payload: dict, source: str):
-    sensor_id = _extract_sensor_id(payload)
     value = _extract_value(payload)
-    if not sensor_id or value is None:
+    identity = chart_db.resolve_chart_identity(payload=payload)
+    point_id = identity.get("point_id")
+    if not point_id or value is None:
         return False
 
-    ts = _coerce_ts(payload)
-    zone = payload.get("zone")
+    ts = payload.get("timestamp") or payload.get("ts") or config.now_utc_iso()
     chart_db.write_point_and_rollups(
         ts=ts,
-        sensor_id=sensor_id,
+        sensor_id=point_id,
         value=float(value),
         source=source,
-        zone=zone,
+        zone=payload.get("zone"),
+        point_id=point_id,
+        asset_id=identity.get("asset_id"),
+        metric_id=identity.get("metric_id"),
+        unit=identity.get("unit"),
     )
     return True
 

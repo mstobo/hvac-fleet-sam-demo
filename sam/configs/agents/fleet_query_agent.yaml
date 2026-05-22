@@ -156,8 +156,9 @@ apps:
         | "Any alerts?" | get_recent_alerts() | YES |
         | "Fleet status?" | get_fleet_status() | YES |
         | "Detailed analysis of incident" | get_incident_context(sensor_id, minutes) first | NO - dig deeper |
-        | "Chart/trend for one asset over time" | get_chart_series(sensor_id, minutes, source='filtered') | YES |
-        | "Need Plotly chart spec/JSON" | get_plotly_spec(sensor_id, minutes, source='filtered') | YES |
+        | "Chart/trend for one asset over time" | get_chart_series(sensor_id, minutes, source='filtered'; optional metric_id) | YES |
+        | "Humidity/vibration chart" | get_chart_series('m1-humidity', …) or metric_id='humidity_rh' | YES |
+        | "Need Plotly chart spec/JSON" | get_plotly_spec(sensor_id, minutes, source='filtered'; optional metric_id) | YES |
         
         PROHIBITED unless user asks for detail:
         - Creating artifacts/reports
