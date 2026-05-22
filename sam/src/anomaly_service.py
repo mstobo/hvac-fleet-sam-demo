@@ -40,7 +40,7 @@ except ImportError:
     print("[Anomaly] Fleet alert analyzer not available")
 
 # ── Fleet Tracking State ─────────────────────────────────────────────────────
-_sensor_zones = {}        # sensor_id -> current zone
+_sensor_zones = {}        # point_id -> current zone
 _last_fleet_update = 0
 _last_fleet_slack_status = None
 _last_fleet_slack_sent_at = 0.0
@@ -107,8 +107,11 @@ def generate_alert(data):
     Returns:
         dict with alert details, or None if no alert needed
     """
-    sensor_id = data["sensorId"]
-    temperature = data["temperature"]
+    fields = sensor_db.fields_from_pipeline_message(data)
+    sensor_id = fields["sensor_id"]
+    point_id = fields["point_id"]
+    metric_id = fields["metric_id"]
+    temperature = fields["value"] if fields["value"] is not None else data["temperature"]
     zone = data["zone"]
     delta_pct = data.get("delta_pct", 0)
     forwarded_reason = data.get("forwarded_reason", "unknown")
@@ -157,7 +160,12 @@ def generate_alert(data):
         severity=severity,
         alert_type=alert_type,
         description=description,
-        timestamp=timestamp
+        timestamp=timestamp,
+        point_id=point_id,
+        asset_id=fields["asset_id"],
+        metric_id=metric_id,
+        value=temperature,
+        unit=fields.get("unit"),
     )
     
     # Slack: only true CRITICAL severity (skip HIGH — CRITICAL zone but temp < 70°C)
@@ -183,7 +191,10 @@ def generate_alert(data):
         "schema": config.SCHEMA_EVENT,
         "schemaRevision": config.SCHEMA_REVISION,
         "eventType": "CoolingDriftDetected" if alert_type in ["SPIKE", "ELEVATED_READING"] else "IncidentUpdated",
+        "pointId": point_id,
         "sensorId": sensor_id,
+        "metric": metric_id,
+        "value": temperature,
         "site": site,
         "room": room,
         "incidentId": incident_id,
@@ -301,31 +312,36 @@ def on_message(client, userdata, msg):
     try:
         data = json.loads(msg.payload.decode())
         
-        sensor_id = data.get("sensorId")
-        temperature = data.get("temperature")
+        fields = sensor_db.fields_from_pipeline_message(data)
+        point_id = fields["point_id"]
+        sensor_id = fields["sensor_id"]
+        temperature = fields["value"]
         zone = data.get("zone")
-        
-        if not sensor_id or temperature is None:
+
+        if not point_id or temperature is None or zone is None:
             return
-        
-        # Track sensor zone for fleet status
-        _sensor_zones[sensor_id] = zone
-        
-        # Write reading to database
+
+        _sensor_zones[point_id] = zone
+
         sensor_db.insert_reading(
             sensor_id=sensor_id,
             temperature=temperature,
-            timestamp=data.get("timestamp", datetime.utcnow().isoformat() + "Z"),
-            delta_percent=data.get("delta_pct", 0)
+            timestamp=data.get("timestamp", data.get("ts", config.now_utc_iso())),
+            delta_percent=data.get("delta_pct", 0),
+            point_id=point_id,
+            asset_id=fields["asset_id"],
+            metric_id=fields["metric_id"],
+            value=temperature,
+            unit=fields.get("unit"),
         )
         
         # Check for anomalies
         if zone == "NORMAL":
-            print(f"[Anomaly] SKIP | {sensor_id} zone=NORMAL")
+            print(f"[Anomaly] SKIP | {point_id} zone=NORMAL")
         else:
             alert = generate_alert(data)
             if alert:
-                print(f"[Anomaly] ALERT {alert['severity']} | {sensor_id} | {alert['alert_type']}")
+                print(f"[Anomaly] ALERT {alert['severity']} | {point_id} | {alert['alert_type']}")
                 client.publish(config.TOPIC_ALERTS, json.dumps(alert))
                 event_topic = config.build_event_topic(
                     alert.get("site", config.DEFAULT_SITE),
