@@ -5,11 +5,16 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pipeline_config as config  # noqa: E402
 import sensor_db  # noqa: E402
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 class SensorDbTelemetryTests(unittest.TestCase):
@@ -99,6 +104,44 @@ class SensorDbTelemetryTests(unittest.TestCase):
             self.assertEqual(
                 conn.execute("SELECT COUNT(*) FROM telemetry_readings").fetchone()[0], 0
             )
+
+    def test_get_sensor_history_reads_telemetry(self):
+        ts = _utc_now()
+        sensor_db.insert_reading(
+            "m1-humidity",
+            55.0,
+            ts,
+            point_id="machine-001:humidity_rh",
+            asset_id="machine-001",
+            metric_id="humidity_rh",
+            value=55.0,
+            unit="%RH",
+        )
+        rows = sensor_db.get_sensor_history("m1-humidity", minutes=60)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["metric_id"], "humidity_rh")
+        self.assertEqual(rows[0]["value"], 55.0)
+        self.assertEqual(rows[0]["sensor_id"], "machine-001:humidity_rh")
+
+    def test_get_recent_alerts_by_metric(self):
+        ts = _utc_now()
+        sensor_db.insert_alert(
+            "m3-vibration",
+            3.5,
+            "CRITICAL",
+            "CRITICAL",
+            "THRESHOLD_BREACH",
+            "High vibration",
+            ts,
+            point_id="machine-003:motor_vibration_mm_s",
+            asset_id="machine-003",
+            metric_id="motor_vibration_mm_s",
+            value=3.5,
+            unit="mm/s",
+        )
+        rows = sensor_db.get_recent_alerts(minutes=60, metric_id="motor_vibration_mm_s")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["metric_id"], "motor_vibration_mm_s")
 
 
 if __name__ == "__main__":
