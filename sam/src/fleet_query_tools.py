@@ -37,6 +37,23 @@ def _is_browser_unreachable_chart_base(url: str) -> bool:
     return host in _BROWSER_UNREACHABLE_HOSTS
 
 
+def _normalize_chart_public_base(url: str) -> str:
+    """
+    Normalize CHART_PUBLIC_BASE_URL for HTTP requests.
+
+    Common mistake: ``http://host/#charts`` (browser hash from the dashboard SPA).
+    Fragments are never sent to Apache — use path ``http://host/charts`` instead.
+    """
+    u = (url or "").strip().rstrip("/")
+    if not u:
+        return ""
+    # http://host/#charts or http://host#charts → http://host/charts
+    if "#charts" in u.lower():
+        base = u.split("#", 1)[0].rstrip("/")
+        u = f"{base}/charts"
+    return u.rstrip("/")
+
+
 def _derive_public_chart_base_from_dashboard_host() -> str:
     """
     When CHART_PUBLIC_BASE_URL is unset, build a browser/Slack-safe base from
@@ -60,7 +77,7 @@ def _chart_query_internal_public_bases() -> Tuple[str, str]:
     outside Docker (not chart-query).
     """
     internal = os.getenv("CHART_QUERY_BASE_URL", "http://127.0.0.1:8010").rstrip("/")
-    pub = os.getenv("CHART_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    pub = _normalize_chart_public_base(os.getenv("CHART_PUBLIC_BASE_URL", ""))
     if pub:
         return internal, pub
     if not _is_browser_unreachable_chart_base(internal):
