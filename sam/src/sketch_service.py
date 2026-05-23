@@ -17,10 +17,11 @@ The sketch generation is pure Python string formatting, not AI.
 
 import json
 import time
-from datetime import datetime
 
 import pipeline_config as config
 import sensor_db
+
+log = config.get_logger("Sketch")
 
 SKETCH_DB_BATCH_SIZE = 100
 SKETCH_DB_FLUSH_INTERVAL_SEC = 0.5
@@ -79,7 +80,7 @@ def generate_sketch(data):
     win_max = window.get("max", temperature)
     delta_pct_pct = delta_pct * 100
     
-    timestamp = datetime.utcnow().isoformat() + "Z"
+    timestamp = config.now_utc_iso()
     
     # Generate natural language summary
     suffix = f" {unit_label}".rstrip() if unit_label else ""
@@ -147,11 +148,11 @@ def generate_sketch(data):
 
 def on_connect(client, userdata, flags, reason_code, properties=None):
     if reason_code == 0:
-        print(f"[Sketch] Connected to {config.BROKER_HOST}")
+        log.info("connected to %s", config.BROKER_HOST)
         client.subscribe(config.TOPIC_FILTERED)
-        print(f"[Sketch] Subscribed to {config.TOPIC_FILTERED}")
+        log.info("subscribed to %s", config.TOPIC_FILTERED)
     else:
-        print(f"[Sketch] Connection failed (rc={reason_code})")
+        log.error("connection failed rc=%s", reason_code)
 
 
 def on_message(client, userdata, msg):
@@ -167,51 +168,51 @@ def on_message(client, userdata, msg):
         # Generate sketch
         result = generate_sketch(data)
         payload = json.dumps(result)
-        client.publish(config.TOPIC_SKETCHED, payload)
-        client.publish(
+        config.publish_checked(client, config.TOPIC_SKETCHED, payload, source="Sketch")
+        config.publish_checked(
+            client,
             config.build_sketch_topic(
                 result["site"],
                 result["room"],
                 result["incidentId"],
             ),
             payload,
+            source="Sketch",
         )
 
-        # Throttle per-message logs to reduce stdout overhead at high throughput.
+        # Per-message detail at DEBUG; periodic counter at INFO so operators get a heartbeat
+        # without the firehose. (LOG_LEVEL=DEBUG reveals each message.)
         _processed_count += 1
+        log.debug("sketched %s zone=%s", result["sensorId"], result["zone"])
         if _processed_count % SKETCH_LOG_EVERY_N == 0:
-            print(
-                f"[Sketch] processed={_processed_count} "
-                f"buffered={len(_sketch_buffer)} "
-                f"last={result['sensorId']}:{result['zone']}"
+            log.info(
+                "processed=%d buffered=%d last=%s:%s",
+                _processed_count, len(_sketch_buffer), result["sensorId"], result["zone"],
             )
-        
-    except Exception as e:
-        print(f"[Sketch] Error: {e}")
+
+    except Exception:
+        log.exception("error processing message on %s", msg.topic)
 
 
 def main():
-    # Initialize the database
-    print("[Sketch] Initializing SQLite database...")
+    log.info("initializing SQLite database at %s", sensor_db.get_db_path())
     sensor_db.init_database()
-    
+
     config.print_service_banner(
         "Sketch Generator",
         config.TOPIC_FILTERED,
         config.TOPIC_SKETCHED
     )
-    print(f"  Database : {sensor_db.get_db_path()}")
-    print(f"{'='*65}\n")
-    
+
     client = config.create_mqtt_client("sketch")
     client.on_connect = on_connect
     client.on_message = on_message
-    
+
     try:
         client.connect(config.BROKER_HOST, config.BROKER_PORT, keepalive=60)
         client.loop_forever()
     except KeyboardInterrupt:
-        print("\n[Sketch] Stopped by user.")
+        log.info("stopped by user")
     finally:
         _flush_sketch_buffer(force=True)
         client.disconnect()

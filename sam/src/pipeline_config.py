@@ -20,6 +20,7 @@ Environment variables:
 """
 
 import json
+import logging
 import os
 import re
 import ssl
@@ -27,6 +28,37 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
+
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+# Shared logger factory for pipeline services. Controlled by LOG_LEVEL env var
+# (default INFO). Operators can flip to DEBUG to see every per-message
+# disposition; production stays quiet at INFO.
+_LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+_logging_configured = False
+
+
+def _configure_logging_once() -> None:
+    """Set up basicConfig the first time a logger is requested. Skipped if some other
+    framework (SAM, pytest, custom dictConfig) has already attached a root handler —
+    so this never clobbers a more sophisticated logging setup."""
+    global _logging_configured
+    if _logging_configured:
+        return
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=_LOG_LEVEL,
+            format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%S",
+        )
+    _logging_configured = True
+
+
+def get_logger(name: str) -> logging.Logger:
+    """Return a logger whose name is rendered as %(name)s in the format string,
+    reproducing the historical [ServiceName] prefix without any per-message work."""
+    _configure_logging_once()
+    return logging.getLogger(name)
 
 
 def _resolve_broker_from_env():
@@ -65,6 +97,38 @@ def _resolve_broker_from_env():
 # ── Broker Configuration ─────────────────────────────────────────────────────
 BROKER_HOST, BROKER_PORT, USERNAME, PASSWORD = _resolve_broker_from_env()
 USE_TLS = os.getenv("SOLACE_TLS", "true").lower() in ("true", "1", "yes")
+
+# Placeholder values returned by _resolve_broker_from_env when env vars are missing.
+# Any of these reaching a connect() call almost certainly means a missing/wrong .env.
+_PLACEHOLDER_VALUES = frozenset({
+    "YOUR_BROKER.messaging.solace.cloud",
+    "YOUR_USERNAME",
+    "YOUR_PASSWORD",
+})
+_broker_config_validated = False
+
+
+def validate_broker_config() -> None:
+    """
+    Fail fast when broker env vars are missing or still placeholders. Idempotent —
+    safe to call from multiple entry points. Catches the common "I forgot to source
+    .env" mistake before paho buries it under a confusing TLS/DNS error.
+    """
+    global _broker_config_validated
+    if _broker_config_validated:
+        return
+    problems = []
+    if not BROKER_HOST or BROKER_HOST in _PLACEHOLDER_VALUES:
+        problems.append(f"BROKER_HOST={BROKER_HOST!r} — set SOLACE_BROKER_URL or SOLACE_HOST")
+    if not USERNAME or USERNAME in _PLACEHOLDER_VALUES:
+        problems.append(f"USERNAME={USERNAME!r} — set SOLACE_BROKER_USERNAME (or SOLACE_USER)")
+    if not PASSWORD or PASSWORD in _PLACEHOLDER_VALUES:
+        problems.append("PASSWORD is empty or placeholder — set SOLACE_BROKER_PASSWORD (or SOLACE_PASS)")
+    if problems:
+        msg = "Broker configuration is incomplete:\n  - " + "\n  - ".join(problems)
+        msg += "\nSource sam/.env (laptop) or deploy/aws/.env (compose) before starting the service."
+        raise SystemExit(msg)
+    _broker_config_validated = True
 
 # ── Topic Namespace and Schemas ──────────────────────────────────────────────
 DC_NAMESPACE = os.getenv("DC_NAMESPACE", "dc")
@@ -415,13 +479,27 @@ def now_utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def publish_checked(client, topic: str, payload, *, qos: int = 0, source: str = "pipeline") -> bool:
+    """
+    Wrapper around client.publish that surfaces *local* publish failures (Paho can't queue —
+    e.g. disconnected, queue full, message too large). At QoS 0 there's no broker ack to wait for,
+    so this is the best we can do without changing semantics. Returns True when queued, else False.
+    """
+    info = client.publish(topic, payload, qos=qos)
+    if info.rc != mqtt.MQTT_ERR_SUCCESS:
+        get_logger(source).warning("PUBLISH-DROPPED rc=%s topic=%s", info.rc, topic)
+        return False
+    return True
+
+
 def create_mqtt_client(service_name: str, userdata: dict = None):
     """Create and configure an MQTT client for a pipeline service."""
+    validate_broker_config()
     import paho.mqtt.client as mqtt
 
     if userdata is None:
         userdata = {}
-    
+
     client = mqtt.Client(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         client_id=f"{service_name}-{int(time.time())}",
@@ -437,14 +515,14 @@ def create_mqtt_client(service_name: str, userdata: dict = None):
 
 
 def print_service_banner(service_name: str, subscribe_topic: str, publish_topic: str = None):
-    """Print startup banner for a pipeline service."""
-    print(f"\n{'='*65}")
-    print(f"  {service_name.upper()} SERVICE")
-    print(f"{'='*65}")
-    print(f"  Broker    : {BROKER_HOST}:{BROKER_PORT}")
-    print(f"  DC site   : {DC_BROKER_SITE}" + (" (multisite raw)" if DC_PIPELINE_MULTISITE_RAW else ""))
-    print(f"  Subscribe : {subscribe_topic}")
-    if publish_topic:
-        print(f"  Publish   : {publish_topic}")
-    print(f"  TLS       : {'Enabled' if USE_TLS else 'Disabled'}")
-    print(f"{'='*65}\n")
+    """Log startup banner for a pipeline service. Name kept for backward compatibility."""
+    banner_log = get_logger(service_name.upper())
+    banner_log.info(
+        "starting | broker=%s:%s | site=%s%s | subscribe=%s%s | TLS=%s",
+        BROKER_HOST, BROKER_PORT,
+        DC_BROKER_SITE,
+        " (multisite raw)" if DC_PIPELINE_MULTISITE_RAW else "",
+        subscribe_topic,
+        f" | publish={publish_topic}" if publish_topic else "",
+        "enabled" if USE_TLS else "disabled",
+    )

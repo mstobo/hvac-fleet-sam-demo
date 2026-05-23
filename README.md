@@ -243,6 +243,20 @@ Override site: `DC_BROKER_SITE=DC1` in `.env`. See [DC_TOPIC_VERSIONING_README.m
 
 ---
 
+## Tests
+
+A single end-to-end test exercises the deterministic pipeline (deadband → sketch → anomaly) with synthetic readings. No broker is required.
+
+```bash
+cd sam
+pip install -r requirements.txt -r requirements-dev.txt
+pytest tests/
+```
+
+Expected: `1 passed`.
+
+---
+
 ## Optional: Schema Registry (Java)
 
 SERDES is **off by default** in `MqttConfig.java` for the demo (`MQTT_JSON_SERDES_ENABLED=false`). Java publisher/subscriber and EKS registry deploy are documented in [DEPLOYMENT.md](DEPLOYMENT.md).

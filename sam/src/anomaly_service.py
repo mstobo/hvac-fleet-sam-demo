@@ -18,10 +18,12 @@ All detection logic is deterministic threshold-based rules.
 import json
 import os
 import time
-from datetime import datetime
 
 import pipeline_config as config
 import sensor_db
+
+log = config.get_logger("Anomaly")
+_fleet_log = config.get_logger("Fleet")
 
 # Optional Slack integration
 try:
@@ -29,7 +31,7 @@ try:
     SLACK_ENABLED = True
 except ImportError:
     SLACK_ENABLED = False
-    print("[Anomaly] Slack notifier not available")
+    log.info("Slack notifier not available")
 
 # Optional auto-analysis on FLEET_CRITICAL
 try:
@@ -37,7 +39,7 @@ try:
     AUTO_ANALYSIS_ENABLED = True
 except ImportError:
     AUTO_ANALYSIS_ENABLED = False
-    print("[Anomaly] Fleet alert analyzer not available")
+    log.info("fleet alert analyzer not available")
 
 # ── Fleet Tracking State ─────────────────────────────────────────────────────
 _sensor_zones = {}        # point_id -> current zone
@@ -128,7 +130,7 @@ def generate_alert(data):
         return None
     
     alert_type = get_alert_type(zone, delta_pct, forwarded_reason)
-    timestamp = datetime.utcnow().isoformat() + "Z"
+    timestamp = config.now_utc_iso()
     
     # Generate description based on alert type
     if alert_type == "SPIKE":
@@ -251,7 +253,7 @@ def update_fleet_status():
         notes = "All sensors operating normally"
         correlation = False
     
-    timestamp = datetime.utcnow().isoformat() + "Z"
+    timestamp = config.now_utc_iso()
     
     sensor_db.insert_fleet_status(
         active_sensors=active_sensors,
@@ -298,16 +300,16 @@ def update_fleet_status():
         "FLEET_CRITICAL": "FLEET_CRITICAL"
     }.get(fleet_status, "UNKNOWN")
     
-    print(f"[Fleet] {status_icon} | {active_sensors} sensors | {warning_count}W {critical_count}C")
+    _fleet_log.info("%s | %d sensors | %dW %dC", status_icon, active_sensors, warning_count, critical_count)
 
 
 def on_connect(client, userdata, flags, reason_code, properties=None):
     if reason_code == 0:
-        print(f"[Anomaly] Connected to {config.BROKER_HOST}")
+        log.info("connected to %s", config.BROKER_HOST)
         client.subscribe(config.TOPIC_SKETCHED)
-        print(f"[Anomaly] Subscribed to {config.TOPIC_SKETCHED}")
+        log.info("subscribed to %s", config.TOPIC_SKETCHED)
     else:
-        print(f"[Anomaly] Connection failed (rc={reason_code})")
+        log.error("connection failed rc=%s", reason_code)
 
 
 def on_message(client, userdata, msg):
@@ -340,52 +342,52 @@ def on_message(client, userdata, msg):
         
         # Check for anomalies
         if zone == "NORMAL":
-            print(f"[Anomaly] SKIP | {point_id} zone=NORMAL")
+            log.debug("SKIP %s zone=NORMAL", point_id)
         else:
             alert = generate_alert(data)
             if alert:
-                print(f"[Anomaly] ALERT {alert['severity']} | {point_id} | {alert['alert_type']}")
-                client.publish(config.TOPIC_ALERTS, json.dumps(alert))
+                log.info(
+                    "ALERT %s | %s | %s",
+                    alert["severity"],
+                    point_id,
+                    alert["alert_type"],
+                )
+                alert_payload = json.dumps(alert)
+                config.publish_checked(client, config.TOPIC_ALERTS, alert_payload, source="Anomaly")
                 event_topic = config.build_event_topic(
                     alert.get("site", config.DEFAULT_SITE),
                     alert["severity"],
                     alert["eventType"],
                 )
-                client.publish(event_topic, json.dumps(alert))
-        
+                config.publish_checked(client, event_topic, alert_payload, source="Anomaly")
+
         # Update fleet status periodically
         update_fleet_status()
-        
-    except Exception as e:
-        print(f"[Anomaly] Error: {e}")
-        import traceback
-        traceback.print_exc()
+
+    except Exception:
+        log.exception("error processing message on %s", msg.topic)
 
 
 def main():
-    # Initialize the database
-    print("[Anomaly] Initializing SQLite database...")
+    log.info("initializing SQLite database at %s", sensor_db.get_db_path())
     sensor_db.init_database()
-    
+
     config.print_service_banner(
         "Anomaly Detector",
         config.TOPIC_SKETCHED,
         config.TOPIC_ALERTS
     )
-    print(f"  Database : {sensor_db.get_db_path()}")
-    print(f"  Slack    : {'Enabled' if SLACK_ENABLED else 'Disabled'}")
-    print(f"{'='*65}\n")
-    
+    log.info("Slack: %s", "enabled" if SLACK_ENABLED else "disabled")
+
     client = config.create_mqtt_client("anomaly")
     client.on_connect = on_connect
     client.on_message = on_message
-    
+
     try:
         client.connect(config.BROKER_HOST, config.BROKER_PORT, keepalive=60)
         client.loop_forever()
     except KeyboardInterrupt:
-        print("\n[Anomaly] Stopped by user.")
-        print(f"[Anomaly] Final stats: {sensor_db.get_statistics()}")
+        log.info("stopped by user; final stats: %s", sensor_db.get_statistics())
     finally:
         client.disconnect()
 
