@@ -14,17 +14,20 @@ Environment variables:
                    Use Hub for the central broker; DC1 / DC2 for spokes.
   DC_PIPELINE_MULTISITE_RAW - If true, deadband subscribes dc/+/v1/raw/# and
                    publishes on DC_BROKER_SITE pipeline topics (hub aggregation).
+  DOMAIN_METRICS_PATH - JSON metric rules (deadband %, zones); see configs/domains/hvac/metrics.json
+  POINT_ID_SEPARATOR  - Join asset + metric into pointId (default ":")
+  ENABLE_RAW_BUNDLE   - Accept dc.raw.bundle.v1 multi-metric payloads (default: true)
 """
 
+import json
 import logging
 import os
 import re
 import ssl
 import time
 from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
-
-import paho.mqtt.client as mqtt
 
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -141,10 +144,19 @@ DEFAULT_SITE = os.getenv("DC_DEFAULT_SITE", "dc1")
 DEFAULT_ROOM = os.getenv("DC_DEFAULT_ROOM", "hall-a")
 
 SCHEMA_RAW = f"{DC_NAMESPACE}.raw.{DC_TOPIC_VERSION}"
+SCHEMA_RAW_BUNDLE = f"{DC_NAMESPACE}.raw.bundle.{DC_TOPIC_VERSION}"
 SCHEMA_FILTERED = f"{DC_NAMESPACE}.filtered.{DC_TOPIC_VERSION}"
 SCHEMA_SKETCH = f"{DC_NAMESPACE}.sketch.{DC_TOPIC_VERSION}"
 SCHEMA_EVENT = f"{DC_NAMESPACE}.event.{DC_TOPIC_VERSION}"
 SCHEMA_REVISION = "1.0.0"
+
+# Telemetry point identity (asset + metric)
+POINT_ID_SEPARATOR = os.getenv("POINT_ID_SEPARATOR", ":")
+DEFAULT_METRIC_ID = "supply_temp_c"
+BUNDLE_TOPIC_METRIC = "_bundle"
+ENABLE_RAW_BUNDLE = os.getenv("ENABLE_RAW_BUNDLE", "true").lower() in ("true", "1", "yes")
+
+_metrics_config: Optional[Dict[str, Any]] = None
 
 # Optional keys on raw ingest that are copied onto filtered/suppressed outputs
 # (simulation fidelity: which signals exist in-bundle vs not modeled).
@@ -184,23 +196,216 @@ TOPIC_ALERTS = f"{_tp}/pipeline/alerts"         # Legacy flat alerts
 TOPIC_EVENT_BASE = f"{_tp}/event"
 TOPIC_SKETCH_BASE = f"{_tp}/sketch"
 
-# ── Processing Thresholds ────────────────────────────────────────────────────
+# ── Processing Thresholds (defaults; per-metric overrides in metrics.json) ───
 DEADBAND_PCT = 0.02       # 2% change threshold
 HEARTBEAT_SECS = 30.0     # Force forward after 30s
 WINDOW_SECS = 30.0        # Rolling window for statistics
-WARNING_TEMP = 58.0       # Warning zone threshold
-CRITICAL_TEMP = 65.0      # Critical zone threshold
+WARNING_TEMP = 58.0       # Legacy fallback for supply_temp_c
+CRITICAL_TEMP = 65.0      # Legacy fallback for supply_temp_c
 
 # ── Fleet Status ─────────────────────────────────────────────────────────────
 FLEET_UPDATE_INTERVAL = 10.0  # Update fleet status every 10 seconds
 
 
-def classify_zone(temp):
-    """Classify temperature into zone."""
-    if temp >= CRITICAL_TEMP:
-        return "CRITICAL"
-    if temp >= WARNING_TEMP:
-        return "WARNING"
+def _default_metrics_path() -> str:
+    return os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "configs", "domains", "hvac", "metrics.json")
+    )
+
+
+def load_metrics_config(force_reload: bool = False) -> Dict[str, Any]:
+    """Load domain metric rules (deadband %, zones). Cached after first read."""
+    global _metrics_config
+    if _metrics_config is not None and not force_reload:
+        return _metrics_config
+    path = (os.getenv("DOMAIN_METRICS_PATH") or "").strip() or _default_metrics_path()
+    with open(path, encoding="utf-8") as fh:
+        _metrics_config = json.load(fh)
+    return _metrics_config
+
+
+def point_id_separator() -> str:
+    return str(load_metrics_config().get("point_id_separator", POINT_ID_SEPARATOR))
+
+
+def make_point_id(asset_id: str, metric_id: str) -> str:
+    """Canonical telemetry point key: ``{asset}{sep}{metric}``."""
+    return f"{asset_id}{point_id_separator()}{metric_id}"
+
+
+def resolve_point_id(
+    payload: Optional[Dict[str, Any]],
+    topic_meta: Optional[Dict[str, Any]] = None,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """
+    Resolve (point_id, asset_id, metric_id) from MQTT payload and/or parsed topic.
+
+    Priority: pointId → asset+metric → legacy sensorId → asset-only (default metric).
+    Returns (None, None, None) for bundle topics or missing identity.
+    """
+    payload = payload or {}
+    topic_meta = topic_meta or {}
+    default_metric = str(
+        load_metrics_config().get("default_metric_id", DEFAULT_METRIC_ID)
+    )
+
+    explicit_point = (payload.get("pointId") or "").strip()
+    asset = (payload.get("asset") or topic_meta.get("asset") or "").strip() or None
+    metric = (payload.get("metric") or topic_meta.get("metric") or "").strip() or None
+
+    if metric == BUNDLE_TOPIC_METRIC:
+        return None, asset, metric
+
+    if explicit_point:
+        if asset and metric:
+            return explicit_point, asset, metric
+        sep = point_id_separator()
+        if sep in explicit_point:
+            a, m = explicit_point.split(sep, 1)
+            return explicit_point, a, m
+        return explicit_point, asset or explicit_point, metric or default_metric
+
+    if asset and metric:
+        return make_point_id(asset, metric), asset, metric
+
+    legacy = (payload.get("sensorId") or "").strip()
+    if legacy:
+        legacy_asset = (
+            (payload.get("machineId") or payload.get("asset") or asset or legacy).strip()
+        )
+        legacy_metric = metric or default_metric
+        return legacy, legacy_asset, legacy_metric
+
+    if asset:
+        m = metric or default_metric
+        return make_point_id(asset, m), asset, m
+
+    return None, None, None
+
+
+def observation_value(
+    payload: Optional[Dict[str, Any]],
+    topic_value: Optional[float] = None,
+) -> Optional[float]:
+    """Scalar reading from payload or optional value embedded in the topic path."""
+    if topic_value is not None:
+        return float(topic_value)
+    payload = payload or {}
+    for key in ("value", "temperature"):
+        if key in payload and payload[key] is not None:
+            return float(payload[key])
+    return None
+
+
+def is_bundle_payload(payload: Optional[Dict[str, Any]]) -> bool:
+    """True when payload is a multi-metric gateway snapshot (legacy JSON ingress)."""
+    if not ENABLE_RAW_BUNDLE:
+        return False
+    payload = payload or {}
+    if payload.get("schema") == SCHEMA_RAW_BUNDLE:
+        return True
+    readings = payload.get("readings")
+    return isinstance(readings, list) and bool(readings) and bool(
+        (payload.get("asset") or "").strip()
+    )
+
+
+def expand_bundle_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Expand ``dc.raw.bundle.v1`` into per-point payloads shaped like ``dc.raw.v1``.
+
+    Each reading inherits location fields and ``ts`` from the bundle envelope.
+    """
+    asset = (payload.get("asset") or "").strip()
+    if not asset:
+        return []
+
+    ts = payload.get("ts") or payload.get("timestamp") or now_utc_iso()
+    base = {
+        "schema": SCHEMA_RAW,
+        "schemaRevision": payload.get("schemaRevision", SCHEMA_REVISION),
+        "ts": ts,
+        "timestamp": ts,
+        "site": payload.get("site"),
+        "room": payload.get("room"),
+        "row": payload.get("row"),
+        "rack": payload.get("rack"),
+        "asset": asset,
+        "sourceProtocol": payload.get("sourceProtocol"),
+    }
+    if payload.get("telemetry_availability") is not None:
+        base["telemetry_availability"] = payload["telemetry_availability"]
+
+    out: List[Dict[str, Any]] = []
+    for reading in payload.get("readings") or []:
+        if not isinstance(reading, dict):
+            continue
+        metric = (reading.get("metric") or "").strip()
+        if not metric or reading.get("value") is None:
+            continue
+        point = dict(base)
+        point["metric"] = metric
+        point["value"] = reading["value"]
+        point["unit"] = reading.get("unit")
+        point["quality"] = reading.get("quality")
+        point["pointId"] = make_point_id(asset, metric)
+        point["sensorId"] = point["pointId"]
+        point["temperature"] = reading["value"]
+        out.append(point)
+    return out
+
+
+def _metric_rule(metric_id: Optional[str]) -> Dict[str, Any]:
+    mid = metric_id or load_metrics_config().get("default_metric_id", DEFAULT_METRIC_ID)
+    return load_metrics_config().get("metrics", {}).get(mid, {})
+
+
+def deadband_pct_for(metric_id: Optional[str] = None) -> float:
+    rule = _metric_rule(metric_id)
+    return float(rule.get("deadband_pct", DEADBAND_PCT))
+
+
+def heartbeat_secs_for(metric_id: Optional[str] = None) -> float:
+    rule = _metric_rule(metric_id)
+    return float(rule.get("heartbeat_secs", HEARTBEAT_SECS))
+
+
+def window_secs_for(metric_id: Optional[str] = None) -> float:
+    rule = _metric_rule(metric_id)
+    return float(rule.get("window_secs", WINDOW_SECS))
+
+
+def classify_zone(value: float, metric_id: Optional[str] = None) -> str:
+    """
+    Classify a scalar reading into NORMAL | WARNING | CRITICAL using per-metric rules.
+
+    When ``metric_id`` is omitted, uses ``default_metric_id`` from metrics.json
+    (supply_temp_c). Unknown metrics fall back to legacy WARNING_TEMP / CRITICAL_TEMP.
+    """
+    mid = metric_id or load_metrics_config().get("default_metric_id", DEFAULT_METRIC_ID)
+    zones = _metric_rule(mid).get("zones") or []
+    severity_rank = {"CRITICAL": 2, "WARNING": 1, "NORMAL": 0}
+    matched = "NORMAL"
+    best_rank = 0
+    for zone in zones:
+        if zone.get("op") != "gte":
+            continue
+        threshold = zone.get("value")
+        if threshold is None:
+            continue
+        if value >= float(threshold):
+            name = str(zone.get("name", "NORMAL"))
+            rank = severity_rank.get(name, 0)
+            if rank > best_rank:
+                best_rank = rank
+                matched = name
+    if zones:
+        return matched
+    if mid == DEFAULT_METRIC_ID or mid == "supply_temp_c":
+        if value >= CRITICAL_TEMP:
+            return "CRITICAL"
+        if value >= WARNING_TEMP:
+            return "WARNING"
     return "NORMAL"
 
 
@@ -290,6 +495,8 @@ def publish_checked(client, topic: str, payload, *, qos: int = 0, source: str = 
 def create_mqtt_client(service_name: str, userdata: dict = None):
     """Create and configure an MQTT client for a pipeline service."""
     validate_broker_config()
+    import paho.mqtt.client as mqtt
+
     if userdata is None:
         userdata = {}
 

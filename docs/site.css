@@ -129,7 +129,7 @@ body {
   color: var(--solace-primary);
 }
 
-/* Hero: token-burn top-right beside intro; architecture diagram below on left */
+/* Hero: intro on top; architecture + token-burn side by side (static) */
 .hero-problem-split {
   margin-bottom: var(--solace-space-10);
 }
@@ -157,33 +157,23 @@ body {
   color: var(--solace-text-on-dark);
 }
 
-.hero-problem-split .arch-diagram {
+.hero-diagram-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--solace-space-6);
   margin-top: var(--solace-space-6);
 }
 
+.hero-diagram-row .arch-diagram {
+  margin-top: 0;
+}
+
 @media (min-width: 900px) {
-  .hero-problem-split {
+  .hero-diagram-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(15rem, 36%);
-    grid-template-areas:
-      "intro token"
-      "arch  token";
-    gap: var(--solace-space-4) var(--solace-space-8);
+    grid-template-columns: minmax(0, 1fr) minmax(15rem, 34%);
+    gap: var(--solace-space-6) var(--solace-space-8);
     align-items: start;
-  }
-
-  .hero-problem-intro {
-    grid-area: intro;
-  }
-
-  .hero-problem-figure {
-    grid-area: token;
-    align-self: start;
-  }
-
-  .hero-problem-split .arch-diagram {
-    grid-area: arch;
-    margin-top: var(--solace-space-4);
   }
 
   .hero-problem-intro .section-label {
@@ -202,8 +192,8 @@ body {
     font-size: var(--solace-text-2xl);
   }
 
-  .hero-problem-split {
-    grid-template-columns: minmax(0, 1fr) minmax(18rem, 34rem);
+  .hero-diagram-row {
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 32rem);
   }
 }
 
@@ -503,7 +493,7 @@ body {
   box-shadow: var(--solace-shadow-lg);
 }
 
-/* Phone: intro, token-burn, then architecture (DOM order) */
+/* Phone: intro, then architecture, then token-burn (DOM order) */
 @media (max-width: 899px) {
   .hero-problem-figure .tokenburn-wrap {
     justify-content: center;
@@ -517,13 +507,8 @@ body {
   }
 }
 
-/* Laptop: token-burn top-right beside intro; sticky while scrolling arch */
+/* Laptop: architecture left, token-burn right — static row */
 @media (min-width: 900px) {
-  .hero-problem-figure {
-    position: sticky;
-    top: var(--solace-space-6);
-  }
-
   .hero-problem-figure .tokenburn-wrap {
     padding: 0;
     justify-content: flex-start;
@@ -531,14 +516,7 @@ body {
 
   .hero-problem-figure .tokenburn-wrap img {
     max-width: 100%;
-    max-height: min(72vh, 780px);
     width: 100%;
-  }
-}
-
-@media (min-width: 1200px) {
-  .hero-problem-figure .tokenburn-wrap img {
-    max-height: min(82vh, 900px);
   }
 }
 

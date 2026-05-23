@@ -4,6 +4,10 @@ analysis_response_to_slack.py
 =============================
 Bridge service that subscribes to fleet-analysis response topics and posts
 messages directly to Slack via the existing SlackNotifier utility.
+
+Fleet-analysis gateway publishes JSON ``task_response`` objects (text + A2A
+metadata). This bridge extracts the report body and appends an LLM token
+usage footer when SAM stamped usage on the completed task.
 """
 
 import os
@@ -15,6 +19,7 @@ import hashlib
 import paho.mqtt.client as mqtt
 
 import pipeline_config as config
+from fleet_analysis_response import format_slack_analysis_body, parse_analysis_response_payload
 from fleet_query_tools import rewrite_chart_urls_in_text
 from slack_notifier import send_message
 
@@ -36,9 +41,16 @@ def _trace_id(topic: str, payload_text: str) -> str:
 def _format_message(topic: str, payload_text: str) -> str:
     trace_id = _trace_id(topic, payload_text)
     if topic == RESPONSE_TOPIC:
-        body = rewrite_chart_urls_in_text(payload_text)
-        return f"*Automated Fleet Analysis*  \n`Trace ID: {trace_id}`\n{body}"
-    return f"*Automated Fleet Analysis Error*  \n`Trace ID: {trace_id}`\n```{payload_text}```"
+        return format_slack_analysis_body(
+            payload_text,
+            trace_id=trace_id,
+            rewrite_urls=rewrite_chart_urls_in_text,
+        )
+    report_text, _, meta = parse_analysis_response_payload(payload_text)
+    body = report_text.strip() or payload_text
+    if meta.get("payload_format") == "json" and len(body) > 500:
+        body = body[:500] + "\n…(truncated)"
+    return f"*Automated Fleet Analysis Error*  \n`Trace ID: {trace_id}`\n{body}"
 
 
 def on_connect(client: mqtt.Client, _userdata, _flags, reason_code, _properties=None) -> None:
@@ -64,7 +76,21 @@ def on_message(_client: mqtt.Client, _userdata, msg: mqtt.MQTTMessage) -> None:
     formatted = _format_message(msg.topic, text)
     posted = send_message(formatted, channel=SLACK_CHANNEL)
     if posted:
-        log.info("posted to Slack from topic %s", msg.topic)
+        if msg.topic == RESPONSE_TOPIC:
+            _report, usage, meta = parse_analysis_response_payload(text)
+            if usage:
+                log.info(
+                    "posted to Slack (%s LLM tokens, format=%s)",
+                    usage.get("total_tokens", 0),
+                    meta.get("payload_format"),
+                )
+            else:
+                log.info(
+                    "posted to Slack (no LLM usage, format=%s)",
+                    meta.get("payload_format"),
+                )
+        else:
+            log.info("posted to Slack from topic %s", msg.topic)
     else:
         log.warning("Slack post failed for topic %s", msg.topic)
 

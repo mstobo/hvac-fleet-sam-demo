@@ -42,7 +42,7 @@ except ImportError:
     log.info("fleet alert analyzer not available")
 
 # ── Fleet Tracking State ─────────────────────────────────────────────────────
-_sensor_zones = {}        # sensor_id -> current zone
+_sensor_zones = {}        # point_id -> current zone
 _last_fleet_update = 0
 _last_fleet_slack_status = None
 _last_fleet_slack_sent_at = 0.0
@@ -109,8 +109,11 @@ def generate_alert(data):
     Returns:
         dict with alert details, or None if no alert needed
     """
-    sensor_id = data["sensorId"]
-    temperature = data["temperature"]
+    fields = sensor_db.fields_from_pipeline_message(data)
+    sensor_id = fields["sensor_id"]
+    point_id = fields["point_id"]
+    metric_id = fields["metric_id"]
+    temperature = fields["value"] if fields["value"] is not None else data["temperature"]
     zone = data["zone"]
     delta_pct = data.get("delta_pct", 0)
     forwarded_reason = data.get("forwarded_reason", "unknown")
@@ -159,7 +162,12 @@ def generate_alert(data):
         severity=severity,
         alert_type=alert_type,
         description=description,
-        timestamp=timestamp
+        timestamp=timestamp,
+        point_id=point_id,
+        asset_id=fields["asset_id"],
+        metric_id=metric_id,
+        value=temperature,
+        unit=fields.get("unit"),
     )
     
     # Slack: only true CRITICAL severity (skip HIGH — CRITICAL zone but temp < 70°C)
@@ -185,7 +193,10 @@ def generate_alert(data):
         "schema": config.SCHEMA_EVENT,
         "schemaRevision": config.SCHEMA_REVISION,
         "eventType": "CoolingDriftDetected" if alert_type in ["SPIKE", "ELEVATED_READING"] else "IncidentUpdated",
+        "pointId": point_id,
         "sensorId": sensor_id,
+        "metric": metric_id,
+        "value": temperature,
         "site": site,
         "room": room,
         "incidentId": incident_id,
@@ -219,7 +230,10 @@ def update_fleet_status():
     if critical_count > 0:
         if critical_count >= active_sensors * FLEET_CRITICAL_FRACTION:
             fleet_status = "FLEET_CRITICAL"
-            notes = f"Multiple sensors in critical state ({critical_count}/{active_sensors})"
+            notes = (
+                f"Multiple points in CRITICAL ({critical_count}/{active_sensors} active points). "
+                "Full fleet demo = 15 metrics (3 assets × 5) if demo_publisher is running."
+            )
             correlation = True
         else:
             fleet_status = "CRITICAL"
@@ -303,31 +317,41 @@ def on_message(client, userdata, msg):
     try:
         data = json.loads(msg.payload.decode())
         
-        sensor_id = data.get("sensorId")
-        temperature = data.get("temperature")
+        fields = sensor_db.fields_from_pipeline_message(data)
+        point_id = fields["point_id"]
+        sensor_id = fields["sensor_id"]
+        temperature = fields["value"]
         zone = data.get("zone")
-        
-        if not sensor_id or temperature is None:
+
+        if not point_id or temperature is None or zone is None:
             return
-        
-        # Track sensor zone for fleet status
-        _sensor_zones[sensor_id] = zone
-        
-        # Write reading to database
+
+        _sensor_zones[point_id] = zone
+
         sensor_db.insert_reading(
             sensor_id=sensor_id,
             temperature=temperature,
-            timestamp=data.get("timestamp", config.now_utc_iso()),
-            delta_percent=data.get("delta_pct", 0)
+            timestamp=data.get("timestamp", data.get("ts", config.now_utc_iso())),
+            delta_percent=data.get("delta_pct", 0),
+            point_id=point_id,
+            asset_id=fields["asset_id"],
+            metric_id=fields["metric_id"],
+            value=temperature,
+            unit=fields.get("unit"),
         )
         
         # Check for anomalies
         if zone == "NORMAL":
-            log.debug("SKIP %s zone=NORMAL", sensor_id)
+            log.debug("SKIP %s zone=NORMAL", point_id)
         else:
             alert = generate_alert(data)
             if alert:
-                log.info("ALERT %s | %s | %s", alert["severity"], sensor_id, alert["alert_type"])
+                log.info(
+                    "ALERT %s | %s | %s",
+                    alert["severity"],
+                    point_id,
+                    alert["alert_type"],
+                )
                 alert_payload = json.dumps(alert)
                 config.publish_checked(client, config.TOPIC_ALERTS, alert_payload, source="Anomaly")
                 event_topic = config.build_event_topic(
