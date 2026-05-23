@@ -33,25 +33,19 @@ set -a
 [[ -f .env ]] && . ./.env
 set +a
 
-VENV_PY="./.venv/bin/python"
-if [[ ! -x "$VENV_PY" ]]; then
-  echo "Missing .venv; create it and install deps first." >&2
+# shellcheck source=resolve_venv.sh
+source "${ROOT}/resolve_venv.sh"
+if ! resolve_demo_venv "$ROOT"; then
+  echo "Missing venv. Run: ./setup_venv.sh" >&2
   exit 1
 fi
+VENV_PY="${DEMO_VENV_PY}"
 
-echo "[1/4] Deadband filter..."
-nohup "$VENV_PY" -u src/deadband_service.py >> /tmp/sam-deadband.log 2>&1 &
+echo "[1/2] Pipeline microservices (deadband → sketch → chart writer)..."
+./start_pipeline_services.sh
 sleep 1
 
-echo "[2/4] Sketch generator..."
-nohup "$VENV_PY" -u src/sketch_service.py >> /tmp/sam-sketch.log 2>&1 &
-sleep 1
-
-echo "[3/4] Chart writer (SQLite rollups)..."
-nohup "$VENV_PY" -u src/chart_writer_service.py >> /tmp/sam-chart-writer.log 2>&1 &
-sleep 1
-
-echo "[4/4] Demo publisher (simulated sensors)..."
+echo "[2/2] Demo publisher (simulated sensors)..."
 nohup "$VENV_PY" -u src/demo_publisher.py >> /tmp/sam-demo-publisher.log 2>&1 &
 
 echo ""

@@ -58,8 +58,14 @@ def generate_sketch(data):
     Returns:
         dict with sketch text and metadata
     """
-    sensor_id = data["sensorId"]
-    temperature = data["temperature"]
+    fields = sensor_db.fields_from_pipeline_message(data)
+    sensor_id = fields["sensor_id"]
+    point_id = fields["point_id"]
+    metric_id = fields["metric_id"]
+    asset_id = fields["asset_id"]
+    temperature = fields["value"] if fields["value"] is not None else data["temperature"]
+    unit = fields.get("unit") or ""
+    unit_label = f"°C" if metric_id == "supply_temp_c" and not unit else (unit or "")
     zone = data["zone"]
     delta_pct = data["delta_pct"]
     forwarded_reason = data["forwarded_reason"]
@@ -77,18 +83,19 @@ def generate_sketch(data):
     timestamp = config.now_utc_iso()
     
     # Generate natural language summary
+    suffix = f" {unit_label}".rstrip() if unit_label else ""
     if forwarded_reason == "heartbeat":
         sketch = (
-            f"[HEARTBEAT] {sensor_id} stable at ~{win_mean:.1f}°C "
-            f"(range {win_min:.1f}–{win_max:.1f}°C) over last 30s. "
+            f"[HEARTBEAT] {point_id} stable at ~{win_mean:.1f}{suffix} "
+            f"(range {win_min:.1f}–{win_max:.1f}{suffix}) over last 30s. "
             f"No significant change. Zone: {zone}."
         )
     else:
         move = "spike" if temperature > win_mean else "drop"
         sketch = (
-            f"{sensor_id} recorded a {delta_pct_pct:.1f}% {move} to "
-            f"{temperature:.1f}°C. 30s window: mean {win_mean:.1f}°C, "
-            f"range [{win_min:.1f}–{win_max:.1f}°C]. Zone: {zone}."
+            f"{point_id} recorded a {delta_pct_pct:.1f}% {move} to "
+            f"{temperature:.1f}{suffix}. 30s window: mean {win_mean:.1f}{suffix}, "
+            f"range [{win_min:.1f}–{win_max:.1f}{suffix}]. Zone: {zone}."
         )
         if zone == "CRITICAL":
             sketch += " Anomaly detected - immediate review required."
@@ -99,6 +106,11 @@ def generate_sketch(data):
     _sketch_buffer.append(
         {
             "sensor_id": sensor_id,
+            "point_id": point_id,
+            "asset_id": asset_id,
+            "metric_id": metric_id,
+            "value": temperature,
+            "unit": unit,
             "temperature": temperature,
             "zone": zone,
             "sketch": sketch,
@@ -114,7 +126,12 @@ def generate_sketch(data):
     return {
         "schema": config.SCHEMA_SKETCH,
         "schemaRevision": config.SCHEMA_REVISION,
+        "pointId": point_id,
         "sensorId": sensor_id,
+        "asset": asset_id,
+        "metric": metric_id,
+        "value": temperature,
+        "unit": unit,
         "temperature": temperature,
         "zone": zone,
         "sketch": sketch,

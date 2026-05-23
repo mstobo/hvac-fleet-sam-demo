@@ -1,0 +1,66 @@
+{
+  "point_id_separator": ":",
+  "default_metric_id": "supply_temp_c",
+  "metrics": {
+    "supply_temp_c": {
+      "unit": "C",
+      "deadband_pct": 0.02,
+      "heartbeat_secs": 30,
+      "window_secs": 30,
+      "zones": [
+        { "name": "WARNING", "op": "gte", "value": 58 },
+        { "name": "CRITICAL", "op": "gte", "value": 65 }
+      ]
+    },
+    "inlet_temp_c": {
+      "unit": "C",
+      "deadband_pct": 0.02,
+      "heartbeat_secs": 30,
+      "window_secs": 30,
+      "zones": [
+        { "name": "WARNING", "op": "gte", "value": 58 },
+        { "name": "CRITICAL", "op": "gte", "value": 65 }
+      ]
+    },
+    "outlet_temp_c": {
+      "unit": "C",
+      "deadband_pct": 0.02,
+      "heartbeat_secs": 30,
+      "window_secs": 30,
+      "zones": [
+        { "name": "WARNING", "op": "gte", "value": 58 },
+        { "name": "CRITICAL", "op": "gte", "value": 65 }
+      ]
+    },
+    "motor_temp_c": {
+      "unit": "C",
+      "deadband_pct": 0.02,
+      "heartbeat_secs": 30,
+      "window_secs": 30,
+      "zones": [
+        { "name": "WARNING", "op": "gte", "value": 58 },
+        { "name": "CRITICAL", "op": "gte", "value": 65 }
+      ]
+    },
+    "humidity_rh": {
+      "unit": "%RH",
+      "deadband_pct": 0.05,
+      "heartbeat_secs": 30,
+      "window_secs": 30,
+      "zones": [
+        { "name": "WARNING", "op": "gte", "value": 70 },
+        { "name": "CRITICAL", "op": "gte", "value": 80 }
+      ]
+    },
+    "motor_vibration_mm_s": {
+      "unit": "mm/s",
+      "deadband_pct": 0.1,
+      "heartbeat_secs": 30,
+      "window_secs": 30,
+      "zones": [
+        { "name": "WARNING", "op": "gte", "value": 2.0 },
+        { "name": "CRITICAL", "op": "gte", "value": 4.0 }
+      ]
+    }
+  }
+}

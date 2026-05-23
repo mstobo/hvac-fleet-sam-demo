@@ -105,15 +105,51 @@ export LLM_SERVICE_GENERAL_MODEL_NAME="gpt-4o-mini"
 ## Running the Demo
 
 ```bash
-# Terminal 1 — Start SAM with all agents
+# From sam/ — pipeline microservices + publisher (see start_demo_stack.sh)
+./start_traffic_generation.sh
+
+# Or manually:
+# Terminal 1 — deadband → sketch → anomaly (writes sensor_data.db + telemetry_* tables)
+# Terminal 2 — demo publisher (15 telemetry points: 3 assets × 5 metrics)
+cd sam && PYTHONPATH=src python3 src/demo_publisher.py
+
+# SAM agents (FleetQueryAgent reads telemetry_* when populated)
 sam run
 
-# Terminal 2 — Start sensor publisher
-python demo_publisher.py
-
-# Browser — Open dashboard
+# Browser — dashboard
 open demo_dashboard.html
 ```
+
+### Multi-metric telemetry (2026 branch)
+
+Each cooling asset publishes **five** signals:
+
+| Metric | Example point id |
+|--------|------------------|
+| `inlet_temp_c` | `m1-temp-inlet` |
+| `outlet_temp_c` | `m1-temp-outlet` |
+| `motor_temp_c` | `m1-temp-motor` |
+| `humidity_rh` | `m1-humidity` |
+| `motor_vibration_mm_s` | `m1-vibration` |
+
+**Publish modes** (`demo_publisher.py`):
+
+- `DEMO_PUBLISH_MODE=topics` (default) — one MQTT topic per metric:  
+  `dc/Hub/v1/raw/.../machine-001/humidity_rh`
+- `DEMO_PUBLISH_MODE=bundle` — legacy gateway JSON on `.../machine-001/_bundle` (`dc.raw.bundle.v1`)
+
+**Database:** Pipeline dual-writes legacy tables (`sensor_readings`, …) and canonical  
+`telemetry_*` tables. `FleetQueryAgent` tools prefer `telemetry_*` when data exists  
+(`FLEET_QUERY_USE_TELEMETRY=true`, default).
+
+**Config:** Per-metric deadband and thresholds in `configs/domains/hvac/metrics.json`.  
+Override DB path with `SENSOR_DB_PATH`.
+
+**Charts:** `chart_query_service` accepts `metric_id` and `asset_id` query params  
+(`/series`, `/plotly-spec`, `/plotly-html`). Example:  
+`/series?sensor_id=m1-humidity&minutes=60` or  
+`/series?asset_id=machine-001&metric_id=humidity_rh&minutes=60`.  
+Threshold lines use per-metric rules from `metrics.json` (not only °C).
 
 ---
 
