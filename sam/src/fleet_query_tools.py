@@ -106,6 +106,37 @@ _CHART_PLACEHOLDER_RE = re.compile(
     re.IGNORECASE,
 )
 
+_ISO_WINDOW_RE = (
+    r"(?P<start>\d{4}-\d{2}-\d{2}T[\d:.]+Z)\s*→\s*(?P<end>\d{4}-\d{2}-\d{2}T[\d:.]+Z)"
+)
+
+# Fleet analysis often emits this instead of pasting plotly_html_url_pinned from get_plotly_spec.
+_CHART_SPEC_GENERATED_RE = re.compile(
+    rf"(?P<prefix>^[-•]\s*)?"
+    rf"(?P<machine>machine-\d{{3}})\s*:\s*"
+    rf"(?P<label>inlet|motor|outlet|supply)\s*temp\s*chart"
+    rf"(?:\s*\((?P<value_key>max_v|avg_v|last_v)\))?"
+    rf"\s*-\s*chart spec generated for\s*{_ISO_WINDOW_RE}",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+_CHART_LABEL_TO_METRIC = {
+    "inlet": "inlet_temp_c",
+    "motor": "motor_temp_c",
+    "outlet": "outlet_temp_c",
+    "supply": "supply_temp_c",
+}
+
+
+def _value_key_for_public_chart_link(requested: Optional[str]) -> str:
+    """Rollups often have sparse max_v; avg_v renders reliably in /plotly-html."""
+    key = (requested or "avg_v").strip().lower()
+    if key == "max_v":
+        return "avg_v"
+    if key in ("avg_v", "last_v", "min_v"):
+        return key
+    return "avg_v"
+
 
 def _legacy_probe_for_point_id(point_id: str) -> Optional[str]:
     """Map canonical point id (machine-002:motor_temp_c) to demo probe id (m2-temp-motor)."""
@@ -135,6 +166,14 @@ def _legacy_probe_for_point_id(point_id: str) -> Optional[str]:
     return None
 
 
+def _chart_query_key_for_public_links() -> str:
+    """
+    When chart-query auth is enabled, browser/Slack plot links need ?key= (see chart_query_service).
+    SAM containers load the same value from ENV_FILE as the chart-query service.
+    """
+    return os.getenv("CHART_QUERY_API_KEY", "").strip()
+
+
 def build_plotly_html_url(
     sensor_id: str,
     *,
@@ -162,6 +201,9 @@ def build_plotly_html_url(
         params.pop("minutes", None)
         params["window_start"] = window_start
         params["window_end"] = window_end
+    link_key = _chart_query_key_for_public_links()
+    if link_key:
+        params["key"] = link_key
     return f"{public.rstrip('/')}/plotly-html?{urlencode(params)}"
 
 
@@ -170,8 +212,8 @@ def rewrite_chart_urls_in_text(text: str) -> str:
     Replace Docker-only chart-query hostnames in free text (e.g. LLM reports)
     with CHART_PUBLIC_BASE_URL or DASHBOARD_PUBLIC_HOST-derived base.
 
-    Also turns ``Chart: (machine-002:motor_temp_c) plot window START → END`` placeholders
-    into clickable plotly-html links when the LLM did not paste tool URLs.
+    Also turns chart placeholders into Slack angle-bracket plotly-html links when the
+    LLM did not paste plotly_html_url_pinned from get_plotly_spec.
     """
     if not text:
         return text
@@ -179,20 +221,53 @@ def rewrite_chart_urls_in_text(text: str) -> str:
     if public and not _is_browser_unreachable_chart_base(public):
         text = _CHART_URL_INTERNAL_HOST_RE.sub(public.rstrip("/"), text)
 
-        def _placeholder_link(match: re.Match) -> str:
-            point_id = match.group(1).strip()
-            start, end = match.group(2), match.group(3)
+        def _link_for_point(
+            point_id: str,
+            start: str,
+            end: str,
+            *,
+            value_key: Optional[str] = None,
+            prefix: str = "",
+            label: Optional[str] = None,
+        ) -> str:
             url = build_plotly_html_url(
                 point_id,
-                value_key="max_v",
+                value_key=_value_key_for_public_chart_link(value_key),
                 window_start=start,
                 window_end=end,
             )
             if not url:
+                return ""
+            name = label or point_id
+            lead = prefix or ""
+            return f"{lead}{name}: <{url}> ({start} → {end})"
+
+        def _placeholder_link(match: re.Match) -> str:
+            point_id = match.group(1).strip()
+            start, end = match.group(2), match.group(3)
+            linked = _link_for_point(point_id, start, end, value_key="max_v", prefix="Chart: ")
+            return linked or match.group(0)
+
+        def _chart_spec_generated_link(match: re.Match) -> str:
+            machine = match.group("machine")
+            label = (match.group("label") or "").lower()
+            metric = _CHART_LABEL_TO_METRIC.get(label)
+            if not metric:
                 return match.group(0)
-            return f"Chart: <{url}> ({point_id}, {start} → {end})"
+            point_id = f"{machine}:{metric}"
+            start, end = match.group("start"), match.group("end")
+            linked = _link_for_point(
+                point_id,
+                start,
+                end,
+                value_key=match.group("value_key"),
+                prefix=match.group("prefix") or "- ",
+                label=f"{machine} {label} temp",
+            )
+            return linked or match.group(0)
 
         text = _CHART_PLACEHOLDER_RE.sub(_placeholder_link, text)
+        text = _CHART_SPEC_GENERATED_RE.sub(_chart_spec_generated_link, text)
     return text
 
 
@@ -746,6 +821,24 @@ def get_plotly_spec(
         pinned_start = stats.get("source_min_ts") or meta.get("window_start_utc")
         pinned_end = stats.get("source_max_ts") or meta.get("window_end_utc")
         rendered = int(stats.get("rendered_row_count") or 0)
+
+        # Demo rollups often have empty max_v; retry avg_v so plotly_html_url_pinned is useful.
+        if rendered == 0 and value_key == "max_v":
+            avg_params = {**params, "value_key": "avg_v"}
+            avg_url = f"{internal}/plotly-spec?{urlencode(avg_params)}"
+            with urlopen(avg_url, timeout=8) as avg_resp:
+                avg_data = json.loads(avg_resp.read().decode("utf-8"))
+            if isinstance(avg_data, dict) and "plotly_spec" in avg_data:
+                avg_stats = avg_data.get("stats") or {}
+                if int(avg_stats.get("rendered_row_count") or 0) > 0:
+                    data = avg_data
+                    meta = data.get("meta", {}) or {}
+                    stats = avg_stats
+                    rendered = int(avg_stats.get("rendered_row_count") or 0)
+                    value_key = "avg_v"
+                    params = avg_params
+                    pinned_start = stats.get("source_min_ts") or meta.get("window_start_utc")
+                    pinned_end = stats.get("source_max_ts") or meta.get("window_end_utc")
 
         pinned_url = None
         if pinned_start and pinned_end:
