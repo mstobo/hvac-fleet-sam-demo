@@ -51,6 +51,12 @@ try:
 except ImportError:
     CONFIG_AVAILABLE = False
 
+if CONFIG_AVAILABLE:
+    log = config.get_logger("AutoAnalysis")
+else:
+    import logging as _logging
+    log = _logging.getLogger("AutoAnalysis")
+
 # ── Configuration ────────────────────────────────────────────────────────────
 DEBOUNCE_SECONDS = float(os.getenv("ANALYSIS_DEBOUNCE_SECONDS", "60.0"))
 RATE_LIMIT_SECONDS = float(os.getenv("ANALYSIS_RATE_LIMIT_SECONDS", "300.0"))
@@ -111,39 +117,66 @@ def _normalize_notes(notes: str) -> str:
     return text
 
 
+def _quiet_loop_stop(client: Optional[mqtt.Client]) -> None:
+    """Best-effort loop_stop + disconnect. Swallows errors because this runs in
+    cleanup paths where re-raising would mask the original problem."""
+    if client is None:
+        return
+    try:
+        client.loop_stop()
+    except Exception:
+        log.debug("loop_stop raised during cleanup", exc_info=True)
+    try:
+        client.disconnect()
+    except Exception:
+        log.debug("disconnect raised during cleanup", exc_info=True)
+
+
 def _get_mqtt_client() -> Optional[mqtt.Client]:
-    """Get or create MQTT client for publishing analysis requests."""
+    """Get or (re)create MQTT client for publishing analysis requests.
+
+    If a previous client exists but is disconnected, it's torn down before a
+    new one is created — otherwise its loop_start() thread keeps running on
+    a dead Client object (real memory + thread leak across reconnects).
+    """
     global _mqtt_client, _mqtt_connected
-    
+
     if _mqtt_client is not None and _mqtt_connected:
         return _mqtt_client
-    
+
+    # Stale client from a prior connection — release its network thread before replacing it.
+    if _mqtt_client is not None:
+        _quiet_loop_stop(_mqtt_client)
+        _mqtt_client = None
+
+    if CONFIG_AVAILABLE:
+        config.validate_broker_config()
+
+    new_client: Optional[mqtt.Client] = None
     try:
         def on_connect(client, userdata, flags, reason_code, properties=None):
             global _mqtt_connected
             if reason_code == 0:
-                print(f"[AutoAnalysis] MQTT connected to {BROKER_HOST}")
+                log.info("MQTT connected to %s", BROKER_HOST)
                 _mqtt_connected = True
-                # Subscribe to response topic for logging
                 client.subscribe(ANALYSIS_RESPONSE_TOPIC)
             else:
-                print(f"[AutoAnalysis] MQTT connection failed: {reason_code}")
+                log.error("MQTT connection failed rc=%s", reason_code)
                 _mqtt_connected = False
-        
+
         def on_message(client, userdata, msg):
             # Log responses (they also go to Slack via gateway)
-            print(f"[AutoAnalysis] Response received on {msg.topic}")
+            log.info("response received on %s", msg.topic)
             try:
                 response = json.loads(msg.payload.decode())
-                preview = str(response)[:200]
-                print(f"[AutoAnalysis] Response preview: {preview}...")
-            except:
-                print(f"[AutoAnalysis] Response: {msg.payload.decode()[:200]}...")
-        
+                log.debug("response preview: %s", str(response)[:200])
+            except (ValueError, TypeError):
+                log.debug("response: %s", msg.payload.decode()[:200])
+
         def on_disconnect(client, userdata, disconnect_flags, reason_code, properties=None):
             global _mqtt_connected
             _mqtt_connected = False
-            print(f"[AutoAnalysis] MQTT disconnected: {reason_code}")
+            log.warning("MQTT disconnected rc=%s", reason_code)
 
         def on_publish(client, userdata, mid, reason_code, properties=None):
             _ = (client, userdata, reason_code, properties)
@@ -151,34 +184,41 @@ def _get_mqtt_client() -> Optional[mqtt.Client]:
                 event = _publish_ack_events.get(mid)
             if event is not None:
                 event.set()
-        
-        _mqtt_client = mqtt.Client(
+
+        new_client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
             client_id=f"fleet-analyzer-{int(time.time())}",
             protocol=mqtt.MQTTv5
         )
-        _mqtt_client.username_pw_set(USERNAME, PASSWORD)
-        _mqtt_client.on_connect = on_connect
-        _mqtt_client.on_message = on_message
-        _mqtt_client.on_disconnect = on_disconnect
-        _mqtt_client.on_publish = on_publish
-        
+        new_client.username_pw_set(USERNAME, PASSWORD)
+        new_client.on_connect = on_connect
+        new_client.on_message = on_message
+        new_client.on_disconnect = on_disconnect
+        new_client.on_publish = on_publish
+
         if USE_TLS:
-            _mqtt_client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLS)
-        
-        _mqtt_client.connect_async(BROKER_HOST, BROKER_PORT, keepalive=60)
-        _mqtt_client.loop_start()
-        
+            new_client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLS)
+
+        new_client.connect_async(BROKER_HOST, BROKER_PORT, keepalive=60)
+        new_client.loop_start()
+        # Publish to module-global only after loop_start succeeds, so the cleanup path below
+        # can tear down a partially-constructed client without racing other callers.
+        _mqtt_client = new_client
+
         # Wait briefly for connection
         for _ in range(10):
             if _mqtt_connected:
                 break
             time.sleep(0.1)
-        
+
         return _mqtt_client
-        
-    except Exception as e:
-        print(f"[AutoAnalysis] Failed to create MQTT client: {e}")
+
+    except Exception:
+        log.exception("failed to create MQTT client")
+        # If we got far enough to spin up the loop thread, stop it before returning.
+        if new_client is not None and _mqtt_client is None:
+            _quiet_loop_stop(new_client)
+        _mqtt_client = None
         return None
 
 
@@ -187,7 +227,7 @@ def _should_analyze() -> bool:
     now = time.time()
     if now - _last_analysis_time < RATE_LIMIT_SECONDS:
         remaining = RATE_LIMIT_SECONDS - (now - _last_analysis_time)
-        print(f"[AutoAnalysis] Rate limited. Next analysis allowed in {remaining:.0f}s")
+        log.info("rate limited; next analysis allowed in %.0fs", remaining)
         return False
     return True
 
@@ -231,7 +271,7 @@ def _publish_with_puback(client: mqtt.Client, topic: str, payload: str, qos: int
     for attempt in range(1, PUBLISH_RETRY_COUNT + 2):
         result = client.publish(topic, payload, qos=qos)
         if result.rc != mqtt.MQTT_ERR_SUCCESS:
-            print(f"[AutoAnalysis] {log_label} publish attempt {attempt} failed rc={result.rc}")
+            log.warning("%s publish attempt %d failed rc=%s", log_label, attempt, result.rc)
             time.sleep(0.4)
             continue
 
@@ -244,15 +284,15 @@ def _publish_with_puback(client: mqtt.Client, topic: str, payload: str, qos: int
             _publish_ack_events.pop(result.mid, None)
 
         if acked:
-            print(
-                f"[AutoAnalysis] Published {log_label} to {topic} "
-                f"(qos={qos}, mid={result.mid}, attempt={attempt})"
+            log.info(
+                "published %s to %s (qos=%s, mid=%s, attempt=%d)",
+                log_label, topic, qos, result.mid, attempt,
             )
             return True
 
-        print(
-            f"[AutoAnalysis] {log_label} attempt {attempt} no PUBACK within "
-            f"{PUBLISH_ACK_TIMEOUT_SECONDS:.1f}s (mid={result.mid})"
+        log.warning(
+            "%s attempt %d no PUBACK within %.1fs (mid=%s)",
+            log_label, attempt, PUBLISH_ACK_TIMEOUT_SECONDS, result.mid,
         )
         time.sleep(0.4)
 
@@ -265,26 +305,26 @@ def _execute_analysis():
     
     with _lock:
         if not _collected_criticals and not _collected_sensors:
-            print("[AutoAnalysis] No events collected, skipping analysis")
+            log.info("no events collected, skipping analysis")
             _pending_analysis = False
             return
-        
+
         criticals = _collected_criticals.copy()
         sensors = _collected_sensors.copy()
         _collected_criticals = []
         _collected_sensors = []
         _pending_analysis = False
-    
+
     total_events = len(criticals) + len(sensors)
-    print(f"\n[AutoAnalysis] Triggering LLM analysis for {total_events} collected events...")
-    
+    log.info("triggering LLM analysis for %d collected events", total_events)
+
     event = _build_analysis_event(criticals, sensors)
     correlation_id = str(uuid.uuid4())
     event["correlation_id"] = correlation_id
 
     client = _get_mqtt_client()
     if client is None:
-        print("[AutoAnalysis] No MQTT client available")
+        log.error("no MQTT client available")
         return
 
     try:
@@ -299,9 +339,8 @@ def _execute_analysis():
 
         if published:
             _last_analysis_time = time.time()
-            print(f"[AutoAnalysis] Payload: {json.dumps(event, indent=2)}")
-            print("[AutoAnalysis] SAM Event Mesh Gateway will route to FleetQueryAgent")
-            print("[AutoAnalysis] Response will be delivered to Slack (if configured)")
+            log.debug("payload: %s", json.dumps(event))
+            log.info("SAM Event Mesh Gateway will route to FleetQueryAgent; response → Slack if configured")
 
             if ENABLE_FLEET_SKETCH_AUDIT:
                 try:
@@ -321,25 +360,19 @@ def _execute_analysis():
                         "sketch-audit-report",
                     )
                     if audit_ok:
-                        print(
-                            f"[AutoAnalysis] Sketch audit report ({AUDIT_WINDOW_DAYS}d) on "
-                            f"{AUDIT_REPORT_TOPIC} (correlation_id={correlation_id})"
+                        log.info(
+                            "sketch audit report (%dd) on %s (correlation_id=%s)",
+                            AUDIT_WINDOW_DAYS, AUDIT_REPORT_TOPIC, correlation_id,
                         )
                     else:
-                        print(
-                            "[AutoAnalysis] Sketch audit report not acknowledged; "
-                            "check broker or AUDIT_REPORT_QOS"
-                        )
-                except Exception as audit_exc:
-                    print(f"[AutoAnalysis] Sketch audit failed (non-fatal): {audit_exc}")
+                        log.warning("sketch audit report not acknowledged; check broker or AUDIT_REPORT_QOS")
+                except Exception:
+                    log.exception("sketch audit failed (non-fatal)")
         else:
-            print(
-                "[AutoAnalysis] Failed to deliver analysis request after retries; "
-                "event was not acknowledged by broker."
-            )
+            log.error("failed to deliver analysis request after retries; not acknowledged by broker")
 
-    except Exception as e:
-        print(f"[AutoAnalysis] Error publishing analysis request: {e}")
+    except Exception:
+        log.exception("error publishing analysis request")
 
 
 def on_fleet_critical(fleet_status: str, critical_count: int, active_sensors: int, 
@@ -379,19 +412,21 @@ def on_fleet_critical(fleet_status: str, critical_count: int, active_sensors: in
         
         # If already pending, just add to batch
         if _pending_analysis:
-            print(f"[AutoAnalysis] Added to pending batch ({len(_collected_criticals)} fleet events, {len(_collected_sensors)} sensor events)")
+            log.info(
+                "added to pending batch (%d fleet events, %d sensor events)",
+                len(_collected_criticals), len(_collected_sensors),
+            )
             return
-        
+
         # Check rate limit before starting debounce
         if not _should_analyze():
             _collected_criticals.clear()
             _collected_sensors.clear()
             return
-        
+
         # Start debounce timer
         _pending_analysis = True
-        print(f"[AutoAnalysis] FLEET_CRITICAL detected. Starting {DEBOUNCE_SECONDS}s debounce...")
-        print(f"[AutoAnalysis] Will publish to: {ANALYSIS_REQUEST_TOPIC}")
+        log.info("FLEET_CRITICAL detected; debounce=%ss; will publish to %s", DEBOUNCE_SECONDS, ANALYSIS_REQUEST_TOPIC)
         
         _pending_timer = threading.Timer(DEBOUNCE_SECONDS, _execute_analysis)
         _pending_timer.daemon = True
@@ -415,7 +450,7 @@ def on_sensor_critical(sensor_id: str, temperature: float, zone: str):
         })
         
         if _pending_analysis:
-            print(f"[AutoAnalysis] Collected sensor: {sensor_id} @ {temperature:.1f}°C")
+            log.debug("collected sensor: %s @ %.1f°C", sensor_id, temperature)
 
 
 def get_status() -> dict:
@@ -444,11 +479,25 @@ def get_status() -> dict:
 
 
 def shutdown():
-    """Clean shutdown of MQTT client."""
-    global _mqtt_client
-    if _mqtt_client:
-        _mqtt_client.loop_stop()
-        _mqtt_client.disconnect()
+    """Clean shutdown: cancel any pending debounce timer, then disconnect MQTT.
+
+    Cancelling the timer before disconnect avoids a window where the debounce fires
+    after the MQTT client is gone and tries to publish to a torn-down connection.
+    Idempotent — safe to call multiple times.
+    """
+    global _mqtt_client, _pending_timer, _pending_analysis
+
+    with _lock:
+        timer = _pending_timer
+        _pending_timer = None
+        _pending_analysis = False
+
+    # Don't hold _lock while calling timer.cancel() — cancel may wait on the timer thread.
+    if timer is not None:
+        timer.cancel()
+
+    if _mqtt_client is not None:
+        _quiet_loop_stop(_mqtt_client)
         _mqtt_client = None
 
 
@@ -524,7 +573,7 @@ def publish_audit_report_test_only() -> bool:
     )
     client = _get_mqtt_client()
     if client is None:
-        print("[AutoAnalysis] No MQTT client; cannot publish audit-only report")
+        log.error("no MQTT client; cannot publish audit-only report")
         return False
     time.sleep(1.0)
     ok = _publish_with_puback(
@@ -535,7 +584,7 @@ def publish_audit_report_test_only() -> bool:
         "sketch-audit-report-only",
     )
     if ok:
-        print(f"[AutoAnalysis] Audit-only report published to {AUDIT_REPORT_TOPIC}")
+        log.info("audit-only report published to %s", AUDIT_REPORT_TOPIC)
     return ok
 
 

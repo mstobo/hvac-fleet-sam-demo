@@ -11,7 +11,10 @@ import sys
 import requests
 
 API_BASE = os.getenv("LLM_SERVICE_ENDPOINT", "https://lite-llm.mymaas.net")
-API_KEY = os.getenv("LLM_SERVICE_API_KEY", "")
+try:
+    API_KEY = os.environ["LLM_SERVICE_API_KEY"]
+except KeyError:
+    raise SystemExit("LLM_SERVICE_API_KEY is not set. Source sam/.env or export it before running.")
 MODEL = os.getenv("LLM_SERVICE_GENERAL_MODEL_NAME", "openai/claude-opus-4-5-20251101")
 # When your LiteLLM team only allows a model group (e.g. production-models), set this
 # or put the group name directly in LLM_SERVICE_GENERAL_MODEL_NAME.

@@ -4,7 +4,8 @@
 # 
 # This agent uses an LLM to interpret user questions and call the appropriate
 # query tools. The actual sensor data processing happens in the deterministic
-# pipeline (mock_pipeline.py) - this agent only READS from the database.
+# pipeline (deadband_service.py → sketch_service.py → anomaly_service.py) -
+# this agent only READS from the database.
 #
 # Architecture:
 #   User Question → LLM → Query Tools → SQLite → LLM → Natural Language Answer

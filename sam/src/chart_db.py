@@ -10,6 +10,7 @@ Optional ``asset_id`` / ``metric_id`` columns support filtered queries.
 
 import os
 import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -27,21 +28,48 @@ def get_db_path() -> str:
     return os.path.abspath(DB_PATH)
 
 
+# Thread-local connection cache. SQLite Connection isn't shared across threads, so each
+# thread keeps its own; reuse saves file-open + pragma overhead on per-message writes.
+_tls = threading.local()
+
+
+def close_thread_connection() -> None:
+    """Close this thread's pooled connection. Idempotent."""
+    conn = getattr(_tls, "conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass  # best-effort cleanup
+        finally:
+            _tls.conn = None
+
+
 @contextmanager
 def get_connection():
-    conn = sqlite3.connect(get_db_path())
-    conn.row_factory = sqlite3.Row
+    """Thread-local connection context manager. First call per thread opens; subsequent
+    calls reuse. Commits on success, rolls back on exception."""
+    conn = getattr(_tls, "conn", None)
+    if conn is None:
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        # journal_mode=WAL is persisted in the file header (set by init_database).
+        # synchronous=NORMAL is per-connection, applied on every new open.
+        conn.execute("PRAGMA synchronous=NORMAL")
+        _tls.conn = conn
+
     try:
         yield conn
         conn.commit()
-    finally:
-        conn.close()
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def init_database():
     with get_connection() as conn:
+        # journal_mode is persisted in the file header — one-time flip per DB file.
         conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
 
         conn.execute(
             """

@@ -5,6 +5,7 @@
   "wsPass": "your-password",
   "rawTopicBase": "dc/Hub/v1/raw/dc1/hall-a/row-a3/rack-12",
   "chartQueryBaseUrl": "",
+  "chartQueryApiKey": "",
   "samWebuiBaseUrl": "",
   "autoConnect": true
 }

@@ -21,11 +21,27 @@ from urllib.parse import parse_qs, urlparse
 import chart_db
 import pipeline_config as config
 
+log = config.get_logger("ChartQuery")
+
 
 HOST = os.getenv("CHART_QUERY_HOST", "127.0.0.1")
 PORT = int(os.getenv("CHART_QUERY_PORT", "8010"))
 DEFAULT_WARNING_TEMP = float(os.getenv("WARNING_TEMP", "58.0"))
 DEFAULT_CRITICAL_TEMP = float(os.getenv("CRITICAL_TEMP", "65.0"))
+
+# Optional auth: when CHART_QUERY_API_KEY is set, every request except /health and OPTIONS
+# must present it via header `X-API-Key: <key>` or query param `?key=<key>`. Empty/unset = open
+# (backward-compatible default).
+API_KEY = os.getenv("CHART_QUERY_API_KEY", "").strip()
+
+# Optional CORS allowlist: comma-separated origins (e.g. "https://demo.example.com,http://localhost:3000").
+# Unset or "*" preserves the historical wide-open Access-Control-Allow-Origin: * behaviour.
+_raw_origins = os.getenv("CHART_QUERY_ALLOWED_ORIGINS", "*").strip()
+ALLOWED_ORIGINS: list[str] | None
+if _raw_origins in ("", "*"):
+    ALLOWED_ORIGINS = None  # sentinel: emit "*"
+else:
+    ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 
 def _utc_now_iso() -> str:
@@ -332,10 +348,32 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
     server_version = "chart-query-service/1.0"
 
     def _add_cors_headers(self) -> None:
-        # Allow browser fetch from file://, other ports, or static hosts (local dev only).
-        self.send_header("Access-Control-Allow-Origin", "*")
+        # If no allowlist is configured, retain historic wide-open behaviour.
+        # When configured, echo the request Origin only if it matches the allowlist
+        # (omit the header otherwise — browsers will block cross-origin reads).
+        if ALLOWED_ORIGINS is None:
+            self.send_header("Access-Control-Allow-Origin", "*")
+        else:
+            origin = self.headers.get("Origin", "")
+            if origin and origin in ALLOWED_ORIGINS:
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "*")
+        # Allow X-API-Key so browsers may send the auth header on cross-origin fetches.
+        self.send_header("Access-Control-Allow-Headers", "X-API-Key, Content-Type")
+
+    def _is_authorized(self, query: dict) -> bool:
+        # When no key is configured, the service is open (preserves prior behaviour).
+        if not API_KEY:
+            return True
+        # Prefer header (no leakage to access logs), fall back to ?key= for browser-clickable URLs (Slack).
+        header_key = self.headers.get("X-API-Key", "").strip()
+        if header_key and header_key == API_KEY:
+            return True
+        qp_key = (query.get("key") or [""])[0].strip()
+        if qp_key and qp_key == API_KEY:
+            return True
+        return False
 
     def do_OPTIONS(self) -> None:
         self.send_response(HTTPStatus.NO_CONTENT)
@@ -358,8 +396,15 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
         q = parse_qs(parsed.query)
 
         try:
+            # /health is intentionally always open (used by Docker/EC2 healthchecks and operators).
             if path == "/health":
                 self._handle_health()
+                return
+            if not self._is_authorized(q):
+                self._send_json(
+                    {"error": "Unauthorized", "hint": "Provide CHART_QUERY_API_KEY via X-API-Key header or ?key= query param."},
+                    status=HTTPStatus.UNAUTHORIZED,
+                )
                 return
             if path == "/sensors":
                 self._handle_sensors(q)
@@ -378,8 +423,9 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
             self._send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def log_message(self, fmt: str, *args):
-        # Keep service logs concise and aligned with other microservices.
-        print(f"[ChartQuery] {self.address_string()} - {fmt % args}")
+        # Route BaseHTTPRequestHandler's access logs through our logger.
+        # Per-request lines at DEBUG so default INFO stays quiet under normal traffic.
+        log.debug("%s - %s", self.address_string(), fmt % args)
 
     def _handle_health(self):
         with chart_db.get_connection() as conn:
@@ -680,15 +726,19 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
 
 def main():
     chart_db.init_database()
-    print(f"[ChartQuery] DB initialized at {chart_db.get_db_path()}")
+    log.info("DB initialized at %s", chart_db.get_db_path())
     server = ThreadingHTTPServer((HOST, PORT), ChartQueryHandler)
-    print(f"[ChartQuery] Listening on http://{HOST}:{PORT}")
-    print("[ChartQuery] Endpoints: /health, /sensors, /series, /plotly-spec, /plotly-html")
-    print("[ChartQuery] Query params: sensor_id or asset_id+metric_id; optional metric_id filter on /sensors")
+    log.info("listening on http://%s:%s", HOST, PORT)
+    log.info("endpoints: /health, /sensors, /series, /plotly-spec, /plotly-html")
+    log.info("query params: sensor_id or asset_id+metric_id; optional metric_id filter on /sensors")
+    auth_state = "ENABLED (X-API-Key or ?key=)" if API_KEY else "disabled (set CHART_QUERY_API_KEY to enable)"
+    cors_state = "* (open)" if ALLOWED_ORIGINS is None else ", ".join(ALLOWED_ORIGINS)
+    log.info("Auth: %s", auth_state)
+    log.info("CORS allow-origin: %s", cors_state)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n[ChartQuery] Stopped by user.")
+        log.info("stopped by user")
     finally:
         server.server_close()
 
