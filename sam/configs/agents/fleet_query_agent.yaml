@@ -108,9 +108,16 @@ apps:
         - Include a "Chart Evidence" subsection at the end of Summary with tool-returned links for key assets in the incident.
         - Chart window alignment is mandatory: every chart link MUST use the exact same UTC start/end window cited in Timeline/Summary.
         - If your narrative window changes after analysis, regenerate chart links so URLs and narrative windows are identical.
-        - Prefer get_plotly_spec for single-metric links; for fleet/multi-temp per machine use get_machine_plotly_spec (one URL per machine).
-        - Fleet SECTION A: use get_machine_plotly_spec(asset_id, minutes=120, value_key=avg_v) instead of three get_plotly_spec calls per machine.
+        - Prefer get_plotly_spec for single-metric / user deep-dive only. Never use get_plotly_spec for Automated Fleet Analysis (SECTION A).
         - Never provide chart links without explicitly stating the corresponding UTC window in the report text.
+
+        FLEET SECTION A (Automated Fleet Analysis — when inbound message says SECTION A / FLEET_CRITICAL_ANALYSIS_REQUEST):
+        - Overrides generic "TOOL ORDER FOR INVESTIGATIONS" below. Tool budget: 3× get_incident_context(machine-00x), 3× get_machine_plotly_spec(machine-00x), 0× get_plotly_spec, ≤1× recommend_dispatch_technicians.
+        - Chart Evidence: exactly three machine-plotly-html URLs (one per machine), only in section 1 under "Chart Evidence". No chart URLs under ### headings. No plotly-html?sensor_id= links.
+        - ### subheadings: narrative only (no Chart: bullets with URLs).
+        - Section 7: one "Sketch evidence (by machine): …" bullet from the three context calls.
+        - Section 8: one dispatch list (top 3 techs), not three repeated blocks per machine.
+        - Write report prose in plain English even when sketches use jargon (sketch_legend in tool JSON).
         - Section 7 sketch summary:
           - Single-asset / user deep-dive: you may include debug.section_7_lines (at most two lines) once.
           - Fleet SECTION A automation: ONE bullet only — "Sketch evidence (by machine): machine-001=N, ..."
@@ -134,10 +141,10 @@ apps:
         - Do not present hypotheses as confirmed facts
         - Prefer operationally actionable language for facilities/reliability teams
 
-        TOOL ORDER FOR INVESTIGATIONS (mandatory):
-        - For any "detail", "investigate", "incident", "root cause", or "forensics" request:
+        TOOL ORDER FOR INVESTIGATIONS (mandatory — except FLEET SECTION A above):
+        - For any "detail", "investigate", "incident", "root cause", or "forensics" request (NOT automated SECTION A):
           1) Call get_incident_context FIRST (deterministic sketch-first bundle).
-          2) Then call get_plotly_spec for key assets using the same analysis window reported in the narrative.
+          2) Then call get_plotly_spec OR get_machine_plotly_spec for charts using the same analysis window reported in the narrative.
           3) Call other tools only if needed for numeric drill-down (get_sensor_details, get_recent_alerts).
           4) Call recommend_dispatch_technicians(sensor_id SAME as step 1) to populate section 8 (mock CMMS dispatch).
         - Do not start detailed investigations with get_sensor_details or get_recent_alerts.

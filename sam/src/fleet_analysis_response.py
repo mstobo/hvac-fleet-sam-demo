@@ -24,6 +24,15 @@ _SKETCH_BY_MACHINE_LINE_RE = re.compile(
     r"^Sketch evidence \(by (?:asset|machine)\):.*$",
     re.MULTILINE,
 )
+_PER_POINT_PLOTLY_URL_LINE_RE = re.compile(
+    r"^.*plotly-html\?sensor_id=.*$",
+    re.MULTILINE | re.IGNORECASE,
+)
+_CHART_LINE_PER_POINT_RE = re.compile(
+    r"^- Chart:.*plotly-html\?sensor_id=.*$",
+    re.MULTILINE | re.IGNORECASE,
+)
+_MACHINE_PLOTLY_MARKER = "machine-plotly-html"
 
 SCHEMA_VERSION = "1.0.0"
 EVENT_TYPE = "FLEET_ANALYSIS_RESPONSE"
@@ -269,6 +278,30 @@ def is_failed_task_response(task_response: Any, report_text: str = "") -> bool:
     )
 
 
+def normalize_fleet_chart_links(body: str) -> str:
+    """
+    When the report includes combined machine charts, drop per-point plotly-html?sensor_id=
+    URLs and Chart: bullets the model sometimes adds under ### headings (SECTION A drift).
+    """
+    text = body or ""
+    if _MACHINE_PLOTLY_MARKER not in text:
+        return text
+
+    lines = []
+    for line in text.splitlines():
+        if _PER_POINT_PLOTLY_URL_LINE_RE.match(line):
+            continue
+        if _CHART_LINE_PER_POINT_RE.match(line):
+            continue
+        if line.strip().lower().startswith("- chart:") and "plotly-html" in line.lower():
+            if "sensor_id=" in line.lower() and _MACHINE_PLOTLY_MARKER not in line.lower():
+                continue
+        lines.append(line)
+
+    out = "\n".join(lines)
+    return re.sub(r"\n{3,}", "\n\n", out)
+
+
 def compress_fleet_sketch_section(body: str) -> str:
     """
     Collapse repeated per-point sketch debug lines (fleet SECTION A) into one summary.
@@ -322,6 +355,7 @@ def format_slack_analysis_body(
         body = report_text or ""
 
     if body:
+        body = normalize_fleet_chart_links(body)
         body = compress_fleet_sketch_section(body)
 
     if not body.strip() and meta.get("payload_format") == "json":
