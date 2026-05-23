@@ -766,10 +766,12 @@
           <span>Stream 2s</span>
         </label>
         <button type="button" id="twin-demo-fleet-critical-btn" class="twin-demo-fleet-btn" disabled
-          title="Six sensors at or above 70C plus burst for all nine">
+          title="Six temp sliders at 70C+ then stream-publish all nine (pipeline point ids)">
           FLEET_CRITICAL preset</button>
       </div>
-      <p id="twin-manual-status" class="twin-manual-status" aria-live="polite"></p>
+      <p id="twin-manual-status" class="twin-manual-status" aria-live="polite">
+        Sliders publish <code>machine-00x:inlet|outlet|motor_temp_c</code> (matches demo_publisher). Keep <strong>Stream 2s</strong> on so deadband forwards held temperatures.
+      </p>
     </details>
     </section>
 </div>
@@ -1032,32 +1034,33 @@
   let twinTrendTimer = null;
 
   /** Shared layout for twin sliders + 2s stream tick (same as demo_publisher machines/sensors). */
+  const TWIN_POINT_SEP = ':';
   const TWIN_SLIDER_GROUPS = [
     {
       machine: 'machine-001',
       title: 'machine-001 · stable',
       rows: [
-        { id: 'm1-temp-inlet', role: 'Inlet', def: 38 },
-        { id: 'm1-temp-outlet', role: 'Outlet', def: 48 },
-        { id: 'm1-temp-motor', role: 'Motor', def: 52 }
+        { id: 'm1-temp-inlet', role: 'Inlet', metric: 'inlet_temp_c', def: 38 },
+        { id: 'm1-temp-outlet', role: 'Outlet', metric: 'outlet_temp_c', def: 48 },
+        { id: 'm1-temp-motor', role: 'Motor', metric: 'motor_temp_c', def: 52 }
       ]
     },
     {
       machine: 'machine-002',
       title: 'machine-002 · spiky',
       rows: [
-        { id: 'm2-temp-inlet', role: 'Inlet', def: 39 },
-        { id: 'm2-temp-outlet', role: 'Outlet', def: 49 },
-        { id: 'm2-temp-motor', role: 'Motor', def: 54 }
+        { id: 'm2-temp-inlet', role: 'Inlet', metric: 'inlet_temp_c', def: 39 },
+        { id: 'm2-temp-outlet', role: 'Outlet', metric: 'outlet_temp_c', def: 49 },
+        { id: 'm2-temp-motor', role: 'Motor', metric: 'motor_temp_c', def: 54 }
       ]
     },
     {
       machine: 'machine-003',
       title: 'machine-003 · hot',
       rows: [
-        { id: 'm3-temp-inlet', role: 'Inlet', def: 42 },
-        { id: 'm3-temp-outlet', role: 'Outlet', def: 53 },
-        { id: 'm3-temp-motor', role: 'Motor', def: 58 }
+        { id: 'm3-temp-inlet', role: 'Inlet', metric: 'inlet_temp_c', def: 42 },
+        { id: 'm3-temp-outlet', role: 'Outlet', metric: 'outlet_temp_c', def: 53 },
+        { id: 'm3-temp-motor', role: 'Motor', metric: 'motor_temp_c', def: 58 }
       ]
     }
   ];
@@ -1084,9 +1087,44 @@
   const LS_TWIN_STREAM = 'mqttTwinStreamPublish';
   let twinManualSeq = 0;
   const twinPublishTimers = {};
+  const twinStreamNudge = {};
   let manualTrendRefreshTimer = null;
   let continuousPublishTimer = null;
   const TWIN_STREAM_INTERVAL_MS = 2000;
+  /** ~1.6°C swing on 2s stream exceeds 2% deadband at ~70°C when slider is held steady. */
+  const TWIN_STREAM_DEADBAND_NUDGE_C = 1.6;
+
+  function twinMetricForSensor(sensorId, machineId) {
+    for (let gi = 0; gi < TWIN_SLIDER_GROUPS.length; gi++) {
+      const g = TWIN_SLIDER_GROUPS[gi];
+      if (g.machine !== machineId) continue;
+      for (let ri = 0; ri < g.rows.length; ri++) {
+        const row = g.rows[ri];
+        if (row.id === sensorId) return row.metric;
+      }
+    }
+    if (sensorId.indexOf('inlet') >= 0) return 'inlet_temp_c';
+    if (sensorId.indexOf('outlet') >= 0) return 'outlet_temp_c';
+    if (sensorId.indexOf('motor') >= 0) return 'motor_temp_c';
+    return 'supply_temp_c';
+  }
+
+  function twinPointId(machineId, metricId) {
+    return machineId + TWIN_POINT_SEP + metricId;
+  }
+
+  function twinPublishTemperature(sensorId, machineId, baseTemp, opts) {
+    let t = Number(baseTemp);
+    if (Number.isNaN(t)) return NaN;
+    if (opts && opts.quiet) {
+      const key = machineId + '|' + sensorId;
+      twinStreamNudge[key] = (twinStreamNudge[key] || 0) + 1;
+      const flip = (twinStreamNudge[key] % 2 === 0) ? TWIN_STREAM_DEADBAND_NUDGE_C : -TWIN_STREAM_DEADBAND_NUDGE_C;
+      t = Math.round((t + flip) * 10) / 10;
+      t = Math.max(0, Math.min(120, t));
+    }
+    return t;
+  }
 
   function matchesDcPipelineTopic(topic, leaf) {
     const t = topic || '';
@@ -1273,7 +1311,8 @@
     tickTwinContinuousPublish();
     const stEl = document.getElementById('twin-manual-status');
     if (stEl) {
-      stEl.textContent = 'FLEET_CRITICAL preset applied — published all 9 sensors';
+      stEl.textContent =
+        'FLEET_CRITICAL preset — 6 hot temps + 2s stream (9 pipeline points: machine-00x:inlet|outlet|motor_temp_c)';
     }
   }
 
@@ -1289,20 +1328,24 @@
     const base = getRawTopicBase();
     const inTopicEl = document.getElementById('twin-temp-in-topic');
     const inTopic = inTopicEl ? inTopicEl.checked : true;
-    const t = Number(temp);
+    const t = twinPublishTemperature(sensorId, machineId, temp, opts);
     if (Number.isNaN(t)) return;
+    const metricId = twinMetricForSensor(sensorId, machineId);
+    const pointId = twinPointId(machineId, metricId);
     const loc = parseLocationFromRawBase(base);
     const topic = inTopic
-      ? base + '/' + machineId + '/supply_temp_c/' + t.toFixed(2)
-      : base + '/' + machineId + '/supply_temp_c';
+      ? base + '/' + machineId + '/' + metricId + '/' + t.toFixed(2)
+      : base + '/' + machineId + '/' + metricId;
     const stype = sensorId.indexOf('inlet') >= 0 ? 'inlet'
       : (sensorId.indexOf('outlet') >= 0 ? 'outlet' : 'motor');
     twinManualSeq++;
     const d = new Date();
     const ts = d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const rounded = Math.round(t * 100) / 100;
     const payload = {
       schema: 'dc.raw.v1',
       schemaRevision: '1.0.0',
+      pointId: pointId,
       sensorId: sensorId,
       machineId: machineId,
       sensorType: stype,
@@ -1311,19 +1354,17 @@
       row: loc.row,
       rack: loc.rack,
       asset: machineId,
-      metric: 'supply_temp_c',
+      metric: metricId,
       sourceProtocol: 'MANUAL_SLIDER',
       unit: 'C',
       quality: 'GOOD',
+      temperature: rounded,
+      value: rounded,
       timestamp: ts,
+      ts: ts,
       eventType: 'MANUAL',
       sequence: twinManualSeq
     };
-    if (!inTopic) {
-      const rounded = Math.round(t * 100) / 100;
-      payload.temperature = rounded;
-      payload.value = rounded;
-    }
     const msg = new Paho.MQTT.Message(JSON.stringify(payload));
     msg.destinationName = topic;
     msg.qos = 0;
@@ -1337,7 +1378,7 @@
       const stEl = document.getElementById('twin-manual-status');
       if (stEl) {
         stEl.textContent =
-          'Published ' + sensorId + ' @ ' + t.toFixed(1) + ' °C · ' +
+          'Published ' + pointId + ' @ ' + t.toFixed(1) + ' °C · ' +
           new Date().toLocaleTimeString('en-US', { hour12: false });
       }
       scheduleTrendRefreshAfterManual();
