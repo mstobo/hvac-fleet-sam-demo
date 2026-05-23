@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlparse
 
 import chart_db
 import pipeline_config as config
+import sketch_style_admin
 
 
 HOST = os.getenv("CHART_QUERY_HOST", "127.0.0.1")
@@ -662,8 +663,8 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
     def _add_cors_headers(self) -> None:
         # Allow browser fetch from file://, other ports, or static hosts (local dev only).
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-API-Key")
 
     def do_OPTIONS(self) -> None:
         self.send_response(HTTPStatus.NO_CONTENT)
@@ -680,6 +681,36 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _request_headers(self) -> dict:
+        return {k: v for k, v in self.headers.items()}
+
+    def _read_json_body(self) -> dict:
+        length = int(self.headers.get("Content-Length") or "0")
+        if length <= 0:
+            return {}
+        raw = self.rfile.read(length)
+        if not raw:
+            return {}
+        return json.loads(raw.decode("utf-8"))
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+        q = parse_qs(parsed.query)
+        try:
+            if path == "/admin/sketch-style":
+                self._handle_sketch_style_post(q)
+                return
+            self._send_json({"error": "Not found", "path": path}, status=HTTPStatus.NOT_FOUND)
+        except json.JSONDecodeError:
+            self._send_json({"error": "Invalid JSON body"}, status=HTTPStatus.BAD_REQUEST)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+        except PermissionError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.FORBIDDEN)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
@@ -688,6 +719,9 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
         try:
             if path == "/health":
                 self._handle_health()
+                return
+            if path == "/admin/sketch-style":
+                self._handle_sketch_style_get()
                 return
             if path == "/sensors":
                 self._handle_sensors(q)
@@ -714,6 +748,27 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args):
         # Keep service logs concise and aligned with other microservices.
         print(f"[ChartQuery] {self.address_string()} - {fmt % args}")
+
+    def _handle_sketch_style_get(self):
+        payload = sketch_style_admin.sketch_style_status()
+        payload["legend"] = None
+        if payload.get("effective") == "jargon":
+            import sketch_styles
+
+            payload["legend"] = sketch_styles.SKETCH_JARGON_LEGEND
+        self._send_json(payload)
+
+    def _handle_sketch_style_post(self, q: dict):
+        if not sketch_style_admin.admin_request_authorized(self._request_headers(), q):
+            raise PermissionError("Missing or invalid admin API key")
+        body = self._read_json_body()
+        style = (body.get("style") or body.get("sketch_style") or "").strip()
+        if not style:
+            raise ValueError("JSON body must include style: nl or jargon")
+        effective = sketch_style_admin.set_sketch_style_override(style)
+        out = sketch_style_admin.sketch_style_status()
+        out["message"] = f"Sketch style set to {effective} (live; no container restart)"
+        self._send_json(out)
 
     def _handle_health(self):
         with chart_db.get_connection() as conn:
@@ -1198,7 +1253,7 @@ def main():
     print(f"[ChartQuery] Listening on http://{HOST}:{PORT}")
     print(
         "[ChartQuery] Endpoints: /health, /sensors, /series, /plotly-spec, /plotly-html, "
-        "/machine-plotly-spec, /machine-plotly-html"
+        "/machine-plotly-spec, /machine-plotly-html, GET|POST /admin/sketch-style"
     )
     print("[ChartQuery] Query params: sensor_id or asset_id+metric_id; optional metric_id filter on /sensors")
     try:

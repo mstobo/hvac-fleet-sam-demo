@@ -95,6 +95,43 @@
     border-color: var(--green);
     box-shadow: 0 0 0 3px rgba(0, 200, 149, 0.15);
   }
+  .sketch-style-toggle {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 200px;
+  }
+  .sketch-style-toggle .seg {
+    display: inline-flex;
+    border: 1.5px solid var(--border);
+    border-radius: var(--solace-radius-md);
+    overflow: hidden;
+  }
+  .sketch-style-toggle .seg button {
+    border: none;
+    background: var(--solace-dark);
+    color: var(--muted);
+    padding: 0.45rem 0.75rem;
+    font-size: var(--solace-text-xs);
+    font-weight: var(--solace-weight-semibold);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .sketch-style-toggle .seg button.active {
+    background: rgba(0, 200, 149, 0.2);
+    color: var(--green);
+  }
+  .sketch-style-toggle .seg button:disabled {
+    opacity: 0.5;
+    cursor: wait;
+  }
+  .sketch-style-hint {
+    font-size: 0.68rem;
+    color: var(--muted);
+    max-width: 220px;
+    line-height: 1.35;
+  }
+
   #config-panel label {
     font-size: var(--solace-text-xs);
     font-weight: var(--solace-weight-medium);
@@ -600,7 +637,7 @@
 <header>
   <div>
     <h1>⚡ Solace Agent Mesh | Live Pipeline Demo</h1>
-    <div class="subtitle">Filter → Trigger → Summarize → Act &nbsp;|&nbsp; Real-time sensor intelligence &nbsp;|&nbsp; <span id="dash-rev" title="If this label is missing, the browser is serving an old cached copy of this file. Hard-reload: Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows).">dashboard <strong class="solace-text-primary">rev&nbsp;18</strong> · Solace brand · <code>demo_dashboard.config.json</code> optional</span></div>
+    <div class="subtitle">Filter → Trigger → Summarize → Act &nbsp;|&nbsp; Real-time sensor intelligence &nbsp;|&nbsp; <span id="dash-rev" title="If this label is missing, the browser is serving an old cached copy of this file. Hard-reload: Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows).">dashboard <strong class="solace-text-primary">rev&nbsp;19</strong> · Solace brand · <code>demo_dashboard.config.json</code> optional</span></div>
   </div>
   <div id="conn-badge" class="conn-badge">● Disconnected</div>
 </header>
@@ -612,6 +649,14 @@
   <div><label>Password</label><br><input id="cfg-pass" type="password" value="" placeholder="broker-password" style="width:140px" /></div>
   <div><label>Raw topic base (twin sliders)</label><br><input id="cfg-raw-base-top" spellcheck="false" placeholder="dc/Hub/v1/raw/dc1/hall-a/row-a3/rack-12" style="width:min(360px,92vw)" title="Synced with twin tab manual publish (dc/&lt;Hub|DC1|DC2&gt;/v1/…)" /></div>
   <div><label>Chart API (trends)</label><br><input id="cfg-chart-query" spellcheck="false" placeholder="http://127.0.0.1:8010" style="width:min(240px,40vw)" title="chart-query base URL (e.g. https://your-host/charts/ behind Apache)" /></div>
+  <div class="sketch-style-toggle">
+    <label>Sketch style (fleet LLM)</label>
+    <div class="seg" role="group" aria-label="Sketch style">
+      <button type="button" id="sketch-style-nl" class="active" title="Natural-language sketches">NL</button>
+      <button type="button" id="sketch-style-jargon" title="Expert-lexicon compact sketches">Jargon</button>
+    </div>
+    <span id="sketch-style-status" class="sketch-style-hint">Loading…</span>
+  </div>
   <div><label>SAM Web UI (chat)</label><br><input id="cfg-sam-webui" spellcheck="false" placeholder="http://127.0.0.1:8000" style="width:min(240px,40vw)" title="HTTP/SSE gateway (e.g. https://your-host/sam/ behind Apache)" /></div>
   <div style="align-self:flex-end; display:flex; gap:8px; flex-wrap:wrap;"><button type="button" class="solace-btn solace-btn--secondary solace-btn--sm" onclick="applyServiceUrls()">Apply URLs</button><button type="button" class="solace-btn solace-btn--primary solace-btn--sm" onclick="connectBroker()">Connect ▶</button></div>
 </div>
@@ -951,6 +996,75 @@
     }
   }
 
+  function chartQueryFetchOpts(method, bodyObj) {
+    const headers = {};
+    const chartKey = getChartQueryKey();
+    if (chartKey) headers['X-API-Key'] = chartKey;
+    if (bodyObj != null) headers['Content-Type'] = 'application/json';
+    const opts = { method: method || 'GET', headers };
+    if (bodyObj != null) opts.body = JSON.stringify(bodyObj);
+    return opts;
+  }
+
+  function setSketchStyleUi(style, hint) {
+    const nlBtn = document.getElementById('sketch-style-nl');
+    const jargonBtn = document.getElementById('sketch-style-jargon');
+    const statusEl = document.getElementById('sketch-style-status');
+    const isJargon = style === 'jargon';
+    if (nlBtn) nlBtn.classList.toggle('active', !isJargon);
+    if (jargonBtn) jargonBtn.classList.toggle('active', isJargon);
+    if (statusEl) statusEl.textContent = hint || (isJargon ? 'Jargon · live on chart-query' : 'NL · live on chart-query');
+  }
+
+  async function refreshSketchStyleToggle() {
+    const nlBtn = document.getElementById('sketch-style-nl');
+    const jargonBtn = document.getElementById('sketch-style-jargon');
+    try {
+      const u = `${getChartQueryBaseUrl()}/admin/sketch-style`;
+      const r = await fetch(u, chartQueryFetchOpts('GET'));
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      const style = (j.effective || j.style || 'nl').toLowerCase();
+      const extra = j.persisted ? ' (override file)' : (j.env_style ? ` (env ${j.env_style})` : '');
+      setSketchStyleUi(style, `${style.toUpperCase()}${extra} · no restart`);
+    } catch (e) {
+      setSketchStyleUi('nl', 'Set Chart API URL · redeploy chart-query for toggle');
+    } finally {
+      if (nlBtn) nlBtn.disabled = false;
+      if (jargonBtn) jargonBtn.disabled = false;
+    }
+  }
+
+  async function applySketchStyle(style) {
+    const nlBtn = document.getElementById('sketch-style-nl');
+    const jargonBtn = document.getElementById('sketch-style-jargon');
+    if (nlBtn) nlBtn.disabled = true;
+    if (jargonBtn) jargonBtn.disabled = true;
+    const statusEl = document.getElementById('sketch-style-status');
+    if (statusEl) statusEl.textContent = 'Applying…';
+    try {
+      const u = `${getChartQueryBaseUrl()}/admin/sketch-style`;
+      const r = await fetch(u, chartQueryFetchOpts('POST', { style }));
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const effective = (j.effective || j.style || style).toLowerCase();
+      setSketchStyleUi(effective, j.message || `${effective.toUpperCase()} · live`);
+    } catch (e) {
+      setSketchStyleUi(style, `Failed: ${e.message || e}`);
+    } finally {
+      if (nlBtn) nlBtn.disabled = false;
+      if (jargonBtn) jargonBtn.disabled = false;
+    }
+  }
+
+  function setupSketchStyleToggle() {
+    const nlBtn = document.getElementById('sketch-style-nl');
+    const jargonBtn = document.getElementById('sketch-style-jargon');
+    if (nlBtn) nlBtn.addEventListener('click', () => applySketchStyle('nl'));
+    if (jargonBtn) jargonBtn.addEventListener('click', () => applySketchStyle('jargon'));
+    refreshSketchStyleToggle();
+  }
+
   function getSamWebuiBaseUrl() {
     const el = document.getElementById('cfg-sam-webui');
     const fromInput = el && el.value.trim();
@@ -979,6 +1093,7 @@
     const frame = document.getElementById('sam-chat-frame');
     if (frame) frame.src = samBase + '/';
     refreshTwinTrends();
+    refreshSketchStyleToggle();
   }
 
   function initServiceUrlInputs(demoConfig) {
@@ -2181,6 +2296,7 @@
     initBrokerConfig(demoConfig);
     initServiceUrlInputs(demoConfig);
     applyServiceUrls();
+    setupSketchStyleToggle();
     setupDashTabs();
     if (shouldAutoConnect(demoConfig)) {
       connectBroker();
