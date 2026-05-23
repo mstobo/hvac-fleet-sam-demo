@@ -34,6 +34,13 @@ class ChartDbTests(unittest.TestCase):
         self.assertEqual(identity["point_id"], "machine-001:humidity_rh")
         self.assertEqual(identity["metric_id"], "humidity_rh")
 
+    def test_resolve_canonical_sensor_id(self):
+        identity = chart_db.resolve_chart_identity(sensor_id="machine-002:outlet_temp_c")
+        self.assertEqual(identity["point_id"], "machine-002:outlet_temp_c")
+        self.assertEqual(identity["asset_id"], "machine-002")
+        self.assertEqual(identity["metric_id"], "outlet_temp_c")
+        self.assertNotIn("supply_temp_c", identity["point_id"])
+
     def test_write_and_filter_by_metric(self):
         ts = _utc_now()
         chart_db.write_point_and_rollups(
