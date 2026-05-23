@@ -36,11 +36,10 @@ SKETCH_JARGON_LEGEND = (
 
 
 def get_sketch_style() -> str:
-    """Return 'nl' (default) or 'jargon'."""
-    style = (os.getenv("SKETCH_STYLE") or "nl").strip().lower()
-    if style in ("jargon", "expert", "expert_lexicon", "sot"):
-        return "jargon"
-    return "nl"
+    """Return effective 'nl' or 'jargon' (runtime override file, then SKETCH_STYLE env)."""
+    from sketch_style_admin import get_effective_sketch_style
+
+    return get_effective_sketch_style()
 
 
 def render_sketch_nl(
