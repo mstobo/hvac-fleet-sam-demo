@@ -15,7 +15,7 @@ import json
 import os
 import re
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 from urllib.parse import urlencode, urlparse
 from urllib.request import urlopen
 
@@ -54,6 +54,34 @@ def _normalize_chart_public_base(url: str) -> str:
     return u.rstrip("/")
 
 
+def _infer_public_chart_base() -> str:
+    """
+    Browser-reachable chart base for Slack links.
+
+    Order: CHART_PUBLIC_BASE_URL → DASHBOARD_PUBLIC_HOST/charts → EC2_PUBLIC_HOST/charts.
+    """
+    pub = _normalize_chart_public_base(os.getenv("CHART_PUBLIC_BASE_URL", ""))
+    if pub and not _is_browser_unreachable_chart_base(pub):
+        return pub
+    derived = _derive_public_chart_base_from_dashboard_host()
+    if derived and not _is_browser_unreachable_chart_base(derived):
+        return derived
+    host = (
+        os.getenv("EC2_PUBLIC_HOST", "").strip()
+        or os.getenv("PUBLIC_DEMO_HOST", "").strip()
+        or os.getenv("DEMO_PUBLIC_HOST", "").strip()
+    )
+    if host:
+        host = host.replace("https://", "").replace("http://", "").split("/")[0].strip()
+        prefix = (os.getenv("CHART_PUBLIC_PATH_PREFIX", "/charts") or "/charts").strip()
+        if not prefix.startswith("/"):
+            prefix = "/" + prefix
+        base = f"http://{host}{prefix}".rstrip("/")
+        if not _is_browser_unreachable_chart_base(base):
+            return base
+    return ""
+
+
 def _derive_public_chart_base_from_dashboard_host() -> str:
     """
     When CHART_PUBLIC_BASE_URL is unset, build a browser/Slack-safe base from
@@ -77,14 +105,11 @@ def _chart_query_internal_public_bases() -> Tuple[str, str]:
     outside Docker (not chart-query).
     """
     internal = os.getenv("CHART_QUERY_BASE_URL", "http://127.0.0.1:8010").rstrip("/")
-    pub = _normalize_chart_public_base(os.getenv("CHART_PUBLIC_BASE_URL", ""))
+    pub = _infer_public_chart_base()
     if pub:
         return internal, pub
     if not _is_browser_unreachable_chart_base(internal):
         return internal, internal
-    derived = _derive_public_chart_base_from_dashboard_host()
-    if derived:
-        return internal, derived
     return internal, internal
 
 
@@ -174,6 +199,92 @@ def _chart_query_key_for_public_links() -> str:
     return os.getenv("CHART_QUERY_API_KEY", "").strip()
 
 
+def _format_slack_chart_link(
+    point_id: str,
+    start: str,
+    end: str,
+    *,
+    value_key: Optional[str] = None,
+    prefix: str = "",
+    label: Optional[str] = None,
+) -> str:
+    url = build_plotly_html_url(
+        point_id,
+        value_key=_value_key_for_public_chart_link(value_key),
+        window_start=start,
+        window_end=end,
+    )
+    if not url:
+        return ""
+    name = label or point_id
+    lead = prefix or ""
+    return f"{lead}{name}: <{url}> ({start} → {end})"
+
+
+_POINT_HEADING_RE = re.compile(
+    r"^###\s*(?P<point_id>machine-\d{3}:[a-z0-9_]+)\s*$",
+    re.IGNORECASE,
+)
+
+_ANALYSIS_WINDOW_PATTERNS = (
+    re.compile(rf"Analysis window:\s*{_ISO_WINDOW_RE}", re.IGNORECASE),
+    re.compile(rf"(?:UTC window|120-minute UTC window)\s*{_ISO_WINDOW_RE}", re.IGNORECASE),
+)
+
+_NO_PINNED_URLS_NOTE_RE = re.compile(
+    r"\(note:\s*chart service returned plot specs but no pinned public URLs[^)]*\)\.?\s*",
+    re.IGNORECASE,
+)
+
+
+def _extract_analysis_window(text: str) -> Optional[Tuple[str, str]]:
+    for pat in _ANALYSIS_WINDOW_PATTERNS:
+        m = pat.search(text)
+        if m:
+            return m.group("start"), m.group("end")
+    m = re.search(_ISO_WINDOW_RE, text)
+    if m:
+        return m.group("start"), m.group("end")
+    return None
+
+
+def inject_fleet_analysis_chart_links(text: str) -> str:
+    """
+    After fleet analysis reports with ### machine-00x:metric headings, insert plotly-html
+    links for the cited UTC window when the LLM did not paste plotly_html_url_pinned.
+    """
+    window = _extract_analysis_window(text)
+    if not window:
+        return text
+    start, end = window
+    public = chart_public_base_for_links()
+    if not public or _is_browser_unreachable_chart_base(public):
+        return text
+
+    lines = text.splitlines()
+    out: List[str] = []
+    injected = 0
+    for i, line in enumerate(lines):
+        out.append(line)
+        m = _POINT_HEADING_RE.match(line.strip())
+        if not m:
+            continue
+        point_id = m.group("point_id")
+        lookahead = "\n".join(lines[i + 1 : i + 4])
+        if "plotly-html" in lookahead:
+            continue
+        link = _format_slack_chart_link(point_id, start, end, prefix="- Chart: ")
+        if link:
+            out.append(link)
+            injected += 1
+
+    if not injected:
+        return text
+    merged = "\n".join(out)
+    merged = _NO_PINNED_URLS_NOTE_RE.sub("", merged)
+    return re.sub(r"\n{3,}", "\n\n", merged)
+
+
 def build_plotly_html_url(
     sensor_id: str,
     *,
@@ -221,31 +332,10 @@ def rewrite_chart_urls_in_text(text: str) -> str:
     if public and not _is_browser_unreachable_chart_base(public):
         text = _CHART_URL_INTERNAL_HOST_RE.sub(public.rstrip("/"), text)
 
-        def _link_for_point(
-            point_id: str,
-            start: str,
-            end: str,
-            *,
-            value_key: Optional[str] = None,
-            prefix: str = "",
-            label: Optional[str] = None,
-        ) -> str:
-            url = build_plotly_html_url(
-                point_id,
-                value_key=_value_key_for_public_chart_link(value_key),
-                window_start=start,
-                window_end=end,
-            )
-            if not url:
-                return ""
-            name = label or point_id
-            lead = prefix or ""
-            return f"{lead}{name}: <{url}> ({start} → {end})"
-
         def _placeholder_link(match: re.Match) -> str:
             point_id = match.group(1).strip()
             start, end = match.group(2), match.group(3)
-            linked = _link_for_point(point_id, start, end, value_key="max_v", prefix="Chart: ")
+            linked = _format_slack_chart_link(point_id, start, end, value_key="max_v", prefix="Chart: ")
             return linked or match.group(0)
 
         def _chart_spec_generated_link(match: re.Match) -> str:
@@ -256,7 +346,7 @@ def rewrite_chart_urls_in_text(text: str) -> str:
                 return match.group(0)
             point_id = f"{machine}:{metric}"
             start, end = match.group("start"), match.group("end")
-            linked = _link_for_point(
+            linked = _format_slack_chart_link(
                 point_id,
                 start,
                 end,
@@ -268,7 +358,7 @@ def rewrite_chart_urls_in_text(text: str) -> str:
 
         text = _CHART_PLACEHOLDER_RE.sub(_placeholder_link, text)
         text = _CHART_SPEC_GENERATED_RE.sub(_chart_spec_generated_link, text)
-    return text
+    return inject_fleet_analysis_chart_links(text)
 
 
 def _debug_sketch_evidence_enabled() -> bool:
