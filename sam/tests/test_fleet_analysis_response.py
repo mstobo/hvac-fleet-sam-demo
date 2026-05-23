@@ -128,6 +128,7 @@ class FleetAnalysisResponseTests(unittest.TestCase):
             "1) Summary\n"
             "### machine-001:inlet_temp_c\n"
             "- Chart: machine-001:inlet_temp_c: http://host/charts/plotly-html?sensor_id=machine-001%3Ainlet\n"
+            "Insufficient per-point incident context pulled for inlet_temp_c\n"
             "Chart Evidence:\n"
             "- machine-001: http://host/charts/machine-plotly-html?asset_id=machine-001\n"
             "- machine-002: http://host/charts/machine-plotly-html?asset_id=machine-002\n"
@@ -135,6 +136,16 @@ class FleetAnalysisResponseTests(unittest.TestCase):
         out = normalize_fleet_chart_links(noisy)
         self.assertNotIn("sensor_id=", out)
         self.assertIn("machine-plotly-html", out)
+        self.assertNotIn("Insufficient per-point", out)
+
+    def test_validate_flags_mixed_chart_urls(self):
+        body = (
+            "Summary\n"
+            "http://host/machine-plotly-html?asset_id=m1\n"
+            "http://host/plotly-html?sensor_id=machine-001%3Ainlet\n"
+        )
+        issues = validate_fleet_report_structure(body)
+        self.assertTrue(any("per-point" in i for i in issues))
 
     def test_compress_fleet_sketch_section(self):
         noisy = (

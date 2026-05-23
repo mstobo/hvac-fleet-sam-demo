@@ -305,16 +305,26 @@ def validate_fleet_report_structure(body: str) -> List[str]:
         return ["empty report body"]
 
     if "1) Summary" not in text:
-        issues.append("missing section '1) Summary'")
+        issues.append("missing section '1) Summary' (got unnumbered 'Summary'?)")
+    if re.search(r"(?m)^Summary\s*$", text) and "1) Summary" not in text:
+        issues.append("unnumbered section headings (must be '1) Summary', '2) Timeline', …)")
     if text.startswith("### machine-"):
         issues.append("report begins with ### per-point headings (should start with 1) Summary)")
-    if "machine-plotly-html" not in text:
+    lowered = text.lower()
+    if "machine-plotly-html" not in lowered:
         issues.append("no machine-plotly-html chart links (expected exactly 3)")
-    if "Chart Evidence" not in text and "1) Summary" in text:
-        issues.append("missing 'Chart Evidence' subsection in Summary")
+    if "plotly-html?sensor_id=" in lowered or "plotly-html?sensor_id%3d" in lowered:
+        if "machine-plotly-html" in lowered:
+            issues.append("per-point plotly-html?sensor_id= links present (forbidden when machine charts exist)")
+        else:
+            issues.append("only per-point plotly-html links (need 3× machine-plotly-html)")
+    if "Chart Evidence" not in text and ("1) Summary" in text or text.startswith("Summary")):
+        issues.append("missing 'Chart Evidence' subsection")
     for section in ("2) Timeline", "3) Severity", "8) Dispatch"):
         if section not in text:
             issues.append(f"missing '{section}'")
+    if text.count("plotly-html") > 6:
+        issues.append(f"too many chart URLs ({text.count('plotly-html')}); expected 3 machine charts only")
     return issues
 
 
@@ -356,21 +366,29 @@ def is_failed_task_response(task_response: Any, report_text: str = "") -> bool:
 
 def normalize_fleet_chart_links(body: str) -> str:
     """
-    When the report includes combined machine charts, drop per-point plotly-html?sensor_id=
-    URLs and Chart: bullets the model sometimes adds under ### headings (SECTION A drift).
+    Fleet SECTION A cleanup: drop per-point plotly-html?sensor_id= URLs and Chart:
+    bullets under ### when combined machine-plotly-html links are also present.
     """
     text = body or ""
-    if _MACHINE_PLOTLY_MARKER not in text:
+    lowered = text.lower()
+    if "plotly-html" not in lowered:
         return text
+
+    has_machine = _MACHINE_PLOTLY_MARKER in lowered
+    has_per_point = "sensor_id=" in lowered and "plotly-html" in lowered
 
     lines = []
     for line in text.splitlines():
-        if _PER_POINT_PLOTLY_URL_LINE_RE.match(line):
-            continue
-        if _CHART_LINE_PER_POINT_RE.match(line):
-            continue
-        if line.strip().lower().startswith("- chart:") and "plotly-html" in line.lower():
-            if "sensor_id=" in line.lower() and _MACHINE_PLOTLY_MARKER not in line.lower():
+        line_lower = line.lower()
+        if has_machine and has_per_point:
+            if _PER_POINT_PLOTLY_URL_LINE_RE.match(line):
+                continue
+            if _CHART_LINE_PER_POINT_RE.match(line):
+                continue
+            if line.strip().lower().startswith("- chart:") and "plotly-html" in line_lower:
+                if "sensor_id=" in line_lower and _MACHINE_PLOTLY_MARKER not in line_lower:
+                    continue
+            if "insufficient per-point incident context" in line_lower:
                 continue
         lines.append(line)
 
