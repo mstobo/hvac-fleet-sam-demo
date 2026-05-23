@@ -56,7 +56,8 @@ def test_critical_spike_flows_through_pipeline(tmp_sensor_db, reset_pipeline_sta
     # 4. Sketch generation should narrate the spike, classify zone, and buffer to DB.
     sketch = sketch_service.generate_sketch(spike)
     assert sketch["zone"] == "CRITICAL"
-    assert "Anomaly detected" in sketch["sketch"]
+    assert sketch["zone"] == "CRITICAL"
+    assert ("Anomaly detected" in sketch["sketch"]) or ("!CRIT" in sketch["sketch"])
     # Force the per-batch DB flush so we can assert persistence below.
     sketch_service._flush_sketch_buffer(force=True)
 

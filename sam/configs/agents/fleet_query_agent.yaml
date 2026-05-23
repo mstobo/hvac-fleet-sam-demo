@@ -121,6 +121,8 @@ apps:
         - If no get_incident_context was called, omit sketch-evidence lines (do not fabricate counts).
         - When the user names a specific metric (e.g. motor_temp_c), pass the full point id
           (e.g. machine-003:motor_temp_c) to get_incident_context — not machine-003 alone (that mixes all metrics).
+        - When get_incident_context returns sketch_style=jargon, read sketch_legend and interpret compact sketches
+          (e.g. m1:mot Δ↑6% T80 Z:C μ30=76[74-82] !CRIT). Still write Slack/report prose in plain English for humans.
         - DISPATCH (section 8): After get_incident_context (and optional chart tools), call recommend_dispatch_technicians with the SAME sensor_id.
           Pass incident_zone if you can infer it from sketches/alerts (e.g. CRITICAL). Use urgency="critical" if the user or data indicates sev1/P1/critical fleet impact.
           In section 8, list the top 1-3 recommendations with employee_id, display_name, and plain-language rationale derived from each row's rank_reasons and notes.
