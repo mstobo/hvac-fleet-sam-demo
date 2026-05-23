@@ -448,6 +448,15 @@ def _build_sketch_debug_block(
         if insufficient
         else "Insufficient sketch context: No — sketch narratives were included in this analysis."
     )
+    # One line in tool JSON by default — avoids the LLM pasting 18+ lines into fleet Slack reports.
+    verbose_section7 = os.getenv(
+        "FLEET_QUERY_SKETCH_SECTION7_VERBOSE", "false"
+    ).strip().lower() in ("1", "true", "yes", "on")
+    section_7_lines = (
+        [evidence_line, insufficient_line]
+        if verbose_section7
+        else ([insufficient_line] if insufficient else [evidence_line])
+    )
     return {
         "sketch_evidence_enabled": True,
         "sketch_evidence_count": count,
@@ -455,7 +464,7 @@ def _build_sketch_debug_block(
         "sketch_evidence_at_limit": at_limit,
         "insufficient_sketch_context": insufficient,
         "sketch_evidence_note": f"Sketch evidence: {count} sketches reviewed.",
-        "section_7_lines": [evidence_line, insufficient_line],
+        "section_7_lines": section_7_lines,
     }
 
 

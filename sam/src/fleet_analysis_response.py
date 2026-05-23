@@ -9,7 +9,21 @@ event-mesh gateway ``task_response`` objects.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional, Tuple
+import re
+from typing import Any, Dict, List, Optional, Tuple
+
+_SKETCH_RETURNED_LINE_RE = re.compile(
+    r"^Sketch evidence: (\d+) sketch\(es\) returned for [`']?([^`'(\s]+)",
+    re.MULTILINE,
+)
+_INSUFFICIENT_SKETCH_LINE_RE = re.compile(
+    r"^Insufficient sketch context:.*$",
+    re.MULTILINE,
+)
+_SKETCH_BY_MACHINE_LINE_RE = re.compile(
+    r"^Sketch evidence \(by (?:asset|machine)\):.*$",
+    re.MULTILINE,
+)
 
 SCHEMA_VERSION = "1.0.0"
 EVENT_TYPE = "FLEET_ANALYSIS_RESPONSE"
@@ -255,6 +269,40 @@ def is_failed_task_response(task_response: Any, report_text: str = "") -> bool:
     )
 
 
+def compress_fleet_sketch_section(body: str) -> str:
+    """
+    Collapse repeated per-point sketch debug lines (fleet SECTION A) into one summary.
+    Safe no-op when fewer than four matching lines (single-asset reports unchanged).
+    """
+    matches = list(_SKETCH_RETURNED_LINE_RE.finditer(body or ""))
+    if len(matches) < 4:
+        return body
+
+    per_machine: Dict[str, int] = {}
+    for match in matches:
+        count = int(match.group(1))
+        scope = match.group(2).strip()
+        machine = scope.split(":")[0] if ":" in scope else scope
+        per_machine[machine] = max(per_machine.get(machine, 0), count)
+
+    out = _SKETCH_RETURNED_LINE_RE.sub("", body)
+    out = _INSUFFICIENT_SKETCH_LINE_RE.sub("", out)
+    out = _SKETCH_BY_MACHINE_LINE_RE.sub("", out)
+    out = re.sub(r"\n{3,}", "\n\n", out).strip()
+
+    parts = [f"{machine}={count}" for machine, count in sorted(per_machine.items())]
+    summary = f"Sketch evidence (by machine): {', '.join(parts)}"
+    if any(count >= 25 for count in per_machine.values()):
+        summary += " (tool limit 25 per machine; more sketches may exist in the window)"
+    summary += "."
+    if any(count > 0 for count in per_machine.values()):
+        summary += "\nInsufficient sketch context: No — sketch narratives were included in this analysis."
+
+    if "8) Dispatch" in out:
+        return out.replace("8) Dispatch", f"{summary}\n\n8) Dispatch", 1)
+    return f"{out}\n\n{summary}"
+
+
 def format_slack_analysis_body(
     raw: str,
     *,
@@ -272,6 +320,9 @@ def format_slack_analysis_body(
         body = rewrite_urls(report_text)
     else:
         body = report_text or ""
+
+    if body:
+        body = compress_fleet_sketch_section(body)
 
     if not body.strip() and meta.get("payload_format") == "json":
         body = (

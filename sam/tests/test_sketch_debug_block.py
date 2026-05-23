@@ -31,14 +31,20 @@ class SketchDebugBlockTests(unittest.TestCase):
             sensor_id="machine-003:motor_temp_c",
         )
         self.assertTrue(block["sketch_evidence_at_limit"])
-        self.assertEqual(len(block["section_7_lines"]), 2)
+        self.assertEqual(len(block["section_7_lines"]), 1)
         self.assertIn("tool limit 25", block["section_7_lines"][0])
         self.assertIn("machine-003:motor_temp_c", block["section_7_lines"][0])
+
+    def test_verbose_section7_two_lines(self):
+        os.environ["FLEET_QUERY_SKETCH_SECTION7_VERBOSE"] = "true"
+        block = _build_sketch_debug_block(3, limit=25, sensor_id="machine-001")
+        self.assertEqual(len(block["section_7_lines"]), 2)
+        os.environ.pop("FLEET_QUERY_SKETCH_SECTION7_VERBOSE", None)
 
     def test_zero_sketches(self):
         block = _build_sketch_debug_block(0, limit=25, sensor_id="machine-003")
         self.assertTrue(block["insufficient_sketch_context"])
-        self.assertIn("Insufficient sketch context: Yes", block["section_7_lines"][1])
+        self.assertIn("Insufficient sketch context: Yes", block["section_7_lines"][0])
 
 
 if __name__ == "__main__":

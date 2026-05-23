@@ -9,6 +9,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from fleet_analysis_response import (  # noqa: E402
+    compress_fleet_sketch_section,
     extract_llm_usage_from_task_response,
     format_llm_usage_footer,
     format_slack_analysis_body,
@@ -94,6 +95,24 @@ class FleetAnalysisResponseTests(unittest.TestCase):
             {"llm_usage": {"prompt_tokens": 10, "completion_tokens": 5}}
         )
         self.assertEqual(usage["total_tokens"], 15)
+
+    def test_compress_fleet_sketch_section(self):
+        noisy = (
+            "7) Data Gaps\n"
+            "Sketch evidence: 25 sketch(es) returned for machine-001:inlet_temp_c (tool limit 25)\n"
+            "Insufficient sketch context: No — sketch narratives were included.\n"
+            "Sketch evidence: 25 sketch(es) returned for machine-001:motor_temp_c (tool limit 25)\n"
+            "Insufficient sketch context: No — sketch narratives were included.\n"
+            "Sketch evidence: 25 sketch(es) returned for machine-002:inlet_temp_c (tool limit 25)\n"
+            "Insufficient sketch context: No — sketch narratives were included.\n"
+            "Sketch evidence: 25 sketch(es) returned for machine-002:motor_temp_c (tool limit 25)\n"
+            "8) Dispatch recommendations\n"
+        )
+        out = compress_fleet_sketch_section(noisy)
+        self.assertEqual(out.count("Sketch evidence: 25 sketch"), 0)
+        self.assertIn("Sketch evidence (by machine): machine-001=25, machine-002=25", out)
+        self.assertEqual(out.count("Insufficient sketch context"), 1)
+        self.assertIn("8) Dispatch", out)
 
     def test_deep_nested_metadata(self):
         payload = {
