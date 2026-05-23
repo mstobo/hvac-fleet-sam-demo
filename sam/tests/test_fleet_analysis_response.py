@@ -95,6 +95,29 @@ class FleetAnalysisResponseTests(unittest.TestCase):
         )
         self.assertEqual(usage["total_tokens"], 15)
 
+    def test_deep_nested_metadata(self):
+        payload = {
+            "text": "Report body",
+            "a2a_task_response": {
+                "id": "gdk-task-nested",
+                "result": {
+                    "metadata": {
+                        "token_usage_details": {
+                            "by_model": {
+                                "production-models": {
+                                    "input_tokens": 9000,
+                                    "output_tokens": 1200,
+                                }
+                            }
+                        }
+                    }
+                },
+            },
+        }
+        slack = format_slack_analysis_body(json.dumps(payload), trace_id="fa-tokens")
+        self.assertIn("10,200 tokens", slack)
+        self.assertIn("9,000 in", slack)
+
     def test_auth_failure_task_response(self):
         payload = {
             "text": "The LLM service rejected the authentication credentials.",

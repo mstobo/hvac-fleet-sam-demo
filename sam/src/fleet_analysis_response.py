@@ -116,6 +116,26 @@ def extract_llm_usage_from_metadata(metadata: Any) -> Optional[Dict[str, Any]]:
     }
 
 
+def _deep_find_llm_usage(node: Any, *, _depth: int = 0) -> Optional[Dict[str, Any]]:
+    """Walk nested gateway payloads for SAM/LiteLLM token blocks (shape varies by version)."""
+    if _depth > 14:
+        return None
+    if isinstance(node, dict):
+        usage = extract_llm_usage_from_metadata(node)
+        if usage:
+            return usage
+        for value in node.values():
+            found = _deep_find_llm_usage(value, _depth=_depth + 1)
+            if found:
+                return found
+    elif isinstance(node, list):
+        for item in node:
+            found = _deep_find_llm_usage(item, _depth=_depth + 1)
+            if found:
+                return found
+    return None
+
+
 def extract_llm_usage_from_task_response(task_response: Any) -> Optional[Dict[str, Any]]:
     """Extract cumulative LLM usage from a sam-event-mesh-gateway task_response object."""
     if not isinstance(task_response, dict):
@@ -129,10 +149,18 @@ def extract_llm_usage_from_task_response(task_response: Any) -> Optional[Dict[st
             )
         return usage
 
+    usage = extract_llm_usage_from_metadata(task_response.get("metadata"))
+    if usage:
+        usage["source"] = "task_response_metadata"
+        return usage
+
     a2a = task_response.get("a2a_task_response")
-    task = _unwrap_a2a_task(a2a)
+    task = _unwrap_a2a_task(a2a) if a2a is not None else None
+    if not task and isinstance(a2a, dict):
+        task = a2a
+
     if not task:
-        return None
+        return _deep_find_llm_usage(task_response)
 
     usage = extract_llm_usage_from_metadata(task.get("metadata"))
     if usage:
@@ -150,6 +178,9 @@ def extract_llm_usage_from_task_response(task_response: Any) -> Optional[Dict[st
             usage = extract_llm_usage_from_metadata(message.get("metadata"))
             if usage:
                 usage["source"] = "a2a_status_message_metadata"
+                task_id = task.get("id")
+                if task_id:
+                    usage["task_id"] = task_id
                 return usage
 
     history = task.get("history")
@@ -165,15 +196,27 @@ def extract_llm_usage_from_task_response(task_response: Any) -> Optional[Dict[st
             completion += part_usage["completion_tokens"]
             cached += part_usage["cached_tokens"]
         if prompt or completion or cached:
-            return {
+            usage = {
                 "prompt_tokens": prompt,
                 "completion_tokens": completion,
                 "cached_tokens": cached,
                 "total_tokens": prompt + completion,
                 "source": "a2a_history_metadata",
             }
+            task_id = task.get("id")
+            if task_id:
+                usage["task_id"] = task_id
+            return usage
 
-    return None
+    usage = _deep_find_llm_usage(task)
+    if usage:
+        usage["source"] = "a2a_deep_metadata"
+        task_id = task.get("id")
+        if task_id:
+            usage["task_id"] = task_id
+        return usage
+
+    return _deep_find_llm_usage(task_response)
 
 
 def extract_a2a_task_state(task_response: Any) -> Optional[str]:

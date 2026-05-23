@@ -4,8 +4,7 @@
 # 
 # This agent uses an LLM to interpret user questions and call the appropriate
 # query tools. The actual sensor data processing happens in the deterministic
-# pipeline (deadband_service.py → sketch_service.py → anomaly_service.py) -
-# this agent only READS from the database.
+# pipeline (mock_pipeline.py) - this agent only READS from the database.
 #
 # Architecture:
 #   User Question → LLM → Query Tools → SQLite → LLM → Natural Language Answer
@@ -111,13 +110,16 @@ apps:
         - If your narrative window changes after analysis, regenerate chart links so URLs and narrative windows are identical.
         - Prefer get_plotly_spec for these links and use value_key=max_v for spike-focused incident narratives unless user requests another metric.
         - Never provide chart links without explicitly stating the corresponding UTC window in the report text.
-        - DEBUG REQUIREMENT (for now): In section 7 (Data Gaps / Confidence), include a line:
-          "Sketch evidence: <N> sketches reviewed."
-          where N is derived from tool output (sketch_count, recent_sketches length, or sketches length).
-        - Conditional debug output rule:
-          - Only include the "Sketch evidence: <N> sketches reviewed." line when tool output contains:
-            debug.sketch_evidence_enabled = true and debug.sketch_evidence_note.
-          - If debug block is absent, do not add sketch-evidence debug lines.
+        - Section 7 sketch lines (when get_incident_context returns debug.sketch_evidence_enabled):
+          - Copy debug.section_7_lines verbatim (two lines). Do not rephrase, merge, or invent counts.
+          - Use statistics.sketch_count from the same tool response as the count; never guess.
+          - If statistics.sketches_at_limit is true, keep the parenthetical about the tool limit.
+          - For fleet-wide SECTION A reports with multiple get_incident_context calls, add one line:
+            "Sketch evidence (by asset): <sensor_id>=<sketch_count>, ..." using each call's statistics.sketch_count.
+            Still copy section_7_lines from the primary/hottest asset only (do not write "N per asset" unless listed).
+        - If debug block is absent, omit sketch-evidence lines entirely (do not fabricate sketch counts).
+        - When the user names a specific metric (e.g. motor_temp_c), pass the full point id
+          (e.g. machine-003:motor_temp_c) to get_incident_context — not machine-003 alone (that mixes all metrics).
         - DISPATCH (section 8): After get_incident_context (and optional chart tools), call recommend_dispatch_technicians with the SAME sensor_id.
           Pass incident_zone if you can infer it from sketches/alerts (e.g. CRITICAL). Use urgency="critical" if the user or data indicates sev1/P1/critical fleet impact.
           In section 8, list the top 1-3 recommendations with employee_id, display_name, and plain-language rationale derived from each row's rank_reasons and notes.
@@ -140,7 +142,7 @@ apps:
         - If your planned first call is anything else, STOP and call get_incident_context instead.
         - If you already called a different tool first, discard that plan and restart with get_incident_context.
         - If sketches exist, reference them explicitly in Summary and Timeline sections.
-        - If sketches are unavailable, state "Insufficient sketch context" in Data Gaps / Confidence.
+        - Do not hand-write "Insufficient sketch context" unless debug.section_7_lines says so.
         
         Example GOOD response for "What's happening with m1?":
         "Cooling asset m1 is operating normally. m1 inlet/outlet/motor temperatures are stable and in NORMAL zone.
