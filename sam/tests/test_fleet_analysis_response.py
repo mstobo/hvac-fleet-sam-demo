@@ -158,6 +158,30 @@ class FleetAnalysisResponseTests(unittest.TestCase):
         finally:
             os.environ.pop("CHART_PUBLIC_BASE_URL", None)
 
+    def test_inject_chart_links_under_point_headings(self):
+        import os
+
+        os.environ["CHART_PUBLIC_BASE_URL"] = "http://demo.example/charts"
+        try:
+            from fleet_query_tools import inject_fleet_analysis_chart_links
+
+            text = (
+                "Chart Evidence: plot specs requested for the 120-minute UTC window "
+                "2026-05-23T12:02:05Z → 2026-05-23T14:02:05Z "
+                "(note: chart service returned plot specs but no pinned public URLs in this run).\n\n"
+                "### machine-002:inlet_temp_c\n"
+                "- Current ~73.9°C CRITICAL.\n\n"
+                "### machine-003:motor_temp_c\n"
+                "- Sustained CRITICAL motor temp.\n"
+            )
+            out = inject_fleet_analysis_chart_links(text)
+            self.assertIn("plotly-html", out)
+            self.assertIn("machine-002%3Ainlet_temp_c", out)
+            self.assertIn("machine-003%3Amotor_temp_c", out)
+            self.assertNotIn("no pinned public URLs", out)
+        finally:
+            os.environ.pop("CHART_PUBLIC_BASE_URL", None)
+
 
 if __name__ == "__main__":
     unittest.main()
