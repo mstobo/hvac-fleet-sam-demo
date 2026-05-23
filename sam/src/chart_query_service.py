@@ -107,17 +107,24 @@ def _thresholds_for_metric(metric_id: str | None) -> tuple[float | None, float |
 
 def _parse_chart_query_params(q: dict) -> dict:
     sensor_id = (q.get("sensor_id") or [""])[0].strip()
-    metric_id = (q.get("metric_id") or [""])[0].strip() or None
-    asset_id = (q.get("asset_id") or [""])[0].strip() or None
-    if not sensor_id and not (asset_id and metric_id):
+    url_metric_id = (q.get("metric_id") or [""])[0].strip() or None
+    url_asset_id = (q.get("asset_id") or [""])[0].strip() or None
+    if not sensor_id and not (url_asset_id and url_metric_id):
         return {"error": "Missing sensor_id or (asset_id + metric_id)"}
-    identity = chart_db.resolve_chart_identity(sensor_id, metric_id, asset_id)
+    # Resolve without URL-derived defaults polluting canonical sensor_id queries.
+    identity = chart_db.resolve_chart_identity(
+        sensor_id,
+        url_metric_id,
+        url_asset_id,
+    )
     return {
         "sensor_id": sensor_id,
-        "metric_id": metric_id or identity.get("metric_id"),
-        "asset_id": asset_id or identity.get("asset_id"),
+        "metric_id": url_metric_id or identity.get("metric_id"),
+        "asset_id": url_asset_id or identity.get("asset_id"),
         "point_id": identity.get("point_id"),
         "unit": identity.get("unit"),
+        "query_metric_id": url_metric_id,
+        "query_asset_id": url_asset_id,
     }
 
 
@@ -532,8 +539,8 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
             resolution=resolution,
             window_start=window_start,
             window_end=window_end,
-            metric_id=parsed.get("metric_id"),
-            asset_id=parsed.get("asset_id"),
+            metric_id=parsed.get("query_metric_id"),
+            asset_id=parsed.get("query_asset_id"),
         )
         if resolution == "points" and value_key in ("avg_v", "last_v", "min_v", "max_v"):
             value_key = "value"
@@ -593,8 +600,8 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
             resolution=resolution,
             window_start=window_start,
             window_end=window_end,
-            metric_id=parsed.get("metric_id"),
-            asset_id=parsed.get("asset_id"),
+            metric_id=parsed.get("query_metric_id"),
+            asset_id=parsed.get("query_asset_id"),
         )
         if resolution == "points" and value_key in ("avg_v", "last_v", "min_v", "max_v"):
             value_key = "value"
@@ -674,8 +681,8 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
             resolution=resolution,
             window_start=window_start,
             window_end=window_end,
-            metric_id=parsed.get("metric_id"),
-            asset_id=parsed.get("asset_id"),
+            metric_id=parsed.get("query_metric_id"),
+            asset_id=parsed.get("query_asset_id"),
         )
         if resolution == "points" and value_key in ("avg_v", "last_v", "min_v", "max_v"):
             value_key = "value"

@@ -41,6 +41,17 @@ class ChartDbTests(unittest.TestCase):
         self.assertEqual(identity["metric_id"], "outlet_temp_c")
         self.assertNotIn("supply_temp_c", identity["point_id"])
 
+    def test_filter_canonical_sensor_id_ignores_polluted_asset_metric(self):
+        """Regression: wrong default metric must not build machine-002:outlet:supply_temp_c SQL."""
+        clause, params = chart_db.build_series_filter_sql(
+            "machine-003:outlet_temp_c",
+            metric_id="supply_temp_c",
+            asset_id="machine-003:outlet_temp_c",
+            include_metric_column=False,
+        )
+        self.assertIn("machine-003:outlet_temp_c", params)
+        self.assertNotIn("machine-003:outlet_temp_c:supply_temp_c", params)
+
     def test_write_and_filter_by_metric(self):
         ts = _utc_now()
         chart_db.write_point_and_rollups(
