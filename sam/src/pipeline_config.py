@@ -270,6 +270,10 @@ def resolve_point_id(
 
     legacy = (payload.get("sensorId") or "").strip()
     if legacy:
+        sep = point_id_separator()
+        if sep in legacy and not metric and not (payload.get("asset") or asset):
+            a, m = legacy.split(sep, 1)
+            return legacy, a, m
         legacy_asset = (
             (payload.get("machineId") or payload.get("asset") or asset or legacy).strip()
         )
