@@ -422,14 +422,40 @@ def _debug_sketch_evidence_enabled() -> bool:
     )
 
 
-def _build_sketch_debug_block(sketch_count: int) -> Optional[dict]:
+INCIDENT_CONTEXT_SKETCH_LIMIT = 25
+
+
+def _build_sketch_debug_block(
+    sketch_count: int,
+    *,
+    limit: int = INCIDENT_CONTEXT_SKETCH_LIMIT,
+    sensor_id: Optional[str] = None,
+) -> Optional[dict]:
     """Build debug metadata block when sketch-evidence debugging is enabled."""
     if not _debug_sketch_evidence_enabled():
         return None
+    count = int(sketch_count)
+    cap = int(limit)
+    at_limit = count >= cap > 0
+    insufficient = count == 0
+    scope = f" for `{sensor_id}`" if sensor_id else ""
+    evidence_line = (
+        f"Sketch evidence: {count} sketch(es) returned{scope}"
+        + (f" (tool limit {cap}; additional sketches may exist in the window)" if at_limit else "")
+    )
+    insufficient_line = (
+        "Insufficient sketch context: Yes — no sketches in the analysis window."
+        if insufficient
+        else "Insufficient sketch context: No — sketch narratives were included in this analysis."
+    )
     return {
         "sketch_evidence_enabled": True,
-        "sketch_evidence_count": int(sketch_count),
-        "sketch_evidence_note": f"Sketch evidence: {int(sketch_count)} sketches reviewed.",
+        "sketch_evidence_count": count,
+        "sketch_evidence_limit": cap,
+        "sketch_evidence_at_limit": at_limit,
+        "insufficient_sketch_context": insufficient,
+        "sketch_evidence_note": f"Sketch evidence: {count} sketches reviewed.",
+        "section_7_lines": [evidence_line, insufficient_line],
     }
 
 
@@ -694,7 +720,9 @@ def get_sensor_details(sensor_id: str, minutes: int = 30) -> str:
             "alerts": sensor_alerts
         }
 
-        debug_block = _build_sketch_debug_block(len(sketches[:5]))
+        debug_block = _build_sketch_debug_block(
+            len(sketches), limit=10, sensor_id=sensor_id
+        )
         if debug_block:
             response["debug"] = debug_block
 
@@ -759,10 +787,11 @@ def get_incident_context(sensor_id: str, minutes: int = 90) -> str:
     """
     try:
         # 1) Sketches first (required)
+        sketch_limit = INCIDENT_CONTEXT_SKETCH_LIMIT
         sketches = sensor_db.get_recent_sketches(
             minutes=minutes,
             sensor_id=sensor_id,
-            limit=25,
+            limit=sketch_limit,
         )
 
         # 2) Numeric drill-down
@@ -779,6 +808,8 @@ def get_incident_context(sensor_id: str, minutes: int = 90) -> str:
         stats = {
             "reading_count": len(readings),
             "sketch_count": len(sketches),
+            "sketch_limit": sketch_limit,
+            "sketches_at_limit": len(sketches) >= sketch_limit,
             "alert_count": len(sensor_alerts),
             **_value_stats(readings),
         }
@@ -799,7 +830,9 @@ def get_incident_context(sensor_id: str, minutes: int = 90) -> str:
             "alerts": sensor_alerts,
         }
 
-        debug_block = _build_sketch_debug_block(len(sketches))
+        debug_block = _build_sketch_debug_block(
+            len(sketches), limit=sketch_limit, sensor_id=sensor_id
+        )
         if debug_block:
             response["debug"] = debug_block
 
