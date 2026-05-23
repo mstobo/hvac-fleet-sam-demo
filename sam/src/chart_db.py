@@ -10,7 +10,6 @@ Optional ``asset_id`` / ``metric_id`` columns support filtered queries.
 
 import os
 import sqlite3
-import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -28,48 +27,21 @@ def get_db_path() -> str:
     return os.path.abspath(DB_PATH)
 
 
-# Thread-local connection cache. SQLite Connection isn't shared across threads, so each
-# thread keeps its own; reuse saves file-open + pragma overhead on per-message writes.
-_tls = threading.local()
-
-
-def close_thread_connection() -> None:
-    """Close this thread's pooled connection. Idempotent."""
-    conn = getattr(_tls, "conn", None)
-    if conn is not None:
-        try:
-            conn.close()
-        except Exception:
-            pass  # best-effort cleanup
-        finally:
-            _tls.conn = None
-
-
 @contextmanager
 def get_connection():
-    """Thread-local connection context manager. First call per thread opens; subsequent
-    calls reuse. Commits on success, rolls back on exception."""
-    conn = getattr(_tls, "conn", None)
-    if conn is None:
-        conn = sqlite3.connect(get_db_path())
-        conn.row_factory = sqlite3.Row
-        # journal_mode=WAL is persisted in the file header (set by init_database).
-        # synchronous=NORMAL is per-connection, applied on every new open.
-        conn.execute("PRAGMA synchronous=NORMAL")
-        _tls.conn = conn
-
+    conn = sqlite3.connect(get_db_path())
+    conn.row_factory = sqlite3.Row
     try:
         yield conn
         conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
+    finally:
+        conn.close()
 
 
 def init_database():
     with get_connection() as conn:
-        # journal_mode is persisted in the file header — one-time flip per DB file.
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
 
         conn.execute(
             """
@@ -200,10 +172,12 @@ def resolve_chart_identity(
 
     if not pid and probe:
         pid = probe
-    if not mid and pid and config.POINT_ID_SEPARATOR in pid:
-        _, mid = pid.split(config.point_id_separator(), 1)
-    if not aid and pid and config.POINT_ID_SEPARATOR in pid:
-        aid, _ = pid.split(config.point_id_separator(), 1)
+    if pid and config.POINT_ID_SEPARATOR in pid:
+        parsed_aid, parsed_mid = pid.split(config.point_id_separator(), 1)
+        # Do not keep resolve_point_id mistakes (asset=full point id, metric=supply_temp_c default).
+        if not aid or aid == pid or config.POINT_ID_SEPARATOR in aid:
+            aid = parsed_aid
+        mid = parsed_mid
 
     unit = fields.get("unit") or (config._metric_rule(mid or "").get("unit") if mid else None)
     return {
@@ -212,6 +186,30 @@ def resolve_chart_identity(
         "metric_id": mid,
         "unit": str(unit) if unit else None,
     }
+
+
+def _legacy_probe_id_for_point_id(point_id: Optional[str]) -> Optional[str]:
+    """Map canonical point id to demo probe sensor_id stored in older chart rows."""
+    pid = (point_id or "").strip()
+    if not pid or config.POINT_ID_SEPARATOR not in pid:
+        return None
+    asset, metric = pid.split(config.point_id_separator(), 1)
+    prefix = {"machine-001": "m1", "machine-002": "m2", "machine-003": "m3"}.get(asset)
+    if not prefix:
+        return None
+    if metric == "inlet_temp_c":
+        return f"{prefix}-temp-inlet"
+    if metric == "outlet_temp_c":
+        return f"{prefix}-temp-outlet"
+    if metric == "motor_temp_c":
+        return f"{prefix}-temp-motor"
+    if metric == "humidity_rh":
+        return f"{prefix}-humidity"
+    if metric == "motor_vibration_mm_s":
+        return f"{prefix}-vibration"
+    if metric == "supply_temp_c":
+        return f"{prefix}-temp-motor"
+    return None
 
 
 def build_series_filter_sql(
@@ -235,6 +233,10 @@ def build_series_filter_sql(
     if pid:
         clauses.append(f"{sensor_col} = ?")
         params.append(pid)
+        legacy_probe = _legacy_probe_id_for_point_id(pid)
+        if legacy_probe and legacy_probe != pid:
+            clauses.append(f"{sensor_col} = ?")
+            params.append(legacy_probe)
 
     aid, mid = identity.get("asset_id"), identity.get("metric_id")
     if aid and mid:

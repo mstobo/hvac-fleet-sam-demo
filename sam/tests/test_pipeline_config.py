@@ -41,6 +41,15 @@ class ResolvePointIdTests(unittest.TestCase):
         self.assertEqual(asset, "machine-001")
         self.assertEqual(metric, "supply_temp_c")
 
+    def test_canonical_point_id_as_sensor_id(self):
+        pid, asset, metric = config.resolve_point_id(
+            {"sensorId": "machine-002:motor_temp_c"},
+            {},
+        )
+        self.assertEqual(pid, "machine-002:motor_temp_c")
+        self.assertEqual(asset, "machine-002")
+        self.assertEqual(metric, "motor_temp_c")
+
     def test_topic_meta_asset_metric(self):
         pid, asset, metric = config.resolve_point_id(
             {},
