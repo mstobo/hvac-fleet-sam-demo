@@ -323,6 +323,44 @@ def inject_fleet_analysis_chart_links(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", merged)
 
 
+DEFAULT_MACHINE_CHART_METRICS = "inlet_temp_c,outlet_temp_c,motor_temp_c"
+
+
+def build_machine_plotly_html_url(
+    asset_id: str,
+    *,
+    minutes: int = 120,
+    metrics: Optional[str] = None,
+    source: str = "filtered",
+    resolution: str = "1m",
+    max_points: int = 120,
+    value_key: str = "avg_v",
+    window_start: Optional[str] = None,
+    window_end: Optional[str] = None,
+) -> Optional[str]:
+    """Browser-safe combined machine chart (inlet · outlet · motor) for Slack links."""
+    public = chart_public_base_for_links()
+    if not public or _is_browser_unreachable_chart_base(public):
+        return None
+    params = {
+        "asset_id": asset_id,
+        "metrics": (metrics or DEFAULT_MACHINE_CHART_METRICS),
+        "source": source,
+        "resolution": resolution,
+        "max_points": int(max_points),
+        "value_key": value_key,
+        "minutes": int(minutes),
+    }
+    if window_start and window_end:
+        params.pop("minutes", None)
+        params["window_start"] = window_start
+        params["window_end"] = window_end
+    link_key = _chart_query_key_for_public_links()
+    if link_key:
+        params["key"] = link_key
+    return f"{public.rstrip('/')}/machine-plotly-html?{urlencode(params)}"
+
+
 def build_plotly_html_url(
     sensor_id: str,
     *,
@@ -1097,6 +1135,124 @@ def get_plotly_spec(
             out["chart_link_warning"] = (
                 "plotly_html_url_pinned uses an internal Docker hostname. "
                 "Set CHART_PUBLIC_BASE_URL or DASHBOARD_PUBLIC_HOST in deploy/aws/.env for sam-control-plane."
+            )
+
+        return json.dumps(out, indent=2)
+    except Exception as e:
+        return json.dumps(
+            {
+                "status": "error",
+                "message": str(e),
+                "hint": "Ensure chart_query_service is running on CHART_QUERY_BASE_URL.",
+            },
+            indent=2,
+        )
+
+
+def get_machine_plotly_spec(
+    asset_id: str,
+    minutes: int = 60,
+    metrics: str = None,
+    source: str = "filtered",
+    resolution: str = "1m",
+    max_points: int = 120,
+    value_key: str = "avg_v",
+) -> str:
+    """
+    Combined Plotly chart for one machine (inlet, outlet, motor on one figure).
+
+    Prefer this over three get_plotly_spec calls for fleet-level Slack reports.
+    Omits the full plotly_spec JSON by default to keep agent token use low.
+    """
+    asset = (asset_id or "").strip()
+    if not asset:
+        return json.dumps({"status": "error", "message": "asset_id is required"})
+
+    metric_list = (metrics or DEFAULT_MACHINE_CHART_METRICS).strip()
+    try:
+        internal, _public = _chart_query_internal_public_bases()
+        params = {
+            "asset_id": asset,
+            "metrics": metric_list,
+            "minutes": int(minutes),
+            "source": source,
+            "resolution": resolution,
+            "max_points": int(max_points),
+            "value_key": value_key,
+        }
+        url = f"{internal}/machine-plotly-spec?{urlencode(params)}"
+
+        with urlopen(url, timeout=12) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        if not isinstance(data, dict) or "plotly_spec" not in data:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": "Unexpected response from chart_query_service /machine-plotly-spec",
+                    "service_url": url,
+                },
+                indent=2,
+            )
+
+        meta = data.get("meta", {}) or {}
+        stats = data.get("stats", {}) or {}
+        rendered = int(stats.get("rendered_row_count") or 0)
+        pinned_start = stats.get("source_min_ts") or meta.get("window_start_utc")
+        pinned_end = stats.get("source_max_ts") or meta.get("window_end_utc")
+
+        pinned_url = None
+        if pinned_start and pinned_end:
+            pinned_url = build_machine_plotly_html_url(
+                asset,
+                metrics=metric_list,
+                source=source,
+                resolution=resolution,
+                max_points=int(max_points),
+                value_key=value_key,
+                window_start=pinned_start,
+                window_end=pinned_end,
+            )
+        if not pinned_url:
+            pinned_url = build_machine_plotly_html_url(
+                asset,
+                metrics=metric_list,
+                minutes=int(minutes),
+                source=source,
+                resolution=resolution,
+                max_points=int(max_points),
+                value_key=value_key,
+            )
+
+        include_spec = os.getenv("FLEET_MACHINE_PLOTLY_INCLUDE_SPEC", "false").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+
+        out = {
+            "status": "ok",
+            "service": "chart_query_service",
+            "chart_kind": "machine_multi_series",
+            "asset_id": asset,
+            "metrics": [m.strip() for m in metric_list.split(",") if m.strip()],
+            "meta": meta,
+            "stats": stats,
+            "series": data.get("series", []),
+        }
+        if include_spec:
+            out["plotly_spec"] = data.get("plotly_spec", {})
+        if pinned_url:
+            out["plotly_html_url_pinned"] = pinned_url
+        if rendered == 0:
+            out["chart_data_warning"] = (
+                "No chart rows for this window; link may still open an empty chart."
+            )
+        if pinned_url and _is_browser_unreachable_chart_base(pinned_url):
+            out["chart_link_warning"] = (
+                "plotly_html_url_pinned uses an internal Docker hostname. "
+                "Set CHART_PUBLIC_BASE_URL or DASHBOARD_PUBLIC_HOST in deploy/aws/.env."
             )
 
         return json.dumps(out, indent=2)

@@ -108,7 +108,8 @@ apps:
         - Include a "Chart Evidence" subsection at the end of Summary with tool-returned links for key assets in the incident.
         - Chart window alignment is mandatory: every chart link MUST use the exact same UTC start/end window cited in Timeline/Summary.
         - If your narrative window changes after analysis, regenerate chart links so URLs and narrative windows are identical.
-        - Prefer get_plotly_spec for these links and use value_key=max_v for spike-focused incident narratives unless user requests another metric.
+        - Prefer get_plotly_spec for single-metric links; for fleet/multi-temp per machine use get_machine_plotly_spec (one URL per machine).
+        - Fleet SECTION A: use get_machine_plotly_spec(asset_id, minutes=120, value_key=avg_v) instead of three get_plotly_spec calls per machine.
         - Never provide chart links without explicitly stating the corresponding UTC window in the report text.
         - Section 7 sketch summary:
           - Single-asset / user deep-dive: you may include debug.section_7_lines (at most two lines) once.
@@ -162,6 +163,7 @@ apps:
         | "Chart/trend for one asset over time" | get_chart_series(sensor_id, minutes, source='filtered'; optional metric_id) | YES |
         | "Humidity/vibration chart" | get_chart_series('m1-humidity', …) or metric_id='humidity_rh' | YES |
         | "Need Plotly chart spec/JSON" | get_plotly_spec(sensor_id, minutes, source='filtered'; optional metric_id) | YES |
+        | "Chart all temps on one machine" | get_machine_plotly_spec(asset_id, minutes=120, value_key=avg_v) | YES |
         
         PROHIBITED unless user asks for detail:
         - Creating artifacts/reports
@@ -334,6 +336,43 @@ apps:
               type: boolean
               description: "If true, omit verbose rows and return compact chart payload"
               default: true
+
+        # Combined machine chart (inlet · outlet · motor) — prefer for fleet Slack
+        - tool_type: python
+          component_module: fleet_query_tools
+          component_base_path: src
+          function_name: get_machine_plotly_spec
+          tool_name: "get_machine_plotly_spec"
+          description: "Combined Plotly chart for one machine (inlet, outlet, motor traces). Use for fleet analysis instead of three get_plotly_spec calls."
+          parameters:
+            - name: asset_id
+              type: string
+              description: "Machine id, e.g. machine-001"
+              required: true
+            - name: minutes
+              type: integer
+              description: "Lookback window in minutes (default 60)"
+              default: 60
+            - name: metrics
+              type: string
+              description: "Comma-separated metric ids (default inlet_temp_c,outlet_temp_c,motor_temp_c)"
+              required: false
+            - name: source
+              type: string
+              description: "Series source: filtered, suppressed, or all"
+              default: "filtered"
+            - name: resolution
+              type: string
+              description: "Resolution: 1m, 10s, or points"
+              default: "1m"
+            - name: max_points
+              type: integer
+              description: "Maximum points per series (default 120)"
+              default: 120
+            - name: value_key
+              type: string
+              description: "Value field: avg_v, last_v, value, min_v, or max_v"
+              default: "avg_v"
 
         # Get renderer-ready Plotly spec from chart_query_service
         - tool_type: python
