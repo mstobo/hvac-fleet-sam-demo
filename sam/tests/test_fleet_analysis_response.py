@@ -182,6 +182,28 @@ class FleetAnalysisResponseTests(unittest.TestCase):
         finally:
             os.environ.pop("CHART_PUBLIC_BASE_URL", None)
 
+    def test_rewrite_plot_window_bullets_and_heading_inject(self):
+        import os
+
+        os.environ["CHART_PUBLIC_BASE_URL"] = "http://demo.example/charts"
+        try:
+            from fleet_query_tools import rewrite_chart_urls_in_text
+
+            text = (
+                "Chart Evidence (UTC window 2026-05-23T12:24:49Z → 2026-05-23T14:24:49Z for machine-001; "
+                "2026-05-23T12:24:54Z → 2026-05-23T14:24:54Z for machine-002):\n"
+                "- machine-001:motor_temp_c plot (max_v window 2026-05-23T12:24:49Z → 2026-05-23T14:24:49Z).\n\n"
+                "### machine-001:motor_temp_c\n"
+                "- Current: 88.1°C CRITICAL.\n"
+            )
+            out = rewrite_chart_urls_in_text(text)
+            self.assertIn("plotly-html", out)
+            self.assertIn("machine-001%3Amotor_temp_c", out)
+            self.assertNotIn("plot (max_v window", out)
+            self.assertIn("- Chart:", out)
+        finally:
+            os.environ.pop("CHART_PUBLIC_BASE_URL", None)
+
 
 if __name__ == "__main__":
     unittest.main()

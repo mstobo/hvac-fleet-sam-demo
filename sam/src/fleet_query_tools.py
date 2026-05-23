@@ -228,7 +228,22 @@ _POINT_HEADING_RE = re.compile(
 
 _ANALYSIS_WINDOW_PATTERNS = (
     re.compile(rf"Analysis window:\s*{_ISO_WINDOW_RE}", re.IGNORECASE),
-    re.compile(rf"(?:UTC window|120-minute UTC window)\s*{_ISO_WINDOW_RE}", re.IGNORECASE),
+    re.compile(rf"(?:\(UTC window|UTC window|120-minute UTC window)\s*{_ISO_WINDOW_RE}", re.IGNORECASE),
+    re.compile(rf"Chart Evidence[^.\n]*{_ISO_WINDOW_RE}", re.IGNORECASE),
+)
+
+# e.g. "- machine-001:motor_temp_c plot (max_v window 2026-05-23T12:24:49Z → 2026-05-23T14:24:49Z)."
+_CHART_PLOT_WINDOW_BULLET_RE = re.compile(
+    rf"(?P<prefix>^[-•]\s*)"
+    rf"(?P<point_id>machine-\d{{3}}:[a-z0-9_]+)\s+plot\s*"
+    rf"\(\s*(?:(?P<value_key>max_v|avg_v|last_v)\s+)?window\s*{_ISO_WINDOW_RE}\s*\)",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+_PER_MACHINE_WINDOW_RE = re.compile(
+    rf"(?P<start>\d{{4}}-\d{{2}}-\d{{2}}T[\d:.]+Z)\s*→\s*"
+    rf"(?P<end>\d{{4}}-\d{{2}}-\d{{2}}T[\d:.]+Z)\s+for\s+(?P<machine>machine-\d{{3}})",
+    re.IGNORECASE,
 )
 
 _NO_PINNED_URLS_NOTE_RE = re.compile(
@@ -248,15 +263,34 @@ def _extract_analysis_window(text: str) -> Optional[Tuple[str, str]]:
     return None
 
 
+def _extract_per_machine_windows(text: str) -> dict[str, Tuple[str, str]]:
+    out: dict[str, Tuple[str, str]] = {}
+    for m in _PER_MACHINE_WINDOW_RE.finditer(text):
+        out[m.group("machine").lower()] = (m.group("start"), m.group("end"))
+    return out
+
+
+def _window_for_point_id(
+    point_id: str,
+    text: str,
+    default: Optional[Tuple[str, str]],
+    per_machine: dict[str, Tuple[str, str]],
+) -> Optional[Tuple[str, str]]:
+    machine = point_id.split(":", 1)[0].lower() if ":" in point_id else point_id.lower()
+    if machine in per_machine:
+        return per_machine[machine]
+    return default
+
+
 def inject_fleet_analysis_chart_links(text: str) -> str:
     """
     After fleet analysis reports with ### machine-00x:metric headings, insert plotly-html
     links for the cited UTC window when the LLM did not paste plotly_html_url_pinned.
     """
-    window = _extract_analysis_window(text)
-    if not window:
+    default_window = _extract_analysis_window(text)
+    per_machine = _extract_per_machine_windows(text)
+    if not default_window and not per_machine:
         return text
-    start, end = window
     public = chart_public_base_for_links()
     if not public or _is_browser_unreachable_chart_base(public):
         return text
@@ -270,6 +304,10 @@ def inject_fleet_analysis_chart_links(text: str) -> str:
         if not m:
             continue
         point_id = m.group("point_id")
+        win = _window_for_point_id(point_id, text, default_window, per_machine)
+        if not win:
+            continue
+        start, end = win
         lookahead = "\n".join(lines[i + 1 : i + 4])
         if "plotly-html" in lookahead:
             continue
@@ -356,8 +394,21 @@ def rewrite_chart_urls_in_text(text: str) -> str:
             )
             return linked or match.group(0)
 
+        def _chart_plot_window_bullet(match: re.Match) -> str:
+            point_id = match.group("point_id")
+            start, end = match.group("start"), match.group("end")
+            linked = _format_slack_chart_link(
+                point_id,
+                start,
+                end,
+                value_key=match.group("value_key"),
+                prefix=match.group("prefix") or "- ",
+            )
+            return linked or match.group(0)
+
         text = _CHART_PLACEHOLDER_RE.sub(_placeholder_link, text)
         text = _CHART_SPEC_GENERATED_RE.sub(_chart_spec_generated_link, text)
+        text = _CHART_PLOT_WINDOW_BULLET_RE.sub(_chart_plot_window_bullet, text)
     return inject_fleet_analysis_chart_links(text)
 
 
