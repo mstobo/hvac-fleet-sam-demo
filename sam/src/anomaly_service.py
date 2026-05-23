@@ -228,7 +228,10 @@ def update_fleet_status():
     if critical_count > 0:
         if critical_count >= active_sensors * FLEET_CRITICAL_FRACTION:
             fleet_status = "FLEET_CRITICAL"
-            notes = f"Multiple sensors in critical state ({critical_count}/{active_sensors})"
+            notes = (
+                f"Multiple points in CRITICAL ({critical_count}/{active_sensors} active points). "
+                "Full fleet demo = 15 metrics (3 assets × 5) if demo_publisher is running."
+            )
             correlation = True
         else:
             fleet_status = "CRITICAL"

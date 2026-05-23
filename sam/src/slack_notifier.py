@@ -259,7 +259,10 @@ class SlackNotifier:
                 "fields": [
                     {
                         "type": "mrkdwn",
-                        "text": f"*Active Sensors:*\n{active_sensors}"
+                        "text": (
+                            f"*Active points:*\n{active_sensors} "
+                            "(metrics seen by anomaly; full demo = 15 when publisher runs)"
+                        )
                     },
                     {
                         "type": "mrkdwn",

@@ -39,6 +39,7 @@ apps:
 
     app_config:
       namespace: "${NAMESPACE}"
+      gateway_id: ${SLACK_GATEWAY_ID, slack-gw-local}
 
       # Gateway adapter for Slack
       gateway_adapter: sam_slack_gateway_adapter.adapter.SlackAdapter
