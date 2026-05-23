@@ -7,8 +7,7 @@ SAM Agent tools for querying the sensor pipeline SQLite database.
 These tools are used by SAM agents (with LLM) to answer user questions
 about sensor status, alerts, and fleet health.
 
-The actual data processing happens in the deterministic pipeline
-(deadband_service.py → sketch_service.py → anomaly_service.py).
+The actual data processing happens in the deterministic pipeline (mock_pipeline.py).
 These tools only READ from the database - they don't process raw sensor data.
 """
 
@@ -18,7 +17,7 @@ import re
 from datetime import datetime
 from typing import Optional, Tuple
 from urllib.parse import urlencode, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import urlopen
 
 # Import the database module
 import sensor_db
@@ -78,34 +77,106 @@ def chart_public_base_for_links() -> str:
     return public
 
 
-def _chart_query_api_key() -> str:
-    """Optional auth token for chart-query. Empty string means auth is disabled."""
-    return os.getenv("CHART_QUERY_API_KEY", "").strip()
-
-
-def _open_chart_query(url: str, timeout: int = 8):
-    """urlopen wrapper that sends X-API-Key when CHART_QUERY_API_KEY is set."""
-    key = _chart_query_api_key()
-    if key:
-        return urlopen(Request(url, headers={"X-API-Key": key}), timeout=timeout)
-    return urlopen(url, timeout=timeout)
-
-
 _CHART_URL_INTERNAL_HOST_RE = re.compile(
     r"https?://(?:chart-query|127\.0\.0\.1|localhost)(?::\d+)?",
     re.IGNORECASE,
 )
+
+# LLM sometimes writes placeholders when plotly_html_url_pinned is missing from tool JSON.
+_CHART_PLACEHOLDER_RE = re.compile(
+    r"Chart:\s*\(([^)]+)\)\s*plot window\s*"
+    r"(\d{4}-\d{2}-\d{2}T[\d:.]+Z)\s*→\s*(\d{4}-\d{2}-\d{2}T[\d:.]+Z)",
+    re.IGNORECASE,
+)
+
+
+def _legacy_probe_for_point_id(point_id: str) -> Optional[str]:
+    """Map canonical point id (machine-002:motor_temp_c) to demo probe id (m2-temp-motor)."""
+    pid = (point_id or "").strip()
+    if not pid or ":" not in pid:
+        return pid or None
+    asset, metric = pid.split(":", 1)
+    prefix = {
+        "machine-001": "m1",
+        "machine-002": "m2",
+        "machine-003": "m3",
+    }.get(asset)
+    if not prefix:
+        return None
+    if metric == "inlet_temp_c":
+        return f"{prefix}-temp-inlet"
+    if metric == "outlet_temp_c":
+        return f"{prefix}-temp-outlet"
+    if metric == "motor_temp_c":
+        return f"{prefix}-temp-motor"
+    if metric == "humidity_rh":
+        return f"{prefix}-humidity"
+    if metric == "motor_vibration_mm_s":
+        return f"{prefix}-vibration"
+    if metric == "supply_temp_c":
+        return f"{prefix}-temp-motor"
+    return None
+
+
+def build_plotly_html_url(
+    sensor_id: str,
+    *,
+    minutes: int = 120,
+    source: str = "filtered",
+    resolution: str = "1m",
+    max_points: int = 120,
+    value_key: str = "max_v",
+    window_start: Optional[str] = None,
+    window_end: Optional[str] = None,
+) -> Optional[str]:
+    """Browser-safe /plotly-html URL for Slack (uses CHART_PUBLIC_BASE_URL when set)."""
+    public = chart_public_base_for_links()
+    if not public or _is_browser_unreachable_chart_base(public):
+        return None
+    params = {
+        "sensor_id": sensor_id,
+        "source": source,
+        "resolution": resolution,
+        "max_points": int(max_points),
+        "value_key": value_key,
+        "minutes": int(minutes),
+    }
+    if window_start and window_end:
+        params.pop("minutes", None)
+        params["window_start"] = window_start
+        params["window_end"] = window_end
+    return f"{public.rstrip('/')}/plotly-html?{urlencode(params)}"
 
 
 def rewrite_chart_urls_in_text(text: str) -> str:
     """
     Replace Docker-only chart-query hostnames in free text (e.g. LLM reports)
     with CHART_PUBLIC_BASE_URL or DASHBOARD_PUBLIC_HOST-derived base.
+
+    Also turns ``Chart: (machine-002:motor_temp_c) plot window START → END`` placeholders
+    into clickable plotly-html links when the LLM did not paste tool URLs.
     """
-    public = chart_public_base_for_links()
-    if not public or _is_browser_unreachable_chart_base(public):
+    if not text:
         return text
-    return _CHART_URL_INTERNAL_HOST_RE.sub(public.rstrip("/"), text)
+    public = chart_public_base_for_links()
+    if public and not _is_browser_unreachable_chart_base(public):
+        text = _CHART_URL_INTERNAL_HOST_RE.sub(public.rstrip("/"), text)
+
+        def _placeholder_link(match: re.Match) -> str:
+            point_id = match.group(1).strip()
+            start, end = match.group(2), match.group(3)
+            url = build_plotly_html_url(
+                point_id,
+                value_key="max_v",
+                window_start=start,
+                window_end=end,
+            )
+            if not url:
+                return match.group(0)
+            return f"Chart: <{url}> ({point_id}, {start} → {end})"
+
+        text = _CHART_PLACEHOLDER_RE.sub(_placeholder_link, text)
+    return text
 
 
 def _debug_sketch_evidence_enabled() -> bool:
@@ -573,7 +644,7 @@ def get_chart_series(
             params["asset_id"] = asset_id
         url = f"{internal}/series?{urlencode(params)}"
 
-        with _open_chart_query(url, timeout=8) as resp:
+        with urlopen(url, timeout=8) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
         if not isinstance(data, dict) or "meta" not in data:
@@ -640,7 +711,7 @@ def get_plotly_spec(
             params["asset_id"] = asset_id
         url = f"{internal}/plotly-spec?{urlencode(params)}"
 
-        with _open_chart_query(url, timeout=8) as resp:
+        with urlopen(url, timeout=8) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
         if not isinstance(data, dict) or "plotly_spec" not in data:
@@ -655,39 +726,84 @@ def get_plotly_spec(
 
         meta = data.get("meta", {}) or {}
         stats = data.get("stats", {}) or {}
-        pinned_start = stats.get("source_min_ts")
-        pinned_end = stats.get("source_max_ts")
+        pinned_start = stats.get("source_min_ts") or meta.get("window_start_utc")
+        pinned_end = stats.get("source_max_ts") or meta.get("window_end_utc")
+        rendered = int(stats.get("rendered_row_count") or 0)
+
         pinned_url = None
         if pinned_start and pinned_end:
-            pinned_params = {
-                "sensor_id": sensor_id,
-                "source": source,
-                "resolution": resolution,
-                "max_points": int(max_points),
-                "value_key": value_key,
-                "window_start": pinned_start,
-                "window_end": pinned_end,
-            }
-            # Slack-clickable URLs hit /plotly-html as plain GETs in a browser — no headers, so the
-            # API key (when configured) has to travel as a query param.
-            api_key = _chart_query_api_key()
-            if api_key:
-                pinned_params["key"] = api_key
-            pinned_url = f"{public}/plotly-html?{urlencode(pinned_params)}"
+            pinned_url = build_plotly_html_url(
+                sensor_id,
+                source=source,
+                resolution=resolution,
+                max_points=int(max_points),
+                value_key=value_key,
+                window_start=pinned_start,
+                window_end=pinned_end,
+            )
+        if not pinned_url:
+            pinned_url = build_plotly_html_url(
+                sensor_id,
+                minutes=int(minutes),
+                source=source,
+                resolution=resolution,
+                max_points=int(max_points),
+                value_key=value_key,
+            )
+
+        # Retry with legacy probe id when chart DB still has m*-temp-* series keys.
+        if rendered == 0:
+            legacy = _legacy_probe_for_point_id(sensor_id)
+            if legacy and legacy != sensor_id:
+                retry_url = f"{internal}/plotly-spec?{urlencode({**params, 'sensor_id': legacy})}"
+                with urlopen(retry_url, timeout=8) as retry_resp:
+                    retry_data = json.loads(retry_resp.read().decode("utf-8"))
+                retry_stats = (retry_data.get("stats") or {}) if isinstance(retry_data, dict) else {}
+                retry_meta = (retry_data.get("meta") or {}) if isinstance(retry_data, dict) else {}
+                if int(retry_stats.get("rendered_row_count") or 0) > 0:
+                    data = retry_data
+                    meta = retry_meta
+                    stats = retry_stats
+                    rendered = int(retry_stats.get("rendered_row_count") or 0)
+                    sensor_id = legacy
+                    pinned_start = stats.get("source_min_ts") or meta.get("window_start_utc")
+                    pinned_end = stats.get("source_max_ts") or meta.get("window_end_utc")
+                    pinned_url = build_plotly_html_url(
+                        sensor_id,
+                        source=source,
+                        resolution=resolution,
+                        max_points=int(max_points),
+                        value_key=value_key,
+                        window_start=pinned_start,
+                        window_end=pinned_end,
+                    ) or build_plotly_html_url(
+                        sensor_id,
+                        minutes=int(minutes),
+                        source=source,
+                        resolution=resolution,
+                        max_points=int(max_points),
+                        value_key=value_key,
+                    )
 
         out = {
             "status": "ok",
             "service": "chart_query_service",
+            "sensor_id_queried": sensor_id,
             "meta": meta,
             "stats": stats,
             "plotly_spec": data.get("plotly_spec", {}),
         }
         if pinned_url:
             out["plotly_html_url_pinned"] = pinned_url
+        if rendered == 0:
+            out["chart_data_warning"] = (
+                "No chart rows for this window; link may still open an empty chart. "
+                "Confirm chart_writer is running and CHART_PUBLIC_BASE_URL is set for Slack."
+            )
         if pinned_url and _is_browser_unreachable_chart_base(pinned_url):
             out["chart_link_warning"] = (
                 "plotly_html_url_pinned uses an internal Docker hostname. "
-                "Set CHART_PUBLIC_BASE_URL or DASHBOARD_PUBLIC_HOST in the SAM environment."
+                "Set CHART_PUBLIC_BASE_URL or DASHBOARD_PUBLIC_HOST in deploy/aws/.env for sam-control-plane."
             )
 
         return json.dumps(out, indent=2)
