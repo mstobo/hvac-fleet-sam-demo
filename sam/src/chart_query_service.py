@@ -21,27 +21,11 @@ from urllib.parse import parse_qs, urlparse
 import chart_db
 import pipeline_config as config
 
-log = config.get_logger("ChartQuery")
-
 
 HOST = os.getenv("CHART_QUERY_HOST", "127.0.0.1")
 PORT = int(os.getenv("CHART_QUERY_PORT", "8010"))
 DEFAULT_WARNING_TEMP = float(os.getenv("WARNING_TEMP", "58.0"))
 DEFAULT_CRITICAL_TEMP = float(os.getenv("CRITICAL_TEMP", "65.0"))
-
-# Optional auth: when CHART_QUERY_API_KEY is set, every request except /health and OPTIONS
-# must present it via header `X-API-Key: <key>` or query param `?key=<key>`. Empty/unset = open
-# (backward-compatible default).
-API_KEY = os.getenv("CHART_QUERY_API_KEY", "").strip()
-
-# Optional CORS allowlist: comma-separated origins (e.g. "https://demo.example.com,http://localhost:3000").
-# Unset or "*" preserves the historical wide-open Access-Control-Allow-Origin: * behaviour.
-_raw_origins = os.getenv("CHART_QUERY_ALLOWED_ORIGINS", "*").strip()
-ALLOWED_ORIGINS: list[str] | None
-if _raw_origins in ("", "*"):
-    ALLOWED_ORIGINS = None  # sentinel: emit "*"
-else:
-    ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 
 def _utc_now_iso() -> str:
@@ -216,6 +200,71 @@ def _series_rows(
     return rows, meta
 
 
+def _series_rows_with_fallback(
+    sensor_id: str,
+    source: str,
+    minutes: int,
+    resolution: str,
+    window_start: str | None = None,
+    window_end: str | None = None,
+    metric_id: str | None = None,
+    asset_id: str | None = None,
+) -> tuple[list[dict], dict]:
+    """Query rollups/points; on empty result retry legacy probe id and source=all."""
+    rows, meta = _series_rows(
+        sensor_id,
+        source,
+        minutes,
+        resolution,
+        window_start=window_start,
+        window_end=window_end,
+        metric_id=metric_id,
+        asset_id=asset_id,
+    )
+    if rows:
+        return rows, meta
+
+    identity = chart_db.resolve_chart_identity(sensor_id, metric_id, asset_id)
+    pid = identity.get("point_id") or sensor_id
+    legacy = chart_db._legacy_probe_id_for_point_id(pid)
+    if legacy and legacy != sensor_id:
+        legacy_rows, legacy_meta = _series_rows(
+            legacy,
+            source,
+            minutes,
+            resolution,
+            window_start=window_start,
+            window_end=window_end,
+        )
+        if legacy_rows:
+            legacy_meta["query_fallback"] = "legacy_probe"
+            legacy_meta["sensor_id_requested"] = sensor_id
+            return legacy_rows, legacy_meta
+
+    if source == "filtered":
+        all_rows, all_meta = _series_rows(
+            sensor_id,
+            "all",
+            minutes,
+            resolution,
+            window_start=window_start,
+            window_end=window_end,
+            metric_id=metric_id,
+            asset_id=asset_id,
+        )
+        if all_rows:
+            all_meta["query_fallback"] = "source_all"
+            return all_rows, all_meta
+
+    return rows, meta
+
+
+def _chart_title(meta: dict, sensor_id: str, source: str, resolution: str, minutes: int) -> str:
+    """Single-line title; point_id already encodes asset:metric."""
+    point_label = meta.get("point_id") or sensor_id
+    return f"{point_label} {source} {resolution} ({minutes}m)"
+
+
 def _series_payload(rows: list[dict], max_points: int, value_key: str) -> dict:
     sampled = _downsample_rows(rows, max_points)
     labels = [r["ts"][11:16] if isinstance(r["ts"], str) and len(r["ts"]) >= 16 else r["ts"] for r in sampled]
@@ -348,32 +397,10 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
     server_version = "chart-query-service/1.0"
 
     def _add_cors_headers(self) -> None:
-        # If no allowlist is configured, retain historic wide-open behaviour.
-        # When configured, echo the request Origin only if it matches the allowlist
-        # (omit the header otherwise — browsers will block cross-origin reads).
-        if ALLOWED_ORIGINS is None:
-            self.send_header("Access-Control-Allow-Origin", "*")
-        else:
-            origin = self.headers.get("Origin", "")
-            if origin and origin in ALLOWED_ORIGINS:
-                self.send_header("Access-Control-Allow-Origin", origin)
-                self.send_header("Vary", "Origin")
+        # Allow browser fetch from file://, other ports, or static hosts (local dev only).
+        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        # Allow X-API-Key so browsers may send the auth header on cross-origin fetches.
-        self.send_header("Access-Control-Allow-Headers", "X-API-Key, Content-Type")
-
-    def _is_authorized(self, query: dict) -> bool:
-        # When no key is configured, the service is open (preserves prior behaviour).
-        if not API_KEY:
-            return True
-        # Prefer header (no leakage to access logs), fall back to ?key= for browser-clickable URLs (Slack).
-        header_key = self.headers.get("X-API-Key", "").strip()
-        if header_key and header_key == API_KEY:
-            return True
-        qp_key = (query.get("key") or [""])[0].strip()
-        if qp_key and qp_key == API_KEY:
-            return True
-        return False
+        self.send_header("Access-Control-Allow-Headers", "*")
 
     def do_OPTIONS(self) -> None:
         self.send_response(HTTPStatus.NO_CONTENT)
@@ -396,15 +423,8 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
         q = parse_qs(parsed.query)
 
         try:
-            # /health is intentionally always open (used by Docker/EC2 healthchecks and operators).
             if path == "/health":
                 self._handle_health()
-                return
-            if not self._is_authorized(q):
-                self._send_json(
-                    {"error": "Unauthorized", "hint": "Provide CHART_QUERY_API_KEY via X-API-Key header or ?key= query param."},
-                    status=HTTPStatus.UNAUTHORIZED,
-                )
                 return
             if path == "/sensors":
                 self._handle_sensors(q)
@@ -423,9 +443,8 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
             self._send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def log_message(self, fmt: str, *args):
-        # Route BaseHTTPRequestHandler's access logs through our logger.
-        # Per-request lines at DEBUG so default INFO stays quiet under normal traffic.
-        log.debug("%s - %s", self.address_string(), fmt % args)
+        # Keep service logs concise and aligned with other microservices.
+        print(f"[ChartQuery] {self.address_string()} - {fmt % args}")
 
     def _handle_health(self):
         with chart_db.get_connection() as conn:
@@ -506,7 +525,7 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
         if value_key not in ("avg_v", "last_v", "value", "min_v", "max_v"):
             value_key = "avg_v"
 
-        rows, meta = _series_rows(
+        rows, meta = _series_rows_with_fallback(
             sensor_id=sensor_id,
             source=source,
             minutes=minutes,
@@ -567,7 +586,7 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
         if value_key not in ("avg_v", "last_v", "value", "min_v", "max_v"):
             value_key = "avg_v"
 
-        rows, meta = _series_rows(
+        rows, meta = _series_rows_with_fallback(
             sensor_id=sensor_id,
             source=source,
             minutes=minutes,
@@ -586,8 +605,7 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
         x_vals = [r["ts"] for r in payload["rows"]]
         y_vals = payload["values"]
 
-        title_metric = metric_id or meta.get("metric_id") or "series"
-        title = f"{meta.get('point_id') or sensor_id} {title_metric} {source} {resolution} ({minutes}m)"
+        title = _chart_title(meta, sensor_id, source, resolution, minutes)
         plotly_spec = _build_plotly_spec(
             x_vals,
             y_vals,
@@ -649,7 +667,7 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
         if value_key not in ("avg_v", "last_v", "value", "min_v", "max_v"):
             value_key = "avg_v"
 
-        rows, meta = _series_rows(
+        rows, meta = _series_rows_with_fallback(
             sensor_id=sensor_id,
             source=source,
             minutes=minutes,
@@ -667,8 +685,7 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
         payload = _series_payload(rows=rows, max_points=max_points, value_key=value_key)
         x_vals = [r["ts"] for r in payload["rows"]]
         y_vals = payload["values"]
-        title_metric = metric_id or meta.get("metric_id") or "series"
-        title = f"{meta.get('point_id') or sensor_id} {title_metric} {source} {resolution} ({minutes}m)"
+        title = _chart_title(meta, sensor_id, source, resolution, minutes)
 
         spec = _build_plotly_spec(
             x_vals,
@@ -685,10 +702,17 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
         thresh_note = ""
         if show_thresholds and warning_temp is not None and critical_temp is not None:
             thresh_note = f" (W={warning_temp:.1f}{unit_label}, C={critical_temp:.1f}{unit_label})"
+        row_count = int(payload["stats"].get("source_row_count") or 0)
+        empty_hint = ""
+        if row_count == 0:
+            empty_hint = (
+                " | NO DATA — run chart-writer, stream telemetry, or open /sensors?minutes=120 "
+                f"(try sensor_id={meta.get('point_id') or sensor_id} or legacy probe)"
+            )
         meta_html = (
             f"window={meta.get('window_start_utc')}..{meta.get('window_end_utc')} | "
-            f"rows={payload['stats'].get('source_row_count')} rendered={payload['stats'].get('rendered_row_count')} | "
-            f"thresholds={'on' if show_thresholds else 'off'}{thresh_note}"
+            f"rows={row_count} rendered={payload['stats'].get('rendered_row_count')} | "
+            f"thresholds={'on' if show_thresholds else 'off'}{thresh_note}{empty_hint}"
         )
 
         html = f"""<!doctype html>
@@ -726,19 +750,15 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
 
 def main():
     chart_db.init_database()
-    log.info("DB initialized at %s", chart_db.get_db_path())
+    print(f"[ChartQuery] DB initialized at {chart_db.get_db_path()}")
     server = ThreadingHTTPServer((HOST, PORT), ChartQueryHandler)
-    log.info("listening on http://%s:%s", HOST, PORT)
-    log.info("endpoints: /health, /sensors, /series, /plotly-spec, /plotly-html")
-    log.info("query params: sensor_id or asset_id+metric_id; optional metric_id filter on /sensors")
-    auth_state = "ENABLED (X-API-Key or ?key=)" if API_KEY else "disabled (set CHART_QUERY_API_KEY to enable)"
-    cors_state = "* (open)" if ALLOWED_ORIGINS is None else ", ".join(ALLOWED_ORIGINS)
-    log.info("Auth: %s", auth_state)
-    log.info("CORS allow-origin: %s", cors_state)
+    print(f"[ChartQuery] Listening on http://{HOST}:{PORT}")
+    print("[ChartQuery] Endpoints: /health, /sensors, /series, /plotly-spec, /plotly-html")
+    print("[ChartQuery] Query params: sensor_id or asset_id+metric_id; optional metric_id filter on /sensors")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        log.info("stopped by user")
+        print("\n[ChartQuery] Stopped by user.")
     finally:
         server.server_close()
 

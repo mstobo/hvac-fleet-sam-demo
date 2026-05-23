@@ -152,6 +152,11 @@ def resolve_chart_identity(
     mid = (fields.get("metric_id") or "").strip() or None
     probe = (fields.get("legacy_probe") or sensor_id or "").strip() or None
 
+    sep = config.point_id_separator()
+    if not pid and probe and sep in probe and not aid and not mid:
+        parsed_aid, parsed_mid = probe.split(sep, 1)
+        pid, aid, mid = probe, parsed_aid, parsed_mid
+
     if not pid and aid and mid:
         pid = config.make_point_id(aid, mid)
     if not pid and probe:
