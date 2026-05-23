@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from fleet_analysis_response import (  # noqa: E402
     compress_fleet_sketch_section,
+    normalize_fleet_chart_links,
     extract_llm_usage_from_task_response,
     format_llm_usage_footer,
     format_slack_analysis_body,
@@ -95,6 +96,19 @@ class FleetAnalysisResponseTests(unittest.TestCase):
             {"llm_usage": {"prompt_tokens": 10, "completion_tokens": 5}}
         )
         self.assertEqual(usage["total_tokens"], 15)
+
+    def test_normalize_fleet_chart_links_strips_per_point_urls(self):
+        noisy = (
+            "1) Summary\n"
+            "### machine-001:inlet_temp_c\n"
+            "- Chart: machine-001:inlet_temp_c: http://host/charts/plotly-html?sensor_id=machine-001%3Ainlet\n"
+            "Chart Evidence:\n"
+            "- machine-001: http://host/charts/machine-plotly-html?asset_id=machine-001\n"
+            "- machine-002: http://host/charts/machine-plotly-html?asset_id=machine-002\n"
+        )
+        out = normalize_fleet_chart_links(noisy)
+        self.assertNotIn("sensor_id=", out)
+        self.assertIn("machine-plotly-html", out)
 
     def test_compress_fleet_sketch_section(self):
         noisy = (

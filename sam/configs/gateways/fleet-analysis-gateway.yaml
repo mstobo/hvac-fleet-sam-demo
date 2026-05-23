@@ -71,13 +71,24 @@ apps:
 
             SECTION A instructions (single Slack message; do NOT repeat eight full section headers once per sensor):
             - Produce ONE report using the Fleet Query Agent 8-section headings (1–8) exactly once at fleet level.
-            - Charts: for each unique machine_id in payload (derive machine-001 from machine-001:inlet_temp_c), call get_machine_plotly_spec(asset_id=machine-XXX, minutes=120, value_key=avg_v) ONCE — one combined inlet/outlet/motor chart per machine (matches dashboard). Copy plotly_html_url_pinned into Chart Evidence (three links total for three machines). Do NOT call get_plotly_spec nine times for fleet SECTION A.
-            - Narrative context: call get_incident_context ONCE per unique machine_id only (derive machine-001 from machine-001:inlet_temp_c). Do NOT call get_incident_context separately for inlet, motor, and outlet on the same machine — that wastes tokens and duplicates sketches.
-            - Weave per-point evidence under clear "### <sensor_id>" subheadings inside the main sections (do not create eight duplicate section stacks per asset).
-            - Section 8 Dispatch recommendations (mock CMMS): call recommend_dispatch_technicians for at most THREE sensor_ids (choose the hottest / most severe first using tool data; if fewer than three assets, call for each). State fixture is read-only. Summarize remaining assets qualitatively without extra dispatch tool calls.
-            - Section 7 sketch summary: exactly ONE bullet, e.g. "Sketch evidence (by machine): machine-001=25, machine-002=25" using statistics.sketch_count from each machine-level get_incident_context only. Do NOT copy debug.section_7_lines into the fleet report (single-asset deep dives may use those two lines).
-            - Slack formatting: every chart line MUST paste plotly_html_url_pinned exactly from get_machine_plotly_spec JSON (plain https URL or Slack angle-bracket link <https://…>). NEVER write "chart spec generated for …" or other placeholders without the real URL.
-            - Do not use markdown link syntax [label](target) unless target is a real http(s) URL—otherwise Slack may render garbage.
+
+            SECTION A — HARD TOOL BUDGET (apples-to-apples; do not exceed):
+            - get_incident_context: exactly ONE call per unique machine_id (machine-001, machine-002, machine-003) with minutes=120. Never call per inlet/motor/outlet point id.
+            - get_machine_plotly_spec: exactly ONE call per machine_id (same three machines), minutes=120, value_key=avg_v. This is the ONLY chart tool allowed in SECTION A.
+            - recommend_dispatch_technicians: at most ONE call total — use the single hottest point (e.g. machine-003:motor_temp_c). List top 3 techs once in section 8.
+            - FORBIDDEN in SECTION A: get_plotly_spec, get_chart_series, get_sensor_details, get_sketches, get_recent_alerts (unless user explicitly asks in the payload).
+
+            SECTION A — CHART LINKS (exactly three in the whole report):
+            - All chart URLs must be machine-plotly-html (combined inlet·outlet·motor), copied verbatim from get_machine_plotly_spec only.
+            - List them ONLY under a "Chart Evidence" subsection at the end of section 1 Summary (one bullet per machine, three bullets total).
+            - NEVER put chart URLs under ### headings. NEVER use plotly-html?sensor_id= per-point links in SECTION A.
+
+            SECTION A — STRUCTURE:
+            - Optional ### <sensor_id> subheadings in Summary/Timeline are text-only (temps, zones, sketch interpretation). No "Chart:" lines under ###.
+            - Section 7: exactly ONE bullet — "Sketch evidence (by machine): machine-001=N, machine-002=N, machine-003=N" from statistics.sketch_count of the three get_incident_context calls. Do not paste debug.section_7_lines.
+            - Section 8: ONE dispatch block (mock CMMS, read-only). Do not repeat "For sensor machine-00x:motor_temp_c" sections with duplicate tech lists.
+
+            - Slack formatting: paste plotly_html_url_pinned exactly from get_machine_plotly_spec JSON. No markdown [label](url) unless url is https.
 
             SECTION B — Use for ALL other payloads (including non-fleet triggers or missing fields): at most 6 short sentences, Slack-ready, with severity and immediate actions only; NO per-asset forensic loop, NO get_incident_context unless the user payload explicitly asks for an asset deep-dive.
 
