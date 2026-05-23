@@ -153,9 +153,14 @@ def resolve_chart_identity(
     probe = (fields.get("legacy_probe") or sensor_id or "").strip() or None
 
     sep = config.point_id_separator()
-    if not pid and probe and sep in probe and not aid and not mid:
+    # Canonical point id in sensor_id (machine-002:outlet_temp_c) — always trust probe split.
+    if probe and sep in probe:
         parsed_aid, parsed_mid = probe.split(sep, 1)
-        pid, aid, mid = probe, parsed_aid, parsed_mid
+        if not pid or pid == probe:
+            pid = probe
+        if not aid or aid == probe or sep in (aid or ""):
+            aid = parsed_aid
+        mid = parsed_mid
 
     if not pid and aid and mid:
         pid = config.make_point_id(aid, mid)
