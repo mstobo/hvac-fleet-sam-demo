@@ -242,6 +242,82 @@ def extract_llm_usage_from_task_response(task_response: Any) -> Optional[Dict[st
     return _deep_find_llm_usage(task_response)
 
 
+def _text_from_a2a_message(message: Any) -> str:
+    if not isinstance(message, dict):
+        return ""
+    chunks: List[str] = []
+    for part in message.get("parts") or []:
+        if not isinstance(part, dict):
+            continue
+        for key in ("text", "content", "data"):
+            val = part.get(key)
+            if isinstance(val, str) and val.strip():
+                chunks.append(val.strip())
+                break
+    return "\n\n".join(chunks)
+
+
+def extract_report_text_from_task_response(obj: Dict[str, Any]) -> str:
+    """
+    Prefer full report text from task_response.text; fall back to A2A status/history
+    when the gateway leaves text empty or the model splits output across messages.
+    """
+    primary = str(obj.get("text") or "").strip()
+    if primary and "1) Summary" in primary:
+        return primary
+
+    candidates: List[str] = []
+    if primary:
+        candidates.append(primary)
+
+    a2a = obj.get("a2a_task_response")
+    task = _unwrap_a2a_task(a2a) if isinstance(a2a, dict) else {}
+    if task:
+        status = task.get("status")
+        if isinstance(status, dict):
+            msg = status.get("message")
+            status_text = _text_from_a2a_message(msg)
+            if status_text:
+                candidates.append(status_text)
+
+        for message in task.get("history") or []:
+            if not isinstance(message, dict):
+                continue
+            role = str(message.get("role") or "").lower()
+            if role and role not in ("agent", "assistant", "model"):
+                continue
+            hist_text = _text_from_a2a_message(message)
+            if hist_text:
+                candidates.append(hist_text)
+
+    for candidate in sorted(candidates, key=len, reverse=True):
+        if "1) Summary" in candidate:
+            return candidate
+
+    return "\n\n".join(candidates) if candidates else primary
+
+
+def validate_fleet_report_structure(body: str) -> List[str]:
+    """Return human-readable issues when SECTION A shape is missing (apples-to-apples checks)."""
+    text = (body or "").strip()
+    issues: List[str] = []
+    if not text:
+        return ["empty report body"]
+
+    if "1) Summary" not in text:
+        issues.append("missing section '1) Summary'")
+    if text.startswith("### machine-"):
+        issues.append("report begins with ### per-point headings (should start with 1) Summary)")
+    if "machine-plotly-html" not in text:
+        issues.append("no machine-plotly-html chart links (expected exactly 3)")
+    if "Chart Evidence" not in text and "1) Summary" in text:
+        issues.append("missing 'Chart Evidence' subsection in Summary")
+    for section in ("2) Timeline", "3) Severity", "8) Dispatch"):
+        if section not in text:
+            issues.append(f"missing '{section}'")
+    return issues
+
+
 def extract_a2a_task_state(task_response: Any) -> Optional[str]:
     """Return A2A task status state (e.g. completed, failed) when present."""
     if not isinstance(task_response, dict):
@@ -357,6 +433,15 @@ def format_slack_analysis_body(
     if body:
         body = normalize_fleet_chart_links(body)
         body = compress_fleet_sketch_section(body)
+        structure_issues = validate_fleet_report_structure(body)
+        if structure_issues and not failed:
+            body = (
+                "⚠️ *Fleet report format incomplete* — "
+                + "; ".join(structure_issues)
+                + ". Expected sections 1–8, Chart Evidence with 3 machine-plotly-html URLs. "
+                "Partial model output follows.\n\n"
+                + body
+            )
 
     if not body.strip() and meta.get("payload_format") == "json":
         body = (
@@ -439,7 +524,7 @@ def parse_analysis_response_payload(raw: str) -> Tuple[str, Optional[Dict[str, A
         return report, usage, meta
 
     if "text" in obj or "a2a_task_response" in obj:
-        report = str(obj.get("text") or "")
+        report = extract_report_text_from_task_response(obj)
         usage = extract_llm_usage_from_task_response(obj)
         meta["schema_version"] = SCHEMA_VERSION
         meta["task_response"] = True

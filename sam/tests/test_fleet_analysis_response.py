@@ -10,12 +10,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from fleet_analysis_response import (  # noqa: E402
     compress_fleet_sketch_section,
+    extract_report_text_from_task_response,
     normalize_fleet_chart_links,
     extract_llm_usage_from_task_response,
     format_llm_usage_footer,
     format_slack_analysis_body,
     is_failed_task_response,
     parse_analysis_response_payload,
+    validate_fleet_report_structure,
 )
 
 
@@ -96,6 +98,30 @@ class FleetAnalysisResponseTests(unittest.TestCase):
             {"llm_usage": {"prompt_tokens": 10, "completion_tokens": 5}}
         )
         self.assertEqual(usage["total_tokens"], 15)
+
+    def test_extract_report_from_a2a_status_when_text_empty(self):
+        full = "1) Summary\nChart Evidence:\nhttp://x/machine-plotly-html?asset_id=machine-001\n2) Timeline\n"
+        payload = {
+            "text": "",
+            "a2a_task_response": {
+                "status": {
+                    "state": "completed",
+                    "message": {"parts": [{"text": full}]},
+                }
+            },
+        }
+        report = extract_report_text_from_task_response(payload)
+        self.assertIn("1) Summary", report)
+
+    def test_validate_fleet_report_structure_flags_partial(self):
+        issues = validate_fleet_report_structure("### machine-001:outlet_temp_c\n- note\n")
+        self.assertTrue(any("1) Summary" in i for i in issues))
+        self.assertTrue(any("machine-plotly-html" in i for i in issues))
+
+    def test_format_slack_warns_on_incomplete_structure(self):
+        raw = json.dumps({"text": "### machine-001:outlet_temp_c\n- partial only\n"})
+        slack = format_slack_analysis_body(raw, trace_id="fa-test")
+        self.assertIn("format incomplete", slack)
 
     def test_normalize_fleet_chart_links_strips_per_point_urls(self):
         noisy = (

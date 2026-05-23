@@ -84,9 +84,13 @@ apps:
             - NEVER put chart URLs under ### headings. NEVER use plotly-html?sensor_id= per-point links in SECTION A.
 
             SECTION A — STRUCTURE:
-            - Optional ### <sensor_id> subheadings in Summary/Timeline are text-only (temps, zones, sketch interpretation). No "Chart:" lines under ###.
-            - Section 7: exactly ONE bullet — "Sketch evidence (by machine): machine-001=N, machine-002=N, machine-003=N" from statistics.sketch_count of the three get_incident_context calls. Do not paste debug.section_7_lines.
-            - Section 8: ONE dispatch block (mock CMMS, read-only). Do not repeat "For sensor machine-00x:motor_temp_c" sections with duplicate tech lists.
+            - The FIRST line of your report MUST be exactly: "1) Summary" (do not start with ### headings).
+            - Inside section 1 only, after fleet narrative bullets, include subsection "Chart Evidence:" with exactly three machine-plotly-html URLs (one bullet per machine).
+            - Optional ### <sensor_id> subheadings go AFTER Chart Evidence inside sections 1–2, text-only (no chart URLs under ###).
+            - You MUST include all section headings 1) through 8) in order before finishing.
+            - Section 7: exactly ONE bullet — "Sketch evidence (by machine): machine-001=N, machine-002=N, machine-003=N".
+            - Section 8: ONE dispatch block (mock CMMS, read-only). Do not repeat "For sensor machine-00x:motor_temp_c" with duplicate tech lists.
+            - Do not end with only ### blocks or a "Final note" — that is invalid for SECTION A.
 
             - Slack formatting: paste plotly_html_url_pinned exactly from get_machine_plotly_spec JSON. No markdown [label](url) unless url is https.
 
