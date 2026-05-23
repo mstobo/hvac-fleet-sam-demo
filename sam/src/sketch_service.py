@@ -17,11 +17,11 @@ The sketch generation is pure Python string formatting, not AI.
 
 import json
 import time
+from datetime import datetime
 
 import pipeline_config as config
 import sensor_db
-
-log = config.get_logger("Sketch")
+import sketch_styles
 
 SKETCH_DB_BATCH_SIZE = 100
 SKETCH_DB_FLUSH_INTERVAL_SEC = 0.5
@@ -78,29 +78,21 @@ def generate_sketch(data):
     win_mean = window.get("mean", temperature)
     win_min = window.get("min", temperature)
     win_max = window.get("max", temperature)
-    delta_pct_pct = delta_pct * 100
-    
-    timestamp = config.now_utc_iso()
-    
-    # Generate natural language summary
-    suffix = f" {unit_label}".rstrip() if unit_label else ""
-    if forwarded_reason == "heartbeat":
-        sketch = (
-            f"[HEARTBEAT] {point_id} stable at ~{win_mean:.1f}{suffix} "
-            f"(range {win_min:.1f}–{win_max:.1f}{suffix}) over last 30s. "
-            f"No significant change. Zone: {zone}."
-        )
-    else:
-        move = "spike" if temperature > win_mean else "drop"
-        sketch = (
-            f"{point_id} recorded a {delta_pct_pct:.1f}% {move} to "
-            f"{temperature:.1f}{suffix}. 30s window: mean {win_mean:.1f}{suffix}, "
-            f"range [{win_min:.1f}–{win_max:.1f}{suffix}]. Zone: {zone}."
-        )
-        if zone == "CRITICAL":
-            sketch += " Anomaly detected - immediate review required."
-        elif zone == "WARNING":
-            sketch += " Elevated condition - monitoring advised."
+    timestamp = datetime.utcnow().isoformat() + "Z"
+
+    sketch = sketch_styles.render_sketch_text(
+        point_id=point_id,
+        asset_id=asset_id or "",
+        metric_id=metric_id or "",
+        temperature=temperature,
+        zone=zone,
+        delta_pct=delta_pct,
+        forwarded_reason=forwarded_reason,
+        win_mean=win_mean,
+        win_min=win_min,
+        win_max=win_max,
+        unit_label=f"°C" if metric_id == "supply_temp_c" and not unit else (unit or ""),
+    )
     
     # Buffer database write; flush in batches to avoid per-message SQLite commits.
     _sketch_buffer.append(
@@ -148,11 +140,11 @@ def generate_sketch(data):
 
 def on_connect(client, userdata, flags, reason_code, properties=None):
     if reason_code == 0:
-        log.info("connected to %s", config.BROKER_HOST)
+        print(f"[Sketch] Connected to {config.BROKER_HOST}")
         client.subscribe(config.TOPIC_FILTERED)
-        log.info("subscribed to %s", config.TOPIC_FILTERED)
+        print(f"[Sketch] Subscribed to {config.TOPIC_FILTERED}")
     else:
-        log.error("connection failed rc=%s", reason_code)
+        print(f"[Sketch] Connection failed (rc={reason_code})")
 
 
 def on_message(client, userdata, msg):
@@ -168,51 +160,52 @@ def on_message(client, userdata, msg):
         # Generate sketch
         result = generate_sketch(data)
         payload = json.dumps(result)
-        config.publish_checked(client, config.TOPIC_SKETCHED, payload, source="Sketch")
-        config.publish_checked(
-            client,
+        client.publish(config.TOPIC_SKETCHED, payload)
+        client.publish(
             config.build_sketch_topic(
                 result["site"],
                 result["room"],
                 result["incidentId"],
             ),
             payload,
-            source="Sketch",
         )
 
-        # Per-message detail at DEBUG; periodic counter at INFO so operators get a heartbeat
-        # without the firehose. (LOG_LEVEL=DEBUG reveals each message.)
+        # Throttle per-message logs to reduce stdout overhead at high throughput.
         _processed_count += 1
-        log.debug("sketched %s zone=%s", result["sensorId"], result["zone"])
         if _processed_count % SKETCH_LOG_EVERY_N == 0:
-            log.info(
-                "processed=%d buffered=%d last=%s:%s",
-                _processed_count, len(_sketch_buffer), result["sensorId"], result["zone"],
+            print(
+                f"[Sketch] processed={_processed_count} "
+                f"buffered={len(_sketch_buffer)} "
+                f"last={result['sensorId']}:{result['zone']}"
             )
-
-    except Exception:
-        log.exception("error processing message on %s", msg.topic)
+        
+    except Exception as e:
+        print(f"[Sketch] Error: {e}")
 
 
 def main():
-    log.info("initializing SQLite database at %s", sensor_db.get_db_path())
+    # Initialize the database
+    print("[Sketch] Initializing SQLite database...")
     sensor_db.init_database()
-
+    
     config.print_service_banner(
         "Sketch Generator",
         config.TOPIC_FILTERED,
         config.TOPIC_SKETCHED
     )
-
+    print(f"  Database : {sensor_db.get_db_path()}")
+    print(f"  SKETCH_STYLE: {sketch_styles.get_sketch_style()} (set SKETCH_STYLE=jargon for Expert-Lexicon sketches)")
+    print(f"{'='*65}\n")
+    
     client = config.create_mqtt_client("sketch")
     client.on_connect = on_connect
     client.on_message = on_message
-
+    
     try:
         client.connect(config.BROKER_HOST, config.BROKER_PORT, keepalive=60)
         client.loop_forever()
     except KeyboardInterrupt:
-        log.info("stopped by user")
+        print("\n[Sketch] Stopped by user.")
     finally:
         _flush_sketch_buffer(force=True)
         client.disconnect()

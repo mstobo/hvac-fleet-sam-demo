@@ -22,6 +22,7 @@ from urllib.request import urlopen
 # Import the database module
 import sensor_db
 import dispatch_workforce
+import sketch_styles
 
 
 _BROWSER_UNREACHABLE_HOSTS = frozenset(
@@ -875,6 +876,7 @@ def get_incident_context(sensor_id: str, minutes: int = 90) -> str:
             "sketches": sketches,
             "recent_readings": readings,
             "alerts": sensor_alerts,
+            **sketch_styles.sketch_context_for_agents(),
         }
 
         debug_block = _build_sketch_debug_block(
