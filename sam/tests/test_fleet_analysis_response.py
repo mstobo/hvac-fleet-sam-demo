@@ -114,5 +114,24 @@ class FleetAnalysisResponseTests(unittest.TestCase):
         self.assertIn("test_llm.py", slack)
 
 
+    def test_rewrite_chart_placeholder_to_url(self):
+        import os
+
+        os.environ["CHART_PUBLIC_BASE_URL"] = "http://demo.example/charts"
+        try:
+            from fleet_query_tools import rewrite_chart_urls_in_text
+
+            text = (
+                "Chart: (machine-002:motor_temp_c) plot window "
+                "2026-05-23T11:07:01Z → 2026-05-23T13:07:01Z."
+            )
+            out = rewrite_chart_urls_in_text(text)
+            self.assertIn("http://demo.example/charts/plotly-html", out)
+            self.assertIn("machine-002%3Amotor_temp_c", out)
+            self.assertNotIn("plot window 2026", out)
+        finally:
+            os.environ.pop("CHART_PUBLIC_BASE_URL", None)
+
+
 if __name__ == "__main__":
     unittest.main()
