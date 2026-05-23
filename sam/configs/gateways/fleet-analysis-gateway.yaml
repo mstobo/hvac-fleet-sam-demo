@@ -90,11 +90,13 @@ apps:
       default_agent_name: "FleetQueryAgent"
 
       output_handlers:
+        # Publish full task_response JSON so consumers can read report text plus
+        # SAM token fields on a2a_task_response.metadata (total_input_tokens, etc.).
         - name: "fleet_analysis_success"
           topic_expression: "static:sensors/fleet/analysis-response"
-          payload_expression: "task_response:text"
+          payload_expression: "task_response:"
           payload_encoding: "utf-8"
-          payload_format: "text"
+          payload_format: "json"
         - name: "fleet_analysis_error"
           topic_expression: "static:sensors/fleet/analysis-error"
           payload_expression: "task_response:a2a_task_response.error"
