@@ -400,6 +400,262 @@ def _build_plotly_spec(
     return spec
 
 
+DEFAULT_MACHINE_TEMP_METRICS = ("inlet_temp_c", "outlet_temp_c", "motor_temp_c")
+METRIC_TRACE_COLORS = {
+    "inlet_temp_c": "#38bdf8",
+    "outlet_temp_c": "#a78bfa",
+    "motor_temp_c": "#00c176",
+}
+METRIC_TRACE_LABELS = {
+    "inlet_temp_c": "inlet",
+    "outlet_temp_c": "outlet",
+    "motor_temp_c": "motor",
+}
+
+
+def _parse_machine_chart_params(q: dict) -> dict:
+    asset_id = (q.get("asset_id") or [""])[0].strip()
+    if not asset_id:
+        return {"error": "Missing asset_id"}
+    metrics_raw = (q.get("metrics") or [""])[0].strip()
+    if metrics_raw:
+        metrics = [m.strip() for m in metrics_raw.split(",") if m.strip()]
+    else:
+        metrics = list(DEFAULT_MACHINE_TEMP_METRICS)
+    return {"asset_id": asset_id, "metrics": metrics}
+
+
+def _machine_chart_title(asset_id: str, metrics: list[str], source: str, resolution: str, minutes: int) -> str:
+    labels = [METRIC_TRACE_LABELS.get(m, m) for m in metrics]
+    joined = " · ".join(labels) if labels else "temps"
+    return f"{asset_id} {joined} {source} {resolution} ({minutes}m)"
+
+
+def _build_plotly_spec_multi(
+    traces: list[dict],
+    *,
+    title: str,
+    value_key: str,
+    show_thresholds: bool,
+    warning_temp: float | None,
+    critical_temp: float | None,
+    unit_label: str = "°C",
+) -> dict:
+    data = []
+    all_numeric: list[float] = []
+    ref_x: list = []
+    for trace in traces:
+        x_vals = trace.get("x") or []
+        y_vals = trace.get("y") or []
+        if len(x_vals) > len(ref_x):
+            ref_x = x_vals
+        for v in y_vals:
+            if isinstance(v, (int, float)):
+                all_numeric.append(float(v))
+        data.append(
+            {
+                "type": "scatter",
+                "mode": "lines+markers",
+                "name": trace.get("name") or "series",
+                "x": x_vals,
+                "y": y_vals,
+                "line": {"shape": "linear", "width": 2, "color": trace.get("color")},
+                "marker": {"size": 4},
+                "hovertemplate": "%{fullData.name} ts=%{x}<br>value=%{y:.2f}<extra></extra>",
+            }
+        )
+
+    y_min = min(all_numeric) if all_numeric else None
+    y_max = max(all_numeric) if all_numeric else None
+    y_pad = 1.0 if y_min is None or y_max is None else max(1.0, (y_max - y_min) * 0.08)
+
+    spec = {
+        "data": data,
+        "layout": {
+            "title": {"text": title},
+            "xaxis": {"title": "timestamp (UTC)", "type": "date"},
+            "yaxis": {"title": value_key, "rangemode": "tozero"},
+            "template": "plotly_white",
+            "hovermode": "x unified",
+            "legend": {"orientation": "h", "y": 1.12},
+        },
+    }
+
+    thresh_vals = [v for v in (warning_temp, critical_temp) if v is not None]
+    if y_min is not None and y_max is not None:
+        low = y_min
+        high = y_max
+        if thresh_vals:
+            low = min(low, *thresh_vals)
+            high = max(high, *thresh_vals)
+        spec["layout"]["yaxis"]["range"] = [low - y_pad, high + y_pad]
+
+    if show_thresholds and ref_x and warning_temp is not None and critical_temp is not None:
+        spec["layout"]["shapes"] = [
+            {
+                "type": "line",
+                "xref": "x",
+                "yref": "y",
+                "x0": ref_x[0],
+                "x1": ref_x[-1],
+                "y0": warning_temp,
+                "y1": warning_temp,
+                "line": {"color": "#f59e0b", "width": 1.5, "dash": "dot"},
+            },
+            {
+                "type": "line",
+                "xref": "x",
+                "yref": "y",
+                "x0": ref_x[0],
+                "x1": ref_x[-1],
+                "y0": critical_temp,
+                "y1": critical_temp,
+                "line": {"color": "#ef4444", "width": 1.5, "dash": "dot"},
+            },
+        ]
+        spec["layout"]["annotations"] = [
+            {
+                "x": ref_x[-1],
+                "y": warning_temp,
+                "xref": "x",
+                "yref": "y",
+                "text": f"WARNING {warning_temp:.1f}{unit_label}",
+                "showarrow": False,
+                "xanchor": "left",
+                "font": {"size": 11, "color": "#b45309"},
+                "bgcolor": "rgba(245,158,11,0.10)",
+            },
+            {
+                "x": ref_x[-1],
+                "y": critical_temp,
+                "xref": "x",
+                "yref": "y",
+                "text": f"CRITICAL {critical_temp:.1f}{unit_label}",
+                "showarrow": False,
+                "xanchor": "left",
+                "font": {"size": 11, "color": "#991b1b"},
+                "bgcolor": "rgba(239,68,68,0.10)",
+            },
+        ]
+
+    return spec
+
+
+def build_machine_plotly_bundle(
+    asset_id: str,
+    metrics: list[str],
+    *,
+    source: str = "filtered",
+    minutes: int = 60,
+    resolution: str = "1m",
+    max_points: int = 120,
+    window_start: str | None = None,
+    window_end: str | None = None,
+    value_key: str = "avg_v",
+    show_thresholds: bool = True,
+) -> dict:
+    """Fetch multi-metric series for one machine and build a combined Plotly spec."""
+    trace_payloads = []
+    series_meta = []
+    total_rendered = 0
+
+    for metric in metrics:
+        point_id = config.make_point_id(asset_id, metric)
+        rows, row_meta = _series_rows_with_fallback(
+            point_id,
+            source,
+            minutes,
+            resolution,
+            window_start=window_start,
+            window_end=window_end,
+            metric_id=metric,
+            asset_id=asset_id,
+        )
+        if resolution == "points" and value_key in ("avg_v", "last_v", "min_v", "max_v"):
+            vk = "value"
+        elif resolution != "points" and value_key == "value":
+            vk = "avg_v"
+        else:
+            vk = value_key
+
+        payload = _series_payload(rows=rows, max_points=max_points, value_key=vk)
+        rendered = int(payload["stats"].get("rendered_row_count") or 0)
+        total_rendered += rendered
+        x_vals = [r["ts"] for r in payload["rows"]]
+        y_vals = payload["values"]
+        trace_payloads.append(
+            {
+                "metric_id": metric,
+                "point_id": row_meta.get("point_id") or point_id,
+                "name": METRIC_TRACE_LABELS.get(metric, metric),
+                "color": METRIC_TRACE_COLORS.get(metric, "#94a3b8"),
+                "x": x_vals,
+                "y": y_vals,
+                "stats": payload["stats"],
+            }
+        )
+        series_meta.append(
+            {
+                "metric_id": metric,
+                "point_id": row_meta.get("point_id") or point_id,
+                "rendered_row_count": rendered,
+                "source_row_count": payload["stats"].get("source_row_count"),
+            }
+        )
+
+    window_meta = {
+        "asset_id": asset_id,
+        "metrics": metrics,
+        "source": source,
+        "resolution": resolution,
+        "window_start_utc": window_start,
+        "window_end_utc": window_end,
+    }
+    if trace_payloads and trace_payloads[0]["x"]:
+        window_meta["window_start_utc"] = window_meta.get("window_start_utc") or trace_payloads[0]["x"][0]
+        window_meta["window_end_utc"] = window_meta.get("window_end_utc") or trace_payloads[0]["x"][-1]
+    if not window_meta.get("window_start_utc"):
+        start_ts, end_ts = _bounded_iso_window(minutes)
+        window_meta["window_start_utc"] = start_ts
+        window_meta["window_end_utc"] = end_ts
+        window_meta["window_mode"] = "relative"
+    else:
+        window_meta["window_mode"] = "absolute" if window_start and window_end else "relative"
+
+    warn_default, crit_default, unit_default = _thresholds_for_metric("inlet_temp_c")
+    warning_temp = warn_default or DEFAULT_WARNING_TEMP
+    critical_temp = crit_default or DEFAULT_CRITICAL_TEMP
+    unit_label = unit_default or "°C"
+    if not unit_label.startswith(("°", "%")):
+        unit_label = f" {unit_label}"
+
+    title = _machine_chart_title(asset_id, metrics, source, resolution, minutes)
+    plotly_spec = _build_plotly_spec_multi(
+        trace_payloads,
+        title=title,
+        value_key=value_key,
+        show_thresholds=show_thresholds,
+        warning_temp=warning_temp if show_thresholds else None,
+        critical_temp=critical_temp if show_thresholds else None,
+        unit_label=unit_label,
+    )
+
+    stats = {
+        "rendered_row_count": total_rendered,
+        "series_count": len(metrics),
+        "source_min_ts": window_meta.get("window_start_utc"),
+        "source_max_ts": window_meta.get("window_end_utc"),
+    }
+
+    return {
+        "meta": window_meta,
+        "stats": stats,
+        "series": series_meta,
+        "plotly_spec": plotly_spec,
+        "title": title,
+    }
+
+
 class ChartQueryHandler(BaseHTTPRequestHandler):
     server_version = "chart-query-service/1.0"
 
@@ -444,6 +700,12 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
                 return
             if path == "/plotly-html":
                 self._handle_plotly_html(q)
+                return
+            if path == "/machine-plotly-spec":
+                self._handle_machine_plotly_spec(q)
+                return
+            if path == "/machine-plotly-html":
+                self._handle_machine_plotly_html(q)
                 return
             self._send_json({"error": "Not found", "path": path}, status=HTTPStatus.NOT_FOUND)
         except Exception as exc:
@@ -754,13 +1016,190 @@ class ChartQueryHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _machine_plotly_options(self, q: dict) -> dict:
+        parsed = _parse_machine_chart_params(q)
+        if parsed.get("error"):
+            return parsed
+
+        source = (q.get("source") or ["filtered"])[0].strip().lower()
+        if source not in ("filtered", "suppressed", "all"):
+            source = "filtered"
+
+        resolution = (q.get("resolution") or ["1m"])[0].strip().lower()
+        if resolution not in ("1m", "10s", "points"):
+            resolution = "1m"
+
+        minutes = _parse_int((q.get("minutes") or ["60"])[0], default=60, min_v=1, max_v=24 * 60)
+        max_points = _parse_int((q.get("max_points") or ["120"])[0], default=120, min_v=1, max_v=5000)
+        window_start = (q.get("window_start") or [None])[0]
+        window_end = (q.get("window_end") or [None])[0]
+        show_thresholds = _parse_bool((q.get("show_thresholds") or [None])[0], default=True)
+        value_key = (q.get("value_key") or ["avg_v"])[0].strip().lower()
+        if value_key not in ("avg_v", "last_v", "value", "min_v", "max_v"):
+            value_key = "avg_v"
+
+        return {
+            **parsed,
+            "source": source,
+            "resolution": resolution,
+            "minutes": minutes,
+            "max_points": max_points,
+            "window_start": window_start,
+            "window_end": window_end,
+            "show_thresholds": show_thresholds,
+            "value_key": value_key,
+        }
+
+    def _handle_machine_plotly_spec(self, q: dict):
+        opts = self._machine_plotly_options(q)
+        if opts.get("error"):
+            self._send_json({"error": opts["error"]}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        bundle = build_machine_plotly_bundle(
+            opts["asset_id"],
+            opts["metrics"],
+            source=opts["source"],
+            minutes=opts["minutes"],
+            resolution=opts["resolution"],
+            max_points=opts["max_points"],
+            window_start=opts["window_start"],
+            window_end=opts["window_end"],
+            value_key=opts["value_key"],
+            show_thresholds=opts["show_thresholds"],
+        )
+        value_key = opts["value_key"]
+        if int(bundle["stats"].get("rendered_row_count") or 0) == 0 and value_key == "max_v":
+            bundle = build_machine_plotly_bundle(
+                opts["asset_id"],
+                opts["metrics"],
+                source=opts["source"],
+                minutes=opts["minutes"],
+                resolution=opts["resolution"],
+                max_points=opts["max_points"],
+                window_start=opts["window_start"],
+                window_end=opts["window_end"],
+                value_key="avg_v",
+                show_thresholds=opts["show_thresholds"],
+            )
+            value_key = "avg_v"
+
+        self._send_json(
+            {
+                "meta": {
+                    **bundle["meta"],
+                    "chart_kind": "machine_multi_series",
+                    "requested_value_key": value_key,
+                    "max_points": opts["max_points"],
+                    "show_thresholds": opts["show_thresholds"],
+                },
+                "stats": bundle["stats"],
+                "series": bundle["series"],
+                "plotly_spec": bundle["plotly_spec"],
+            }
+        )
+
+    def _handle_machine_plotly_html(self, q: dict):
+        opts = self._machine_plotly_options(q)
+        if opts.get("error"):
+            self._send_json({"error": opts["error"]}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        bundle = build_machine_plotly_bundle(
+            opts["asset_id"],
+            opts["metrics"],
+            source=opts["source"],
+            minutes=opts["minutes"],
+            resolution=opts["resolution"],
+            max_points=opts["max_points"],
+            window_start=opts["window_start"],
+            window_end=opts["window_end"],
+            value_key=opts["value_key"],
+            show_thresholds=opts["show_thresholds"],
+        )
+        value_key = opts["value_key"]
+        if int(bundle["stats"].get("rendered_row_count") or 0) == 0 and value_key == "max_v":
+            bundle = build_machine_plotly_bundle(
+                opts["asset_id"],
+                opts["metrics"],
+                source=opts["source"],
+                minutes=opts["minutes"],
+                resolution=opts["resolution"],
+                max_points=opts["max_points"],
+                window_start=opts["window_start"],
+                window_end=opts["window_end"],
+                value_key="avg_v",
+                show_thresholds=opts["show_thresholds"],
+            )
+            value_key = "avg_v"
+
+        spec = bundle["plotly_spec"]
+        title = bundle["title"]
+        meta = bundle["meta"]
+        stats = bundle["stats"]
+        warning_temp, critical_temp, unit_default = _thresholds_for_metric("inlet_temp_c")
+        unit_label = unit_default or "°C"
+        if unit_label and not unit_label.startswith(("°", "%")):
+            unit_label = f" {unit_label}"
+
+        thresh_note = ""
+        if opts["show_thresholds"] and warning_temp is not None and critical_temp is not None:
+            thresh_note = f" (W={warning_temp:.1f}{unit_label}, C={critical_temp:.1f}{unit_label})"
+        row_count = int(stats.get("rendered_row_count") or 0)
+        empty_hint = ""
+        if row_count == 0:
+            empty_hint = (
+                f" | NO DATA — run chart-writer and stream telemetry for {opts['asset_id']}"
+            )
+        meta_html = (
+            f"machine={opts['asset_id']} metrics={','.join(opts['metrics'])} | "
+            f"window={meta.get('window_start_utc')}..{meta.get('window_end_utc')} | "
+            f"rows={row_count} | thresholds={'on' if opts['show_thresholds'] else 'off'}"
+            f"{thresh_note}{empty_hint}"
+        )
+
+        html = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title}</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    body {{ margin: 0; font-family: -apple-system, Segoe UI, Roboto, sans-serif; background: #0b1020; color: #e5e7eb; }}
+    .meta {{ padding: 10px 14px; font-size: 12px; color: #9ca3af; border-bottom: 1px solid #1f2937; }}
+    #chart {{ width: 100vw; height: calc(100vh - 42px); }}
+  </style>
+</head>
+<body>
+  <div class="meta">{meta_html}</div>
+  <div id="chart"></div>
+  <script>
+    const spec = {json.dumps(spec, ensure_ascii=True)};
+    Plotly.newPlot('chart', spec.data, spec.layout, {{responsive:true, displaylogo:false}});
+  </script>
+</body>
+</html>"""
+
+        body = html.encode("utf-8")
+        self.send_response(HTTPStatus.OK)
+        self._add_cors_headers()
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
 
 def main():
     chart_db.init_database()
     print(f"[ChartQuery] DB initialized at {chart_db.get_db_path()}")
     server = ThreadingHTTPServer((HOST, PORT), ChartQueryHandler)
     print(f"[ChartQuery] Listening on http://{HOST}:{PORT}")
-    print("[ChartQuery] Endpoints: /health, /sensors, /series, /plotly-spec, /plotly-html")
+    print(
+        "[ChartQuery] Endpoints: /health, /sensors, /series, /plotly-spec, /plotly-html, "
+        "/machine-plotly-spec, /machine-plotly-html"
+    )
     print("[ChartQuery] Query params: sensor_id or asset_id+metric_id; optional metric_id filter on /sensors")
     try:
         server.serve_forever()
