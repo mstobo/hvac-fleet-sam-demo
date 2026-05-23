@@ -118,6 +118,7 @@ class FleetAnalysisResponseTests(unittest.TestCase):
         import os
 
         os.environ["CHART_PUBLIC_BASE_URL"] = "http://demo.example/charts"
+        os.environ["CHART_QUERY_API_KEY"] = "demo-chart-key"
         try:
             from fleet_query_tools import rewrite_chart_urls_in_text
 
@@ -128,7 +129,32 @@ class FleetAnalysisResponseTests(unittest.TestCase):
             out = rewrite_chart_urls_in_text(text)
             self.assertIn("http://demo.example/charts/plotly-html", out)
             self.assertIn("machine-002%3Amotor_temp_c", out)
+            self.assertIn("key=demo-chart-key", out)
             self.assertNotIn("plot window 2026", out)
+        finally:
+            os.environ.pop("CHART_PUBLIC_BASE_URL", None)
+            os.environ.pop("CHART_QUERY_API_KEY", None)
+
+    def test_rewrite_chart_spec_generated_bullets(self):
+        import os
+
+        os.environ["CHART_PUBLIC_BASE_URL"] = "http://demo.example/charts"
+        try:
+            from fleet_query_tools import rewrite_chart_urls_in_text
+
+            text = (
+                "Chart Evidence:\n"
+                "- machine-002: inlet temp chart (max_v) - chart spec generated for "
+                "2026-05-23T11:47:22Z → 2026-05-23T13:47:22Z.\n"
+                "- machine-003: motor temp chart (max_v) - chart spec generated for "
+                "2026-05-23T11:47:22Z → 2026-05-23T13:47:22Z."
+            )
+            out = rewrite_chart_urls_in_text(text)
+            self.assertIn("http://demo.example/charts/plotly-html", out)
+            self.assertIn("machine-002%3Ainlet_temp_c", out)
+            self.assertIn("machine-003%3Amotor_temp_c", out)
+            self.assertIn("value_key=avg_v", out)
+            self.assertNotIn("chart spec generated", out)
         finally:
             os.environ.pop("CHART_PUBLIC_BASE_URL", None)
 
