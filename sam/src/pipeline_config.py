@@ -489,6 +489,8 @@ def publish_checked(client, topic: str, payload, *, qos: int = 0, source: str = 
     e.g. disconnected, queue full, message too large). At QoS 0 there's no broker ack to wait for,
     so this is the best we can do without changing semantics. Returns True when queued, else False.
     """
+    import paho.mqtt.client as mqtt
+
     info = client.publish(topic, payload, qos=qos)
     if info.rc != mqtt.MQTT_ERR_SUCCESS:
         get_logger(source).warning("PUBLISH-DROPPED rc=%s topic=%s", info.rc, topic)
