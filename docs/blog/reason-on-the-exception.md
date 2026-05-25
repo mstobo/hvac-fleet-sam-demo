@@ -18,11 +18,15 @@ The architecture treated **live telemetry like chat input**: every forwarded rea
 
 The bleed stopped when **LiteLLM gateway controls** throttled the runaway path. That is a safety net, not a design. The proper fix is upstream: **never wire IIoT throughput to the reasoning engine—keep AI off the hot path.**
 
-That demo is the anti-pattern this article argues against. Our HVAC fleet reference stack exists to show the alternative: deterministic pipeline first, agent on the exception.
+That demo is the anti-pattern this article argues against.
+
+**Correct pattern:** keep event movement and filtering on the **broker-centric data plane**; invoke AI as a **downstream consumer** of curated state—when operators ask, or when a **high-value exception** (for example fleet-critical) fires.
 
 ![The Token Burn Problem: stream-to-model vs filter-first, AI on exceptions](../token-burn-device-friendly.png)
 
 *Caption: POC-friendly stream-to-model vs event-driven filtering and AI on exceptions—generative models stay off the IIoT hot path in the reference architecture (right).*
+
+Our HVAC fleet reference stack implements the right-hand path: deterministic pipeline first, agent on the exception.
 
 ---
 
@@ -59,7 +63,7 @@ It works with a handful of tags. It breaks at scale because an LLM is built to *
 | Rolling window stats | Communicate in operator language |
 | Deterministic alerts | Recommend actions under uncertainty |
 
-**Correct pattern:** keep event movement and filtering on the **broker-centric data plane**; invoke AI as a **downstream consumer** of curated state—when operators ask, or when a **high-value exception** (for example fleet-critical) fires.
+The opening diagram contrasts the stream-to-model path with this split.
 
 ---
 
