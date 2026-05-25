@@ -65,21 +65,13 @@ It works with a handful of tags. It breaks at scale.
 
 The [hvac-fleet-sam-demo](https://github.com/mstobo/hvac-fleet-sam-demo) repository is an open, runnable stack:
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│ DATA PLANE (no LLM per reading)                             │
-│  MQTT raw → deadband → sketch → anomaly → SQLite + charts   │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ summaries + alerts
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│ REASONING PLANE (on demand)                                 │
-│  Operator chat · FLEET_CRITICAL → analysis-request → SAM    │
-│  Tools: incident context, machine Plotly, dispatch (mock)   │
-└─────────────────────────────────────────────────────────────┘
-```
+**Data plane:** nine cooling points (`machine-00x` × inlet · outlet · motor) → raw MQTT → deadband → sketch → anomaly → `sensor_data.db` / `chart_data.db` (no LLM per reading).
 
-**One-liner:** filter, sketch, and rule-detect on MQTT; let the agent reason only when operators ask—or when the fleet crosses a critical threshold.
+**Reasoning plane:** operator chat or `FLEET_CRITICAL` → `analysis-request` → SAM (SECTION A: 3× machine context + 3× machine charts, not 9× per-point).
+
+See the [HTML architecture diagram](reason-on-the-exception.html#demo) on the published blog page.
+
+**One-liner:** filter, sketch, and rule-detect on the broker path; agents reason only on exceptions.
 
 Technical setup: [README](https://github.com/mstobo/hvac-fleet-sam-demo#readme) and [deploy/aws](https://github.com/mstobo/hvac-fleet-sam-demo/blob/main/deploy/aws/README.md).
 
