@@ -807,6 +807,44 @@ body {
   line-height: 1.5;
 }
 
+.blog-lede {
+  font-size: var(--solace-text-lg);
+  line-height: 1.6;
+  color: var(--solace-text-on-dark-muted);
+  margin: 0 0 var(--solace-space-5);
+}
+
+.blog-lede strong {
+  color: var(--solace-white);
+}
+
+.blog-callout {
+  background: rgba(0, 200, 149, 0.08);
+  border: 1px solid rgba(0, 200, 149, 0.35);
+  border-left: 4px solid var(--solace-primary);
+  border-radius: var(--solace-radius-md);
+  padding: var(--solace-space-4) var(--solace-space-5);
+  margin: var(--solace-space-5) 0;
+}
+
+.blog-callout-title {
+  font-size: var(--solace-text-base);
+  font-weight: var(--solace-weight-bold);
+  color: var(--solace-white);
+  margin: 0 0 var(--solace-space-3);
+  line-height: 1.35;
+}
+
+.blog-callout p {
+  margin: 0 0 var(--solace-space-3);
+  font-size: var(--solace-text-sm);
+  line-height: 1.65;
+}
+
+.blog-callout p:last-child {
+  margin-bottom: 0;
+}
+
 .blog-toc {
   background: rgba(0, 200, 149, 0.06);
   border: 1px solid var(--solace-dark-border);
