@@ -160,18 +160,109 @@
         <p>
           The <a href="https://github.com/mstobo/hvac-fleet-sam-demo">hvac-fleet-sam-demo</a> repository is an open, runnable stack on Solace PubSub+ and Solace Agent Mesh (SAM).
         </p>
-        <pre class="blog-pre">┌─────────────────────────────────────────────────────────────┐
-│ DATA PLANE (no LLM per reading)                             │
-│  MQTT raw → deadband → sketch → anomaly → SQLite + charts   │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ summaries + alerts
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│ REASONING PLANE (on demand)                                 │
-│  Operator chat · FLEET_CRITICAL → analysis-request → SAM    │
-└─────────────────────────────────────────────────────────────┘</pre>
+        <div class="arch-diagram" role="img" aria-label="HVAC fleet demo: nine cooling points through deterministic pipeline to SAM on fleet-critical">
+          <article class="arch-layer arch-layer--data">
+            <header class="arch-layer-head">
+              <span class="arch-layer-badge">Layer 1</span>
+              <span class="arch-layer-title">Data plane</span>
+              <span class="arch-layer-sub">(no LLM per reading)</span>
+            </header>
+
+            <div class="arch-block">
+              <p class="arch-block-label">Fleet — 9 cooling points (3 machines)</p>
+              <div class="arch-machines">
+                <div class="arch-machine">
+                  <span class="arch-machine-id">machine-001</span>
+                  <div class="arch-points">
+                    <span class="arch-point">inlet_temp_c</span>
+                    <span class="arch-point">outlet_temp_c</span>
+                    <span class="arch-point">motor_temp_c</span>
+                  </div>
+                </div>
+                <div class="arch-machine">
+                  <span class="arch-machine-id">machine-002</span>
+                  <div class="arch-points">
+                    <span class="arch-point">inlet_temp_c</span>
+                    <span class="arch-point">outlet_temp_c</span>
+                    <span class="arch-point">motor_temp_c</span>
+                  </div>
+                </div>
+                <div class="arch-machine">
+                  <span class="arch-machine-id">machine-003</span>
+                  <div class="arch-points">
+                    <span class="arch-point">inlet_temp_c</span>
+                    <span class="arch-point">outlet_temp_c</span>
+                    <span class="arch-point">motor_temp_c</span>
+                  </div>
+                </div>
+              </div>
+              <p class="arch-detail-line">
+                <span class="arch-svc">demo_publisher / dashboard</span>
+                <span class="arch-arrow-inline" aria-hidden="true">→</span>
+                <code class="arch-code">dc/Hub/v1/raw/…</code>
+              </p>
+            </div>
+
+            <div class="arch-vflow" aria-hidden="true">▼</div>
+
+            <div class="arch-block">
+              <p class="arch-block-label">Pipeline @ Hub</p>
+              <div class="arch-pipeline">
+                <span class="arch-stage">deadband</span>
+                <span class="arch-pipe" aria-hidden="true">→</span>
+                <span class="arch-stage">sketch</span>
+                <span class="arch-pipe" aria-hidden="true">→</span>
+                <span class="arch-stage">anomaly</span>
+              </div>
+              <p class="arch-branch">+ chart-writer (parallel)</p>
+              <div class="arch-store-row">
+                <span class="arch-store"><strong>sensor_data.db</strong> sketches · telemetry · alerts</span>
+                <span class="arch-store"><strong>chart_data.db</strong> rollups</span>
+              </div>
+              <p class="arch-note">Sketches = deterministic language per forwarded point (NL or jargon).</p>
+            </div>
+
+            <p class="arch-fanout">
+              <span class="arch-fanout-label">MQTT</span>
+              <code class="arch-code">pipeline/filtered · sketched · alerts</code>
+            </p>
+          </article>
+
+          <div class="arch-connector" aria-hidden="true">curated state ▼</div>
+
+          <article class="arch-layer arch-layer--control">
+            <header class="arch-layer-head">
+              <span class="arch-layer-badge">Layer 2</span>
+              <span class="arch-layer-title">Reasoning plane</span>
+              <span class="arch-layer-sub">(LLM on demand)</span>
+            </header>
+
+            <ul class="arch-control-list">
+              <li>
+                <span class="arch-control-strong">Operator chat</span>
+                SAM Web UI · FleetQueryAgent
+              </li>
+              <li>
+                <span class="arch-control-strong">FLEET_CRITICAL</span>
+                <span class="arch-arrow-inline" aria-hidden="true">→</span>
+                <code class="arch-code">analysis-request</code>
+                <span class="arch-arrow-inline" aria-hidden="true">→</span>
+                gateway → SAM
+              </li>
+              <li>
+                <span class="arch-control-strong">SECTION A</span>
+                3× machine context + 3× machine charts (not 9× per-point loop)
+              </li>
+              <li class="arch-control-optional">
+                <span class="arch-control-strong">Slack</span>
+                analysis-response → analysis-to-slack
+              </li>
+            </ul>
+          </article>
+        </div>
+
         <p class="blog-pullquote">
-          Filter, sketch, and rule-detect on MQTT; let the agent reason only when operators ask—or when the fleet crosses a critical threshold.
+          Filter, sketch, and rule-detect on the broker path; agents reason only on exceptions—not on every point publish.
         </p>
       </section>
 
