@@ -73,8 +73,9 @@
           Spend was capped when <strong>LiteLLM gateway controls</strong> cut off the runaway path. That is a circuit breaker, not architecture.
           The fix is upstream: <strong>never wire IIoT throughput to the reasoning engine—keep AI off the hot path.</strong>
         </p>
-        <p class="blog-pullquote">
-          This reference demo exists to show the alternative—deadband, sketches, and rules on the broker path; agents only on exceptions.
+        <p>
+          <strong>Correct pattern:</strong> keep filtering and summarization on the broker-centric data plane;
+          invoke AI when operators ask—or when a <strong>high-value exception</strong> (e.g. fleet-critical) fires.
         </p>
 
         <figure class="blog-figure tokenburn-wrap">
@@ -89,6 +90,10 @@
             A workshop-style contrast: stream-to-model is an easy POC path (token use can climb quickly even on a few tags); filter, sketch, and rule-detect first, then AI on exceptions—keeping generative models off the IIoT hot path—is the pattern this reference demo implements.
           </figcaption>
         </figure>
+
+        <p class="blog-pullquote">
+          This reference demo exists to show the alternative—deadband, sketches, and rules on the broker path; agents only on exceptions.
+        </p>
       </section>
 
       <section id="truth">
@@ -142,8 +147,7 @@
         </div>
 
         <p>
-          <strong>Correct pattern:</strong> keep filtering and summarization on the broker-centric data plane;
-          invoke AI when operators ask—or when a <strong>high-value exception</strong> (e.g. fleet-critical) fires.
+          The token-burn diagram at the top of this article contrasts that stream-to-model path with this split.
         </p>
       </section>
 
