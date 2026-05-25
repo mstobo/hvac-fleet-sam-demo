@@ -39,42 +39,25 @@
       <nav class="blog-toc" aria-label="Table of contents">
         <p class="blog-toc-label">On this page</p>
         <ol>
-          <li><a href="#anecdote">Three sensors, $500 in a day</a></li>
+          <li><a href="#intro">Introduction</a></li>
+          <li><a href="#real-pilot">Real pilot meter</a></li>
           <li><a href="#truth">The uncomfortable truth</a></li>
           <li><a href="#reasoning">Reasoning vs stream processing</a></li>
           <li><a href="#demo">What we built</a></li>
           <li><a href="#sketches">SoT on the stream, CoT on the exception</a></li>
           <li><a href="#section-a">Fleet analysis (SECTION A)</a></li>
           <li><a href="#measured">Measured token runs</a></li>
-          <li><a href="#replay">Replay and snapshots</a></li>
           <li><a href="#checklist">Production habits</a></li>
           <li><a href="#try">Try it</a></li>
         </ol>
       </nav>
 
-      <section id="anecdote">
-        <h2>A three-sensor demo that spent $500 in a day</h2>
-        <p>
-          We recently saw a familiar pattern on a small industrial dashboard—<strong>three pumps</strong>,
-          one bearing-temperature stream, event broker connected, simulator running. Not enterprise scale. Not big data.
-        </p>
-        <p>
-          The design treated <strong>live telemetry like chat input</strong>: each forwarded reading—and retries when tools failed—
-          triggered another LLM pass. The UI stacked three columns: live events, AI analysis, recommended actions. The analysis column
-          accumulated hundreds of identical tool errors while the actions column still produced long prescriptive text (shift plans,
-          downtime cost ranges, approval chains).
-        </p>
-        <p>
-          <strong>On the order of 1,500 telemetry events and 1,100+ analysis attempts in one day—for three sensors.</strong>
-          The gateway meter showed <strong>about $500 in token spend in 24 hours</strong>. That is not a spreadsheet projection; it is what happens
-          when the stream hits the model.
-        </p>
-        <p>
-          Spend was capped when <strong>LiteLLM gateway controls</strong> cut off the runaway path. That is a circuit breaker, not architecture.
-          The fix is upstream: <strong>never wire IIoT throughput to the reasoning engine—keep AI off the hot path.</strong>
-        </p>
-        <p class="blog-pullquote">
-          This reference demo exists to show the alternative—deadband, sketches, and rules on the broker path; agents only on exceptions.
+      <section id="intro">
+        <p class="blog-lede">
+          Most IIoT AI pilots fail on <strong>economics</strong>, not model quality. Generative models belong on
+          <strong>high-value exceptions</strong> and operator questions—not on every IIoT publish on the hot path.
+          We measured that shape in our open fleet demo, and saw the same pattern on a small lab setup
+          (<a href="#real-pilot">about $500 in token spend in one day</a>, three sensors).
         </p>
 
         <figure class="blog-figure tokenburn-wrap">
@@ -86,16 +69,41 @@
             loading="lazy"
           />
           <figcaption class="blog-figcaption">
-            A workshop-style contrast: stream-to-model is an easy POC path (token use can climb quickly even on a few tags); filter, sketch, and rule-detect first, then AI on exceptions—keeping generative models off the IIoT hot path—is the pattern this reference demo implements.
+            Stream-to-model (left) vs filter, sketch, and rule-detect first, then AI on exceptions (right)—the reference architecture this demo implements.
           </figcaption>
         </figure>
+
+        <aside class="blog-callout" id="real-pilot" aria-labelledby="real-pilot-title">
+          <p class="blog-callout-title" id="real-pilot-title">Real pilot meter — ~$500 in one day (~3 sensors)</p>
+          <p>
+            In a small industrial dashboard—<strong>three pumps</strong>, one bearing-temperature stream, event broker connected,
+            simulator running—the design treated <strong>live telemetry like chat input</strong>. Each forwarded reading, and retries when tools failed,
+            triggered another LLM pass.
+          </p>
+          <p>
+            The UI stacked live events, AI analysis, and recommended actions. The analysis column accumulated hundreds of
+            identical tool errors while the actions column still produced long prescriptive text (shift plans, downtime cost ranges, approval chains).
+          </p>
+          <p>
+            <strong>Roughly 1,500 telemetry events and 1,100+ analysis attempts in 24 hours.</strong>
+            The gateway meter showed <strong>about $500 in token spend</strong>—not a spreadsheet projection; what happens when IIoT throughput hits the model.
+          </p>
+          <p>
+            Spend was capped when <strong>LiteLLM gateway controls</strong> cut off the runaway path. That is a circuit breaker, not architecture.
+            The durable fix is upstream: <strong>never wire IIoT throughput to the reasoning engine—keep AI off the hot path.</strong>
+          </p>
+        </aside>
+
+        <p>
+          The <a href="https://github.com/mstobo/hvac-fleet-sam-demo">hvac-fleet-sam-demo</a> stack implements the right-hand path in the diagram:
+          deadband, sketches, and rules on the broker path; agents only on exceptions.
+        </p>
       </section>
 
       <section id="truth">
         <h2>The uncomfortable truth</h2>
         <p>
-          Many IIoT AI pilots do not fail on model quality. They fail when finance asks what you are paying
-          <strong>per sensor per day</strong> after real tag counts show up.
+          When tag counts grow, finance asks what you are paying <strong>per sensor per day</strong>.
         </p>
         <p>
           A point publishing every two seconds generates on the order of <strong>43,000 messages per sensor per day</strong>.
@@ -169,44 +177,37 @@
 
       <section id="sketches">
         <h2>Sketches, SoT, and where chain-of-thought belongs</h2>
+        <p>Two patterns, two planes—don’t mix stream-time compression with incident-time reasoning.</p>
+
+        <h3 class="blog-h3">Data plane: sketches (SoT-inspired)</h3>
         <p>
-          Industrial AI needs <strong>two compression patterns on two planes</strong>. Conflating them is how a three-sensor demo spends $500 in a day.
+          A <strong>sketch</strong> is a deterministic one-liner per forwarded reading (Python templates, <strong>no LLM on ingest</strong>): zone, delta %, 30s stats, severity.
+          <a href="https://arxiv.org/abs/2503.05179">Sketch-of-Thought</a> compresses how models <em>write</em> reasoning; we compress what they <em>read</em> from telemetry at ingress.
         </p>
 
-        <h3 class="blog-h3">Sketch-of-Thought on the stream (data plane)</h3>
+        <h3 class="blog-h3">Reasoning plane: chain-of-thought on the exception</h3>
         <p>
-          A <strong>sketch</strong> is deterministic operator language (Python templates, <strong>zero</strong> generative cost on the stream)—zone, delta %, 30s stats, severity flags.
+          <a href="https://arxiv.org/abs/2201.11903">Chain-of-thought</a> fits hypotheses and ranked actions <strong>once per incident</strong>—curated tool inputs, SECTION A budgets, sections 1–8—not on every publish.
         </p>
-        <p>
-          <a href="https://arxiv.org/abs/2503.05179">Sketch-of-Thought</a> (Aytes et al., 2025) shortens how a model <em>writes</em> its reasoning trace.
-          Our sketches shorten what the model <em>reads</em> from telemetry—same compress-the-story instinct, but <strong>deterministic ingress</strong>, not SoT routing on every MQTT message.
-        </p>
-
-        <h3 class="blog-h3">Chain-of-thought on the exception (reasoning plane)</h3>
-        <p>
-          <a href="https://arxiv.org/abs/2201.11903">Chain-of-thought</a> prompting (Wei et al., 2022) fits when you need hypotheses, timelines, and ranked actions—<strong>once per incident</strong>, not per 2-second publish.
-          In this demo, CoT appears only when SAM runs:
-        </p>
-        <ul class="blog-list">
-          <li><strong>Curated inputs</strong> — sketches, chart URLs, and alerts from tools, not the live firehose.</li>
-          <li><strong>Mandated tool order</strong> — incident context first, charts on the same UTC window, dispatch last (SECTION A budget).</li>
-          <li><strong>Structured output</strong> — sections 1–8 so reasoning becomes operator prose, not an unbounded hidden monologue.</li>
-          <li><strong>Multi-turn tool loop</strong> — several LLM turns to call tools and assemble the report; CoT <em>orchestrated</em> by the gateway, not CoT on every reading.</li>
-        </ul>
 
         <div class="blog-table-wrap">
           <table class="blog-table">
             <thead>
-              <tr><th>Plane</th><th>Pattern</th><th>Compresses</th><th>LLM cost</th></tr>
+              <tr><th>Plane</th><th>Pattern</th><th>LLM cost</th></tr>
             </thead>
             <tbody>
-              <tr><td>Data plane</td><td>SoT-inspired sketches (optional jargon)</td><td>Telemetry → narrative before the agent</td><td><strong>0</strong> on ingest</td></tr>
-              <tr><td>Reasoning plane</td><td>Structured CoT (tools + sections 1–8)</td><td>Curated state → incident report</td><td><strong>1×</strong> per exception</td></tr>
+              <tr><td>Data plane</td><td>Sketches (+ optional jargon)</td><td><strong>0</strong> on ingest</td></tr>
+              <tr><td>Reasoning plane</td><td>Structured CoT (tools + sections 1–8)</td><td><strong>1×</strong> per exception</td></tr>
             </tbody>
           </table>
         </div>
+
+        <h3 class="blog-h3">Why language—and NL vs jargon</h3>
         <p>
-          The $500 anti-pattern is <strong>chain-of-thought on the stream</strong>. This stack <strong>front-loads SoT-style sketches</strong> and <strong>reserves CoT for fleet-critical and operator deep-dives</strong>.
+          Models reason over <strong>language</strong>, not raw sample arrays. Sketches store short lines in SQLite so agents and tools see narrative context, not floats.
+        </p>
+        <p>
+          <strong>Natural language</strong> sketches read like operator notes. <strong>Jargon</strong> (Expert-Lexicon) keeps the same facts in a compact lexicon—smaller rows in the DB and fewer <strong>input tokens</strong> whenever incident context is loaded (~70% less sketch text in our offline lab).
         </p>
 
         <div class="blog-compare">
@@ -221,8 +222,8 @@
           </div>
         </div>
         <p>
-          Toggle <strong>NL / Jargon</strong> on the live dashboard or set <code class="arch-code">SKETCH_STYLE=jargon</code>.
-          Offline A/B: <a href="https://github.com/mstobo/hvac-fleet-sam-demo/tree/main/tools/sketch-token-lab">tools/sketch-token-lab</a>.
+          Toggle on the dashboard (<strong>NL / Jargon</strong>) or <code class="arch-code">SKETCH_STYLE=jargon</code> ·
+          <a href="https://github.com/mstobo/hvac-fleet-sam-demo/tree/main/tools/sketch-token-lab">sketch-token-lab</a> for offline counts.
         </p>
       </section>
 
@@ -263,28 +264,6 @@
         <p>
           <a href="https://github.com/mstobo/hvac-fleet-sam-demo/blob/main/docs/FLEET_ANALYSIS_PRODUCTION.md">Fleet analysis production guide ↗</a> — A/B order and verification.
         </p>
-      </section>
-
-      <section id="replay">
-        <h2>Replay, queues, and stale reports</h2>
-        <p>
-          <strong>Broker replay</strong> does not automatically cut SAM cost. Re-analyzing the same incident runs the LLM again unless you dedupe on <code class="arch-code">correlation_id</code>.
-        </p>
-        <p>
-          <strong>What works:</strong> store <code class="arch-code">analysis-response</code> as an incident <strong>snapshot</strong> and republish on replay—point-in-time narrative for audit, not live ops.
-        </p>
-        <div class="blog-table-wrap">
-          <table class="blog-table">
-            <thead>
-              <tr><th>Question</th><th>Live analysis</th><th>Stored snapshot</th></tr>
-            </thead>
-            <tbody>
-              <tr><td>What is happening now?</td><td>✓</td><td>✗ misleading</td></tr>
-              <tr><td>What did we say at trigger?</td><td>Reinvented</td><td>✓</td></tr>
-              <tr><td>Demo / training replay</td><td>Costs tokens</td><td>✓ cheap</td></tr>
-            </tbody>
-          </table>
-        </div>
       </section>
 
       <section id="checklist">
