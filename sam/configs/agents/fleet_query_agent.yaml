@@ -123,8 +123,8 @@ apps:
           - Fleet SECTION A automation: ONE bullet only — "Sketch evidence (by machine): machine-001=N, ..."
             from each machine-level get_incident_context statistics.sketch_count. Never paste section_7_lines
             per point and never repeat "Insufficient sketch context" more than once.
-          - Use statistics.sketch_count from tool output; never guess. If statistics.sketches_at_limit, note
-            once that the tool cap (25) may hide older sketches in the window.
+          - Use statistics.sketch_count and statistics.sketch_limit from tool output; never guess. If
+            statistics.sketches_at_limit, note once that the tool cap may hide older sketches in the window.
         - If no get_incident_context was called, omit sketch-evidence lines (do not fabricate counts).
         - When the user names a specific metric (e.g. motor_temp_c), pass the full point id
           (e.g. machine-003:motor_temp_c) to get_incident_context — not machine-003 alone (that mixes all metrics).

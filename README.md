@@ -1,6 +1,8 @@
 # HVAC Fleet Monitoring — MQTT Pipeline + Solace Agent Mesh (A2A)
 
 > **Value story (2 pages):** [mstobo.github.io/hvac-fleet-sam-demo](https://mstobo.github.io/hvac-fleet-sam-demo/) — executive framing, outcomes, and cost pattern.  
+> **Architecture blog:** [Reason on the Exception](https://mstobo.github.io/hvac-fleet-sam-demo/blog/reason-on-the-exception.html) — data plane vs agents, sketches, measured token runs (source in `docs/blog/`).  
+> **Fleet analysis (production):** [docs/FLEET_ANALYSIS_PRODUCTION.md](docs/FLEET_ANALYSIS_PRODUCTION.md) — SECTION A tool budget, env tuning, verification.  
 > **Live demo:** [ec2-18-116-251-212.us-east-2.compute.amazonaws.com](http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/) — pipeline dashboard, digital twin, SAM chat (AWS).  
 > **This README** — technical setup, topics, deployment, and troubleshooting.
 
@@ -178,6 +180,8 @@ Invite the bot to `SLACK_ALERT_CHANNEL`. Repeated CRITICALs are deduped (`SLACK_
 When ≥50% of active sensors are **CRITICAL**, `anomaly_service` publishes to **`sensors/fleet/analysis-request`**. The **fleet-analysis gateway** (`sam-event-mesh-gateway`) routes to **FleetQueryAgent** and publishes **`sensors/fleet/analysis-response`** as JSON (`task_response` with report `text` plus SAM token fields on `a2a_task_response.metadata`). **`analysis_response_to_slack`** posts the narrative and an LLM token-usage footer when usage is present.
 
 Config: `sam/configs/gateways/fleet-analysis-gateway.yaml` (`gateway_id`, `temporary_queue` for Solace exclusive-queue restarts).
+
+**Production / token tuning:** [docs/FLEET_ANALYSIS_PRODUCTION.md](docs/FLEET_ANALYSIS_PRODUCTION.md) (checklist, `FLEET_*` env vars, A/B order).
 
 **EC2:** Prefer fleet analysis **inside** `sam-control-plane` only. A separate `fleet-analysis-gateway` container (profile `fleet-analysis-standalone`) can cause `MAX_CLIENTS_FOR_QUEUE` if two consumers bind the same gateway queue — stop laptop SAM or the duplicate container.
 

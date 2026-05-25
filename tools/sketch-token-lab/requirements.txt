@@ -1,0 +1,2 @@
+# Offline token estimates (OpenAI-compatible BPE). Optional for live calls:
+tiktoken>=0.7.0,<1

@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reason on the Exception — HVAC Fleet Demo Blog</title>
+  <meta name="description" content="Event-driven IIoT architecture: deterministic MQTT pipeline, sketch compression, fleet agent tool budgets, and measured token economics (~196k vs ~135k).">
+  <link rel="stylesheet" href="../solace-brand.css">
+  <link rel="stylesheet" href="../site.css">
+</head>
+<body>
+
+<main class="site-page">
+  <div class="site-inner">
+
+    <header class="site-header">
+      <a class="site-logo" href="../index.html">
+        <span class="site-logo-mark">S+</span>
+        <span>HVAC Fleet · PubSub+ &amp; Agent Mesh</span>
+      </a>
+      <nav class="site-nav" aria-label="Site">
+        <a href="../index.html">Value story</a>
+        <a href="../outcomes.html">Outcomes</a>
+        <a href="index.html" class="active">Blog</a>
+        <a href="http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/">Live demo ↗</a>
+        <a href="https://github.com/mstobo/hvac-fleet-sam-demo#readme">Technical docs ↗</a>
+      </nav>
+    </header>
+
+    <article class="blog-article">
+      <p class="blog-meta">Draft v1 · May 2026 ·
+        <a href="https://github.com/mstobo/hvac-fleet-sam-demo/blob/main/docs/blog/reason-on-the-exception.md">Markdown source ↗</a>
+        · <a href="https://github.com/mstobo/hvac-fleet-sam-demo/blob/main/docs/FLEET_ANALYSIS_PRODUCTION.md">Production guide ↗</a>
+      </p>
+
+      <h1 class="blog-title">Reason on the Exception</h1>
+      <p class="blog-subtitle">Event-driven IIoT AI that survives production token bills</p>
+
+      <nav class="blog-toc" aria-label="Table of contents">
+        <p class="blog-toc-label">On this page</p>
+        <ol>
+          <li><a href="#anecdote">Three sensors, $500 in a day</a></li>
+          <li><a href="#truth">The uncomfortable truth</a></li>
+          <li><a href="#reasoning">Reasoning vs stream processing</a></li>
+          <li><a href="#demo">What we built</a></li>
+          <li><a href="#sketches">SoT on the stream, CoT on the exception</a></li>
+          <li><a href="#section-a">Fleet analysis (SECTION A)</a></li>
+          <li><a href="#measured">Measured token runs</a></li>
+          <li><a href="#replay">Replay and snapshots</a></li>
+          <li><a href="#checklist">Production habits</a></li>
+          <li><a href="#try">Try it</a></li>
+        </ol>
+      </nav>
+
+      <section id="anecdote">
+        <h2>A three-sensor demo that spent $500 in a day</h2>
+        <p>
+          We recently saw a familiar pattern on a small industrial dashboard—<strong>three pumps</strong>,
+          one bearing-temperature stream, event broker connected, simulator running. Not enterprise scale. Not big data.
+        </p>
+        <p>
+          The design treated <strong>live telemetry like chat input</strong>: each forwarded reading—and retries when tools failed—
+          triggered another LLM pass. The UI stacked three columns: live events, AI analysis, recommended actions. The analysis column
+          accumulated hundreds of identical tool errors while the actions column still produced long prescriptive text (shift plans,
+          downtime cost ranges, approval chains).
+        </p>
+        <p>
+          <strong>On the order of 1,500 telemetry events and 1,100+ analysis attempts in one day—for three sensors.</strong>
+          The gateway meter showed <strong>about $500 in token spend in 24 hours</strong>. That is not a spreadsheet projection; it is what happens
+          when the stream hits the model.
+        </p>
+        <p>
+          Spend was capped when <strong>LiteLLM gateway controls</strong> cut off the runaway path. That is a circuit breaker, not architecture.
+          The fix is upstream: <strong>never wire IIoT throughput to the reasoning engine—keep AI off the hot path.</strong>
+        </p>
+        <p class="blog-pullquote">
+          This reference demo exists to show the alternative—deadband, sketches, and rules on the broker path; agents only on exceptions.
+        </p>
+
+        <figure class="blog-figure tokenburn-wrap">
+          <img
+            src="../token-burn-device-friendly.png"
+            alt="The Token Burn Problem: naive architecture sends every sensor reading to an LLM; value-based architecture filters on the data plane and applies AI only on high-value events."
+            width="862"
+            height="1824"
+            loading="lazy"
+          />
+          <figcaption class="blog-figcaption">
+            A workshop-style contrast: stream-to-model is an easy POC path (token use can climb quickly even on a few tags); filter, sketch, and rule-detect first, then AI on exceptions—keeping generative models off the IIoT hot path—is the pattern this reference demo implements.
+          </figcaption>
+        </figure>
+      </section>
+
+      <section id="truth">
+        <h2>The uncomfortable truth</h2>
+        <p>
+          Many IIoT AI pilots do not fail on model quality. They fail when finance asks what you are paying
+          <strong>per sensor per day</strong> after real tag counts show up.
+        </p>
+        <p>
+          A point publishing every two seconds generates on the order of <strong>43,000 messages per sensor per day</strong>.
+          If each message becomes a few hundred tokens through an LLM, pilot economics (ten sensors) hide production economics
+          (hundreds or thousands of sensors). You are paying <strong>reasoning rates</strong> to hear
+          <em>normal, normal, normal</em> most of the time.
+        </p>
+        <p>That is not a model problem. It is an <strong>architecture</strong> problem.</p>
+
+        <div class="blog-table-wrap">
+          <table class="blog-table">
+            <thead>
+              <tr><th>Scale</th><th>Sensors</th><th>Messages/day (2s)</th><th>Illustrative annual AI cost*</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Pilot</td><td>10</td><td>~432K</td><td>~$315K</td></tr>
+              <tr><td>Production</td><td>100</td><td>~4.3M</td><td>~$3.1M</td></tr>
+              <tr><td>Enterprise</td><td>1,000</td><td>~43M</td><td>~$31M</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="blog-footnote">
+          *Illustrative: ~200 tokens/message at $0.01/1K tokens if <strong>every</strong> reading goes through an LLM.
+          Your pricing differs; the <strong>scaling shape</strong> does not.
+        </p>
+      </section>
+
+      <section id="reasoning">
+        <h2>LLMs are reasoning engines, not stream processors</h2>
+        <p>The natural pilot diagram is <code class="arch-code">Sensor → LLM → Insight</code>. It works with a handful of tags. It breaks at scale.</p>
+
+        <div class="blog-table-wrap">
+          <table class="blog-table">
+            <thead>
+              <tr><th>Cheap (data plane)</th><th>Expensive (reasoning plane)</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Suppress insignificant change</td><td>Correlate patterns across assets</td></tr>
+              <tr><td>Thresholds and zones</td><td>Rank probable causes</td></tr>
+              <tr><td>Rolling window stats</td><td>Operator-ready narrative</td></tr>
+              <tr><td>Deterministic alerts</td><td>Recommendations under uncertainty</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          <strong>Correct pattern:</strong> keep filtering and summarization on the broker-centric data plane;
+          invoke AI when operators ask—or when a <strong>high-value exception</strong> (e.g. fleet-critical) fires.
+        </p>
+      </section>
+
+      <section id="demo">
+        <h2>What we built (reference demo)</h2>
+        <p>
+          The <a href="https://github.com/mstobo/hvac-fleet-sam-demo">hvac-fleet-sam-demo</a> repository is an open, runnable stack on Solace PubSub+ and Solace Agent Mesh (SAM).
+        </p>
+        <pre class="blog-pre">┌─────────────────────────────────────────────────────────────┐
+│ DATA PLANE (no LLM per reading)                             │
+│  MQTT raw → deadband → sketch → anomaly → SQLite + charts   │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ summaries + alerts
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ REASONING PLANE (on demand)                                 │
+│  Operator chat · FLEET_CRITICAL → analysis-request → SAM    │
+└─────────────────────────────────────────────────────────────┘</pre>
+        <p class="blog-pullquote">
+          Filter, sketch, and rule-detect on MQTT; let the agent reason only when operators ask—or when the fleet crosses a critical threshold.
+        </p>
+      </section>
+
+      <section id="sketches">
+        <h2>Sketches, SoT, and where chain-of-thought belongs</h2>
+        <p>
+          Industrial AI needs <strong>two compression patterns on two planes</strong>. Conflating them is how a three-sensor demo spends $500 in a day.
+        </p>
+
+        <h3 class="blog-h3">Sketch-of-Thought on the stream (data plane)</h3>
+        <p>
+          A <strong>sketch</strong> is deterministic operator language (Python templates, <strong>zero</strong> generative cost on the stream)—zone, delta %, 30s stats, severity flags.
+        </p>
+        <p>
+          <a href="https://arxiv.org/abs/2503.05179">Sketch-of-Thought</a> (Aytes et al., 2025) shortens how a model <em>writes</em> its reasoning trace.
+          Our sketches shorten what the model <em>reads</em> from telemetry—same compress-the-story instinct, but <strong>deterministic ingress</strong>, not SoT routing on every MQTT message.
+        </p>
+
+        <h3 class="blog-h3">Chain-of-thought on the exception (reasoning plane)</h3>
+        <p>
+          <a href="https://arxiv.org/abs/2201.11903">Chain-of-thought</a> prompting (Wei et al., 2022) fits when you need hypotheses, timelines, and ranked actions—<strong>once per incident</strong>, not per 2-second publish.
+          In this demo, CoT appears only when SAM runs:
+        </p>
+        <ul class="blog-list">
+          <li><strong>Curated inputs</strong> — sketches, chart URLs, and alerts from tools, not the live firehose.</li>
+          <li><strong>Mandated tool order</strong> — incident context first, charts on the same UTC window, dispatch last (SECTION A budget).</li>
+          <li><strong>Structured output</strong> — sections 1–8 so reasoning becomes operator prose, not an unbounded hidden monologue.</li>
+          <li><strong>Multi-turn tool loop</strong> — several LLM turns to call tools and assemble the report; CoT <em>orchestrated</em> by the gateway, not CoT on every reading.</li>
+        </ul>
+
+        <div class="blog-table-wrap">
+          <table class="blog-table">
+            <thead>
+              <tr><th>Plane</th><th>Pattern</th><th>Compresses</th><th>LLM cost</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Data plane</td><td>SoT-inspired sketches (optional jargon)</td><td>Telemetry → narrative before the agent</td><td><strong>0</strong> on ingest</td></tr>
+              <tr><td>Reasoning plane</td><td>Structured CoT (tools + sections 1–8)</td><td>Curated state → incident report</td><td><strong>1×</strong> per exception</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          The $500 anti-pattern is <strong>chain-of-thought on the stream</strong>. This stack <strong>front-loads SoT-style sketches</strong> and <strong>reserves CoT for fleet-critical and operator deep-dives</strong>.
+        </p>
+
+        <div class="blog-compare">
+          <div>
+            <p class="blog-compare-label">Natural language</p>
+            <pre class="blog-pre blog-pre--compact">machine-002:motor_temp_c recorded a 6.2% spike to 80.4°C.
+30s window: mean 76.1°C, range [74–82°C]. Zone: CRITICAL.</pre>
+          </div>
+          <div>
+            <p class="blog-compare-label">Jargon (Expert-Lexicon style)</p>
+            <pre class="blog-pre blog-pre--compact">m2:mot Δ↑6.2% T80.4 Z:C μ30=76.1[74-82] !CRIT</pre>
+          </div>
+        </div>
+        <p>
+          Toggle <strong>NL / Jargon</strong> on the live dashboard or set <code class="arch-code">SKETCH_STYLE=jargon</code>.
+          Offline A/B: <a href="https://github.com/mstobo/hvac-fleet-sam-demo/tree/main/tools/sketch-token-lab">tools/sketch-token-lab</a>.
+        </p>
+      </section>
+
+      <section id="section-a">
+        <h2>Case study: automated fleet analysis (SECTION A)</h2>
+        <p>
+          When correlated fleet-critical fires (default ≥50% of active assets in CRITICAL), one <code class="arch-code">analysis-request</code>
+          triggers FleetQueryAgent with a <strong>hard tool budget</strong>: three machine-level incident contexts, three combined machine charts,
+          no per-point forensic loop, one dispatch call. Output: sections 1–8 once, three <code class="arch-code">machine-plotly-html</code> URLs under Chart Evidence.
+        </p>
+        <p>
+          Orchestration without budgets invites nine assets × twenty-five sketches × many chart tools.
+          <a href="https://github.com/mstobo/hvac-fleet-sam-demo/blob/main/docs/FLEET_ANALYSIS_PRODUCTION.md">Fleet analysis production guide ↗</a> — full SECTION A table and env vars.
+        </p>
+      </section>
+
+      <section id="measured">
+        <h2>We measured it</h2>
+        <p>Real fleet-analysis runs on the demo stack (same 3+3 tools; Slack LLM footer):</p>
+        <div class="blog-table-wrap">
+          <table class="blog-table">
+            <thead>
+              <tr><th>Run</th><th>~Total tokens</th><th>What differed</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>NL sketches</td><td>~196k</td><td>3× machine incident context + 3× machine Plotly</td></tr>
+              <tr><td>Jargon sketches</td><td>~135k</td><td>Same tools; smaller sketch JSON</td></tr>
+              <tr><td>Heavy context</td><td>~308k</td><td>Same tools; ~36k chars/machine in context—not extra tools</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <ul class="blog-list">
+          <li><strong>Input dominates.</strong> Completion is often ~1–2k on good runs.</li>
+          <li><strong>Jargon</strong> cut ~30% total in our A/B with the same workflow.</li>
+          <li><strong>Fleet sketch cap</strong> trims the largest repeatable tool blob—see production guide for defaults.</li>
+          <li><strong>Output <code class="arch-code">max_tokens</code></strong> is a guardrail, not the main savings lever.</li>
+        </ul>
+        <p>
+          <a href="https://github.com/mstobo/hvac-fleet-sam-demo/blob/main/docs/FLEET_ANALYSIS_PRODUCTION.md">Fleet analysis production guide ↗</a> — A/B order and verification.
+        </p>
+      </section>
+
+      <section id="replay">
+        <h2>Replay, queues, and stale reports</h2>
+        <p>
+          <strong>Broker replay</strong> does not automatically cut SAM cost. Re-analyzing the same incident runs the LLM again unless you dedupe on <code class="arch-code">correlation_id</code>.
+        </p>
+        <p>
+          <strong>What works:</strong> store <code class="arch-code">analysis-response</code> as an incident <strong>snapshot</strong> and republish on replay—point-in-time narrative for audit, not live ops.
+        </p>
+        <div class="blog-table-wrap">
+          <table class="blog-table">
+            <thead>
+              <tr><th>Question</th><th>Live analysis</th><th>Stored snapshot</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>What is happening now?</td><td>✓</td><td>✗ misleading</td></tr>
+              <tr><td>What did we say at trigger?</td><td>Reinvented</td><td>✓</td></tr>
+              <tr><td>Demo / training replay</td><td>Costs tokens</td><td>✓ cheap</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="checklist">
+        <h2>Production habits</h2>
+        <ol class="blog-list blog-list--ordered">
+          <li><strong>AI off the IIoT hot path</strong> — filter, sketch, and rule-detect before any model sees telemetry.</li>
+          <li><strong>Tool budgets on automation</strong> — SECTION A is the template.</li>
+          <li><strong>Measure one change at a time</strong> — Slack token footers on repeated FLEET_CRITICAL runs.</li>
+        </ol>
+        <p>
+          Full checklist, env table, and verification:
+          <a href="https://github.com/mstobo/hvac-fleet-sam-demo/blob/main/docs/FLEET_ANALYSIS_PRODUCTION.md">Fleet analysis production guide ↗</a>
+        </p>
+      </section>
+
+      <section id="try" class="blog-cta-block">
+        <h2>Try it</h2>
+        <p id="video-placeholder" class="blog-video-placeholder">
+          <strong>Video walkthrough:</strong> coming soon (~13 min, FLEET_CRITICAL → Slack report).
+        </p>
+        <div class="cta-actions">
+          <a class="solace-btn solace-btn--primary" href="http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/">Open live demo ↗</a>
+          <a class="solace-btn solace-btn--secondary" href="https://github.com/mstobo/hvac-fleet-sam-demo/blob/main/docs/FLEET_ANALYSIS_PRODUCTION.md">Production guide ↗</a>
+          <a class="solace-btn solace-btn--ghost" href="https://github.com/mstobo/hvac-fleet-sam-demo#readme">GitHub repo ↗</a>
+        </div>
+      </section>
+    </article>
+
+    <footer class="site-footer">
+      Open reference demo ·
+      <a href="https://github.com/mstobo/hvac-fleet-sam-demo/blob/main/docs/blog/reason-on-the-exception.md">Edit on GitHub ↗</a>
+    </footer>
+
+  </div>
+</main>
+
+</body>
+</html>
