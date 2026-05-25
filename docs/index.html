@@ -20,6 +20,7 @@
       <nav class="site-nav" aria-label="Site">
         <a href="index.html" class="active">Value story</a>
         <a href="outcomes.html">Outcomes</a>
+        <a href="blog/reason-on-the-exception.html">Architecture blog</a>
         <a href="http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/">Live demo ↗</a>
         <a href="https://github.com/mstobo/hvac-fleet-sam-demo#readme">Technical docs ↗</a>
       </nav>
@@ -38,7 +39,9 @@
         <p class="section-label">The problem</p>
         <p class="tokenburn-caption">
           Most IIoT + AI pilots fail at scale because cost and latency grow linearly with sensor volume.
+          A recent <strong>three-sensor</strong> pilot reached <strong>~$500 in token spend in one day</strong> with the stream wired to the model—gateway limits paused the run; the durable fix is keeping AI off the IIoT hot path.
           The fix is architectural: <strong>deterministic processing first</strong>, agents second.
+          <a href="blog/reason-on-the-exception.html#anecdote">Read the story →</a>
         </p>
       </div>
 
@@ -160,7 +163,9 @@
       <p>
         <strong style="color: var(--solace-accent-light);">Control plane</strong> — Solace Agent Mesh gateways react to curated state and mesh events:
         operator questions over HTTP/SSE, plus automated fleet analysis when rules declare <em>fleet critical</em> and publish an analysis request.
-        Sketches curate what agents read; SoT-style compression in research targets how models write reasoning—this demo does the former on the broker path.
+        Sketches curate what agents read (SoT-<em>inspired</em> compression on the stream, zero LLM cost).
+        Chain-of-thought belongs on the exception only—structured tools and sections 1–8 when SAM runs—not on every MQTT reading.
+        <a href="blog/reason-on-the-exception.html#sketches">SoT vs CoT in the flow →</a>
       </p>
     </div>
 
@@ -173,7 +178,8 @@
       </p>
       <div class="cta-actions">
         <a class="solace-btn solace-btn--primary" href="http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/">Open live demo ↗</a>
-        <a class="solace-btn solace-btn--secondary" href="outcomes.html">See outcomes →</a>
+        <a class="solace-btn solace-btn--secondary" href="blog/reason-on-the-exception.html">Architecture blog →</a>
+        <a class="solace-btn solace-btn--ghost" href="outcomes.html">Outcomes</a>
         <a class="solace-btn solace-btn--ghost" href="https://github.com/mstobo/hvac-fleet-sam-demo#readme">Technical README ↗</a>
       </div>
     </div>

@@ -268,6 +268,24 @@ Or use query params once:
 
 **MQTT** still connects from the **browser** to **Solace Cloud** (WebSocket credentials in the dashboard form). Apache only serves HTML and proxies chart/SAM HTTP.
 
+### Fleet analysis — token & automation
+
+Operational checklist, SECTION A tool limits, env vars (`FLEET_INCIDENT_CONTEXT_SKETCH_LIMIT`, debug flags, sketch style), and Slack verification: **[docs/FLEET_ANALYSIS_PRODUCTION.md](../../docs/FLEET_ANALYSIS_PRODUCTION.md)**.
+
+Copy tuning vars from `env.deploy.example` (Fleet analysis / sketch debug section). Restart **sam-control-plane** after changes.
+
+### Sketch style toggle (NL ↔ jargon)
+
+Dashboard **rev 19+** includes an **NL / Jargon** control in the config bar. It calls chart-query `GET|POST /admin/sketch-style` (proxied as `http://<host>/charts/admin/sketch-style`). The effective style is stored on the shared dbdata volume (`sketch_style.override`) so **sketch** and **sam-control-plane** pick it up immediately—no container recreate.
+
+CLI equivalent on the EC2 host:
+
+```bash
+./deploy/aws/scripts/set-sketch-style.sh jargon deploy/aws/.env
+```
+
+Redeploy **chart-query** (and copy `demo_dashboard.html` to `/var/www/.../index.html`) after pulling this feature.
+
 ### 5. Security group
 
 - **80** or **443** for Apache  

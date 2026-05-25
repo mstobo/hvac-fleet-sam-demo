@@ -462,6 +462,43 @@ def _debug_sketch_evidence_enabled() -> bool:
 
 
 INCIDENT_CONTEXT_SKETCH_LIMIT = 25
+_FLEET_MACHINE_ID_RE = re.compile(r"^machine-\d{3}$", re.IGNORECASE)
+
+
+def _env_int(name: str, default: int, *, minimum: int = 1, maximum: int = 100) -> int:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def _is_fleet_machine_scope(sensor_id: str) -> bool:
+    """True when sensor_id is a machine id (SECTION A: machine-001), not a point id."""
+    return bool(_FLEET_MACHINE_ID_RE.match((sensor_id or "").strip()))
+
+
+def incident_context_sketch_limit(sensor_id: str) -> int:
+    """
+    Sketch cap for get_incident_context.
+
+    Fleet automation calls machine-001/002/003 (all points on the asset); a lower cap
+    cuts the largest input payload without affecting point-level user deep-dives.
+    """
+    if _is_fleet_machine_scope(sensor_id):
+        return _env_int(
+            "FLEET_INCIDENT_CONTEXT_SKETCH_LIMIT",
+            10,
+            minimum=1,
+            maximum=INCIDENT_CONTEXT_SKETCH_LIMIT,
+        )
+    return _env_int(
+        "INCIDENT_CONTEXT_SKETCH_LIMIT",
+        INCIDENT_CONTEXT_SKETCH_LIMIT,
+        minimum=1,
+        maximum=100,
+    )
 
 
 def _build_sketch_debug_block(
@@ -835,7 +872,7 @@ def get_incident_context(sensor_id: str, minutes: int = 90) -> str:
     """
     try:
         # 1) Sketches first (required)
-        sketch_limit = INCIDENT_CONTEXT_SKETCH_LIMIT
+        sketch_limit = incident_context_sketch_limit(sensor_id)
         sketches = sensor_db.get_recent_sketches(
             minutes=minutes,
             sensor_id=sensor_id,
