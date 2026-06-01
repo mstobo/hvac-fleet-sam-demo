@@ -157,6 +157,8 @@ Image must include `sam-event-mesh-gateway`, `sam-slack-gateway-adapter`, and `s
 
 ## Slack
 
+**Public EC2 demo:** Slack is **off** on the shared host (no corporate tokens on a public server). Use the dashboard + SAM Fleet chat live; see a real report via screenshot or run **[Bring your own Slack](demo/SLACK_BYO.md)** on your laptop or private deploy.
+
 Three paths (all need `SLACK_BOT_TOKEN` in `.env`; gateway also needs `SLACK_APP_TOKEN`):
 
 | Path | Mechanism |

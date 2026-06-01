@@ -1,7 +1,7 @@
 # Reason on the Exception: Event-Driven IIoT AI That Survives Production Token Bills
 
-**Status:** Draft v1 · published in-repo for GitHub Pages  
-**Canonical URL (after push):** `https://mstobo.github.io/hvac-fleet-sam-demo/blog/reason-on-the-exception.html`  
+**Status:** Published in-repo for GitHub Pages  
+**Canonical URL:** `https://mstobo.github.io/hvac-fleet-sam-demo/blog/reason-on-the-exception.html`  
 **Repo:** [hvac-fleet-sam-demo](https://github.com/mstobo/hvac-fleet-sam-demo) · **Live demo:** [AWS dashboard](http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/)
 
 ---
@@ -105,7 +105,7 @@ NL:     machine-002:motor_temp_c recorded a 6.2% spike to 80.4°C. Zone: CRITICA
 Jargon: m2:mot Δ↑6.2% T80.4 Z:C μ30=76.1[74-82] !CRIT
 ```
 
-Dashboard **NL / Jargon** toggle or `SKETCH_STYLE=jargon` · [sketch-token-lab](https://github.com/mstobo/hvac-fleet-sam-demo/tree/main/tools/sketch-token-lab) · [production guide](../FLEET_ANALYSIS_PRODUCTION.md).
+Dashboard **NL / Jargon** toggle or `SKETCH_STYLE=jargon` · [sketch-token-lab](https://github.com/mstobo/hvac-fleet-sam-demo/tree/main/tools/sketch-token-lab) · [production guide](../FLEET_ANALYSIS_PRODUCTION.md). The dashboard toggle calls chart-query `/admin/sketch-style` and applies to **new** sketches only (Chart API must be configured on the live demo).
 
 ---
 
@@ -119,17 +119,20 @@ Orchestration without **budgets** invites the expensive pattern: nine assets × 
 
 ## We measured it: what moved the token meter
 
-These are **real fleet-analysis runs** on the demo stack (same 3+3 tool shape; Slack footer metadata):
+These are **real fleet-analysis runs** on the demo stack (same SECTION A 3+3 tool shape; token counts from automated analysis report footers):
 
 | Run | ~Total tokens | What differed |
 |-----|----------------|---------------|
+| Production FLEET_CRITICAL (Jun 2026) | 116,038 | 110,970 in / 5,068 out · sections 1–8 · 3× machine charts · ≈ **$0.04 USD** (Azure gpt-5-mini) |
 | NL sketches | ~196k | 3× machine incident context + 3× machine Plotly |
 | Jargon sketches | ~135k | Same tools; smaller sketch payloads in tool JSON |
 | Heavy context | ~308k | Same tools; **large** incident bundles (~36k characters/machine)—input volume, not extra tools |
 
+Dollar estimates use configurable per-1K input/output rates (`LLM_COST_*` env vars in the stack). At Azure gpt-5-mini pricing, one full fleet incident report at ~116k tokens is on the order of **four cents**—the contrast with stream→LLM pilot economics is architectural boundary, not model choice.
+
 **Lessons:**
 
-1. **Input dominates.** Good runs still show completion on the order of ~1–2k tokens; the bill is prompt + multi-turn context.
+1. **Input dominates.** Good runs still show completion on the order of ~1–2k tokens; the Jun 2026 run was ~5k out.
 2. **Jargon is a proven input lever** in this demo (~30% total reduction NL→jargon with same workflow).
 3. **Output `max_tokens` caps** are a safety rail for runaway prose; they do not fix megabyte tool returns.
 4. **Fleet sketch cap** trims the largest repeatable tool blob—see production guide for defaults and A/B order.
@@ -142,7 +145,7 @@ Details: **[Fleet analysis production guide](../FLEET_ANALYSIS_PRODUCTION.md)**.
 
 1. **AI off the IIoT hot path** — filter, sketch, and rule-detect before any model sees telemetry.
 2. **Tool budgets on automation** — SECTION A is the template; curiosity on the stream is what scales cost.
-3. **Measure one change at a time** — Slack token footers on repeated FLEET_CRITICAL runs.
+3. **Measure one change at a time** — report token footers on repeated FLEET_CRITICAL runs (Slack, logs, or BYO channel).
 
 Checklist, env vars, SECTION A table, verification steps: **[Fleet analysis production guide](../FLEET_ANALYSIS_PRODUCTION.md)**.
 
@@ -150,16 +153,19 @@ Checklist, env vars, SECTION A table, verification steps: **[Fleet analysis prod
 
 ## Try it
 
-- **[Live demo](http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/)** — pipeline dashboard and FLEET_CRITICAL preset  
+The **public live demo** runs the pipeline dashboard and **Fleet chat (SAM)** in the browser—no corporate Slack on the shared host. Automated fleet analysis can fan out to Slack in your workspace via [Bring your own Slack](../demo/SLACK_BYO.md).
+
+- **[Live demo](http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/)** — pipeline dashboard, FLEET_CRITICAL preset, Fleet chat (SAM) tab  
 - **[Fleet analysis production guide](../FLEET_ANALYSIS_PRODUCTION.md)** — deploy, tuning, verification  
 - **[GitHub repo](https://github.com/mstobo/hvac-fleet-sam-demo)** — source and AWS Compose  
+- **[Bring your own Slack](../demo/SLACK_BYO.md)** — your workspace, your channel  
 
-**Video walkthrough:** *Coming soon* (~13 min, FLEET_CRITICAL → Slack report).
+**Video walkthrough:** *Coming soon* (~13 min, FLEET_CRITICAL on the live dashboard + automated analysis output; Slack shown via screenshot).
 
 ---
 
-## About this draft
+## About this article
 
-Open reference implementation for event-driven industrial telemetry + Solace Agent Mesh. Numbers cited are from demo runs on the authors’ stack; reproduce on your environment with the same `analysis-request` path and compare Slack LLM footers.
+Open reference implementation for event-driven industrial telemetry + Solace Agent Mesh. Numbers cited are from demo runs on the authors’ stack; reproduce on your environment with the same `analysis-request` path and compare report token footers.
 
-*Draft v1 — May 2026*
+*May 2026*

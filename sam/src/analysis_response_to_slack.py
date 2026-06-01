@@ -15,6 +15,7 @@ import signal
 import sys
 import time
 import hashlib
+from concurrent.futures import Future, ThreadPoolExecutor
 
 import paho.mqtt.client as mqtt
 
@@ -33,6 +34,11 @@ ERROR_TOPIC = os.getenv("ANALYSIS_ERROR_TOPIC", "sensors/fleet/analysis-error")
 SLACK_CHANNEL = os.getenv("SLACK_ALERT_CHANNEL", "#sensor-alerts")
 
 _running = True
+SLACK_WORKERS = max(1, int(os.getenv("ANALYSIS_SLACK_WORKERS", "2")))
+_slack_executor = ThreadPoolExecutor(
+    max_workers=SLACK_WORKERS,
+    thread_name_prefix="analysis-slack",
+)
 
 
 def _trace_id(topic: str, payload_text: str) -> str:
@@ -55,6 +61,35 @@ def _format_message(topic: str, payload_text: str) -> str:
     return f"*Automated Fleet Analysis Error*  \n`Trace ID: {trace_id}`\n{body}"
 
 
+def _post_to_slack(topic: str, text: str) -> None:
+    formatted = _format_message(topic, text)
+    posted = send_message(formatted, channel=SLACK_CHANNEL)
+    if posted:
+        if topic == RESPONSE_TOPIC:
+            _report, usage, meta = parse_analysis_response_payload(text)
+            if usage:
+                print(
+                    f"[AnalysisSlackBridge] Posted to Slack ({usage.get('total_tokens', 0)} LLM tokens, "
+                    f"format={meta.get('payload_format')})"
+                )
+            else:
+                print(
+                    f"[AnalysisSlackBridge] Posted to Slack (no LLM usage in payload, "
+                    f"format={meta.get('payload_format')})"
+                )
+        else:
+            print(f"[AnalysisSlackBridge] Posted to Slack from topic {topic}")
+    else:
+        print(f"[AnalysisSlackBridge] Slack post failed for topic {topic}")
+
+
+def _on_slack_done(topic: str, future: Future) -> None:
+    try:
+        future.result()
+    except Exception as exc:
+        print(f"[AnalysisSlackBridge] Async Slack task failed for {topic}: {exc}")
+
+
 def on_connect(client: mqtt.Client, _userdata, _flags, reason_code, _properties=None) -> None:
     if reason_code == 0:
         print(f"[AnalysisSlackBridge] Connected to broker {config.BROKER_HOST}:{config.BROKER_PORT}")
@@ -75,25 +110,9 @@ def on_message(_client: mqtt.Client, _userdata, msg: mqtt.MQTTMessage) -> None:
     if not text:
         return
 
-    formatted = _format_message(msg.topic, text)
-    posted = send_message(formatted, channel=SLACK_CHANNEL)
-    if posted:
-        if msg.topic == RESPONSE_TOPIC:
-            _report, usage, meta = parse_analysis_response_payload(text)
-            if usage:
-                print(
-                    f"[AnalysisSlackBridge] Posted to Slack ({usage.get('total_tokens', 0)} LLM tokens, "
-                    f"format={meta.get('payload_format')})"
-                )
-            else:
-                print(
-                    f"[AnalysisSlackBridge] Posted to Slack (no LLM usage in payload, "
-                    f"format={meta.get('payload_format')})"
-                )
-        else:
-            print(f"[AnalysisSlackBridge] Posted to Slack from topic {msg.topic}")
-    else:
-        print(f"[AnalysisSlackBridge] Slack post failed for topic {msg.topic}")
+    topic = msg.topic
+    future = _slack_executor.submit(_post_to_slack, topic, text)
+    future.add_done_callback(lambda fut: _on_slack_done(topic, fut))
 
 
 def _handle_signal(_sig, _frame) -> None:
@@ -131,6 +150,7 @@ def main() -> int:
             time.sleep(0.5)
     finally:
         client.loop_stop()
+        _slack_executor.shutdown(wait=False)
         client.disconnect()
         print("[AnalysisSlackBridge] Stopped.")
 

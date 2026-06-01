@@ -89,6 +89,28 @@ class FleetAnalysisResponseTests(unittest.TestCase):
         self.assertIn("13,235 tokens", footer)
         self.assertIn("12,345 in", footer)
         self.assertIn("task-abc", footer)
+        self.assertIn("Estimated LLM cost (Azure gpt-5-mini)", footer)
+        self.assertIn("≈ *$0.00 USD*", footer)
+
+    def test_format_usage_footer_cost_config_from_env(self):
+        os.environ["LLM_COST_MODEL_NAME"] = "Demo pricing"
+        os.environ["LLM_COST_INPUT_PER_1K"] = "1.0"
+        os.environ["LLM_COST_OUTPUT_PER_1K"] = "2.0"
+        try:
+            footer = format_llm_usage_footer(
+                {
+                    "prompt_tokens": 1000,
+                    "completion_tokens": 1000,
+                    "cached_tokens": 0,
+                    "total_tokens": 2000,
+                }
+            )
+            self.assertIn("Estimated LLM cost (Demo pricing)", footer)
+            self.assertIn("≈ *$3.00 USD*", footer)
+        finally:
+            os.environ.pop("LLM_COST_MODEL_NAME", None)
+            os.environ.pop("LLM_COST_INPUT_PER_1K", None)
+            os.environ.pop("LLM_COST_OUTPUT_PER_1K", None)
 
     def test_format_usage_footer_empty_when_missing(self):
         self.assertEqual(format_llm_usage_footer(None), "")

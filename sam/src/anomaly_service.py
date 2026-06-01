@@ -18,6 +18,8 @@ All detection logic is deterministic threshold-based rules.
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Callable
 
 import pipeline_config as config
 import sensor_db
@@ -52,6 +54,33 @@ FLEET_SLACK_MIN_INTERVAL_SECONDS = float(
 # Share of sensors that must be in CRITICAL zone simultaneously to raise FLEET_CRITICAL
 # (Slack + auto LLM analysis via fleet_alert_analyzer). Default 0.5 ⇒ 5/9. Try 0.34 ⇒ ~3/9 for demos.
 FLEET_CRITICAL_FRACTION = float(os.getenv("FLEET_CRITICAL_FRACTION", "0.5"))
+SLACK_WORKERS = max(1, int(os.getenv("ANOMALY_SLACK_WORKERS", "2")))
+_slack_executor = ThreadPoolExecutor(
+    max_workers=SLACK_WORKERS,
+    thread_name_prefix="anomaly-slack",
+)
+
+
+def _on_slack_done(task_name: str, future: Any) -> None:
+    try:
+        _ = future.result()
+    except Exception:
+        log.exception("async Slack task failed: %s", task_name)
+
+
+def _submit_slack_task(task_name: str, fn: Callable, **kwargs) -> None:
+    """Post Slack work off the MQTT callback thread."""
+    if not SLACK_ENABLED:
+        return
+    try:
+        future = _slack_executor.submit(fn, **kwargs)
+        future.add_done_callback(lambda fut: _on_slack_done(task_name, fut))
+    except Exception:
+        log.exception("failed to enqueue Slack task: %s", task_name)
+
+
+def _shutdown_slack_executor() -> None:
+    _slack_executor.shutdown(wait=False)
 
 
 def _should_send_fleet_slack(fleet_status: str, now_monotonic: float) -> bool:
@@ -172,13 +201,15 @@ def generate_alert(data):
     
     # Slack: only true CRITICAL severity (skip HIGH — CRITICAL zone but temp < 70°C)
     if SLACK_ENABLED and severity == "CRITICAL":
-        slack_notifier.send_critical_alert(
+        _submit_slack_task(
+            "critical_alert",
+            slack_notifier.send_critical_alert,
             sensor_id=sensor_id,
             temperature=temperature,
             description=description,
             alert_type=alert_type,
             severity=severity,
-            timestamp=timestamp
+            timestamp=timestamp,
         )
     
     # Collect critical sensor data for potential auto-analysis
@@ -271,12 +302,14 @@ def update_fleet_status():
         and fleet_status in ["FLEET_CRITICAL", "CRITICAL"]
         and _should_send_fleet_slack(fleet_status, now)
     ):
-        slack_notifier.send_fleet_alert(
+        _submit_slack_task(
+            "fleet_alert",
+            slack_notifier.send_fleet_alert,
             fleet_status=fleet_status,
             active_sensors=active_sensors,
             critical_count=critical_count,
             warning_count=warning_count,
-            notes=notes
+            notes=notes,
         )
     
     # Trigger auto-analysis for FLEET_CRITICAL (with debounce and rate limiting)
@@ -389,6 +422,7 @@ def main():
     except KeyboardInterrupt:
         log.info("stopped by user; final stats: %s", sensor_db.get_statistics())
     finally:
+        _shutdown_slack_executor()
         client.disconnect()
 
 

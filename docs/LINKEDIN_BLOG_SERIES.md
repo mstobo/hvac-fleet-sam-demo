@@ -7,7 +7,7 @@
 
 **Audience:** IIoT / facilities / reliability leaders, architects, and “pilot succeeded, production bill killed the project” crowd.  
 **Tone:** Practitioner story (what we built, what we measured, what we’d do next)—not a product pitch.  
-**Proof anchor:** Open demo + deterministic MQTT pipeline ([hvac-fleet-sam-demo](https://mstobo.github.io/hvac-fleet-sam-demo/)); numbers from real fleet-analysis runs (NL ~196k, jargon ~135k, pathological ~308k).
+**Proof anchor:** Open demo + deterministic MQTT pipeline ([hvac-fleet-sam-demo](https://mstobo.github.io/hvac-fleet-sam-demo/)); numbers from real fleet-analysis runs (NL ~196k, jargon ~135k, pathological ~308k; production FLEET_CRITICAL run **116k tokens ≈ $0.04** on Azure gpt-5-mini, 2026-06-01).
 
 **LinkedIn format (after pillars exist):**
 - **Short posts** (~400–900 characters) + **one link** (blog, video chapter, or repo).
@@ -126,6 +126,29 @@ Paste Run A (limit 25) vs Run B (limit 10) with Slack footers—same trigger, sa
 **CTA question:**  
 What’s the largest **tool return** you’ve seen accidentally stuffed into an agent context?
 
+### First draft — Post 4 (ready to paste, ~850 chars)
+
+We measured it on a live fleet-critical run—not a spreadsheet.
+
+When **FLEET_CRITICAL** fired (8 of 15 cooling signals in CRITICAL), one batched **Automated Fleet Analysis** produced:
+
+→ Sections 1–8 (summary, timeline, causes, actions, dispatch)  
+→ **3 machine-level chart links**—not nine per-point forensic loops  
+→ Slack-ready narrative + traceable token footer
+
+**This run:** 116,038 tokens (110,970 in / 5,068 out)  
+**Estimated cost (Azure gpt-5-mini):** ≈ **$0.04 USD**
+
+Context shape and tool budgets moved the bill—not a bigger model. Earlier A/B on the same stack: NL ~196k → jargon ~135k; pathological context-heavy ~308k with the *same* 3+3 tool shape.
+
+Full architecture + token table → https://mstobo.github.io/hvac-fleet-sam-demo/blog/reason-on-the-exception.html
+
+**Question:** What’s the largest tool payload you’ve accidentally stuffed into an agent context?
+
+**Hashtags:** `#IIoT` `#IndustrialAI` `#EventDriven` `#Solace` `#Facilities`
+
+**Carousel idea (5 slides):** FLEET_CRITICAL alert screenshot | “116k tokens ≈ $0.04” | 196k→135k→308k table | “Input dominates” | Link to blog §6
+
 ---
 
 ## Post 5 (article) — Tool budgets beat hope
@@ -190,6 +213,48 @@ How do you separate **operational state** from **incident narrative** in your ar
 
 ---
 
+## Post 7 (demo drop) — 13-min walkthrough + live proof
+
+**Hook (first line):**  
+FLEET_CRITICAL → one Slack report → three machine charts → **$0.04** on the LLM line. Here’s the 13-minute walkthrough.
+
+**Job of the post:** Drive views to the **video** (or live demo if video not yet published). Show the exception boundary visually—not architecture slides alone.
+
+**Body beats:**
+- Live pipeline dashboard: raw → filtered → sketched → alerts (no LLM on the hot path).
+- **2D digital twin** preset drives correlated critical; deterministic fleet alert lands first.
+- **Automated Fleet Analysis** debounces, then one batched SAM run—sections 1–8, three `machine-plotly-html` URLs.
+- Footer proof: **116,038 tokens ≈ $0.04 USD** (Azure gpt-5-mini)—contrast with stream→LLM pilot economics (~$500/day on ~3 sensors in our story).
+- Open repo: fork the pattern; measure your own Slack footers.
+
+**CTA:** Watch the walkthrough → [VIDEO URL] · Try live → http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/ · Read → https://mstobo.github.io/hvac-fleet-sam-demo/blog/reason-on-the-exception.html
+
+### First draft — Post 7 demo drop (ready to paste, ~780 chars)
+
+New walkthrough: **event-driven IIoT AI that survives production bills.**
+
+In ~13 minutes you’ll see:
+
+→ Deterministic MQTT pipeline (deadband → sketch → rules)—**zero LLM per reading**  
+→ **FLEET_CRITICAL** on the live dashboard  
+→ One **Automated Fleet Analysis** in Slack: sections 1–8 + **3 machine charts**  
+→ Token footer from a real run: **116k tokens ≈ $0.04** (Azure gpt-5-mini)
+
+We don’t stream every sensor tick to a model. We **reason on the exception.**
+
+Watch: [VIDEO URL]  
+Try live: http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/  
+Architecture + measurements: https://mstobo.github.io/hvac-fleet-sam-demo/blog/reason-on-the-exception.html  
+Your own Slack: https://github.com/mstobo/hvac-fleet-sam-demo/blob/main/demo/SLACK_BYO.md
+
+**Hashtags:** `#IIoT` `#IndustrialAI` `#EventDriven` `#SolaceAgentMesh` `#Demo`
+
+**Native video tip:** Upload a **60–90 sec** teaser (FLEET_CRITICAL preset → Slack report scroll → $0.04 footer); link full video in first comment.
+
+**Screenshot checklist for post:** Pipeline pulse ①②③④ | Fleet alert card | Report “Chart Evidence” block | Token + cost footer lines
+
+---
+
 ## Post 8 — Roadmap: what we’d ship next
 
 **Hook:**  
@@ -218,7 +283,7 @@ Which item would your org adopt first—**context caps** or **cached incident re
 | +1 | Token stat 196k→135k | Blog §6 |
 | +2 | Sketches / zero LLM on stream | Blog §4 |
 | +3 | Tool budgets | Blog §5 + video ?t= |
-| +4 | Demo video drop | **Video** |
+| +4 | Demo video drop (116k ≈ $0.04 proof) | **Video** + live EC2 |
 | +5 | Replay myth | Blog §7 |
 | +6 | Snapshots vs live | Blog §7 |
 | +7 | Try the repo / live demo | GitHub Pages |
@@ -232,6 +297,7 @@ Which item would your org adopt first—**context caps** or **cached incident re
 | Asset | Purpose |
 |-------|---------|
 | Before/after token footer screenshot (NL vs jargon) | Post 4 credibility |
+| Slack report footer: 116,038 tokens ≈ $0.04 USD | Posts 4 + 7 |
 | Architecture diagram (data plane vs SAM) | Posts 2, 5 |
 | “SECTION A tool budget” one-pager | Post 5 carousel |
 | 30s screen recording: dashboard FLEET_CRITICAL → Slack report | Post 1 or 8 CTA |

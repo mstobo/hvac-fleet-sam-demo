@@ -9,6 +9,7 @@ event-mesh gateway ``task_response`` objects.
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -36,6 +37,9 @@ _MACHINE_PLOTLY_MARKER = "machine-plotly-html"
 
 SCHEMA_VERSION = "1.0.0"
 EVENT_TYPE = "FLEET_ANALYSIS_RESPONSE"
+DEFAULT_COST_MODEL = "Azure gpt-5-mini"
+DEFAULT_INPUT_COST_PER_1K = 0.00025
+DEFAULT_OUTPUT_COST_PER_1K = 0.002
 
 
 def _coerce_int(value: Any) -> int:
@@ -45,6 +49,34 @@ def _coerce_int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _estimate_example_cost_usd(prompt_tokens: int, completion_tokens: int) -> float:
+    _model, input_cost_per_1k, output_cost_per_1k = _cost_config_from_env()
+    input_cost = (prompt_tokens / 1000.0) * input_cost_per_1k
+    output_cost = (completion_tokens / 1000.0) * output_cost_per_1k
+    return input_cost + output_cost
+
+
+def _coerce_float(value: Any, default: float) -> float:
+    try:
+        parsed = float(value)
+        return parsed if parsed >= 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _cost_config_from_env() -> Tuple[str, float, float]:
+    model = (os.getenv("LLM_COST_MODEL_NAME") or DEFAULT_COST_MODEL).strip() or DEFAULT_COST_MODEL
+    input_cost_per_1k = _coerce_float(
+        os.getenv("LLM_COST_INPUT_PER_1K"),
+        DEFAULT_INPUT_COST_PER_1K,
+    )
+    output_cost_per_1k = _coerce_float(
+        os.getenv("LLM_COST_OUTPUT_PER_1K"),
+        DEFAULT_OUTPUT_COST_PER_1K,
+    )
+    return model, input_cost_per_1k, output_cost_per_1k
 
 
 def _unwrap_a2a_task(task: Any) -> Dict[str, Any]:
@@ -562,6 +594,7 @@ def format_llm_usage_footer(usage: Optional[Dict[str, Any]]) -> str:
     completion = _coerce_int(usage.get("completion_tokens"))
     cached = _coerce_int(usage.get("cached_tokens"))
     total = _coerce_int(usage.get("total_tokens")) or (prompt + completion)
+    model_name, _input_cost_per_1k, _output_cost_per_1k = _cost_config_from_env()
     lines = [
         "",
         "---",
@@ -569,6 +602,12 @@ def format_llm_usage_footer(usage: Optional[Dict[str, Any]]) -> str:
         f"({prompt:,} in / {completion:,} out"
         + (f" / {cached:,} cached" if cached else "")
         + ")",
+        (
+            f"*Estimated LLM cost ({model_name}):* "
+            f"{total:,} tokens ({prompt:,} in / {completion:,} out) "
+            f"≈ *${_estimate_example_cost_usd(prompt, completion):.2f} USD* "
+            "for this fleet analysis."
+        ),
     ]
     task_id = usage.get("task_id")
     if task_id:

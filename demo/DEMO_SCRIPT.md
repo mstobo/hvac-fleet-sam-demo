@@ -11,6 +11,7 @@
 | **Technical setup** | [README.md](../README.md) · [deploy/aws/README.md](../deploy/aws/README.md) |
 | **Architecture deck** | [ARCHITECTURE_DECK.html](ARCHITECTURE_DECK.html) |
 | **Executive deck** | [EXECUTIVE_DECK.html](EXECUTIVE_DECK.html) |
+| **Bring your own Slack** | [SLACK_BYO.md](SLACK_BYO.md) |
 
 **One-liner (memorize):**  
 “We don’t stream every reading to an LLM. We **filter, sketch, and rule-detect** on MQTT, persist rollups in SQLite, and let SAM reason only when operators ask—or when the fleet crosses a critical threshold.”
@@ -39,7 +40,7 @@ Stack is already on EC2 (Compose). You present in the browser; no terminal requi
 
 1. Open the **live dashboard** (link above).
 2. Confirm **Connected** badge and pipeline pulse counters (②③④) tick within ~30s.
-3. Optional second screen: **Fleet chat (SAM)** tab or Slack channel with the bot invited.
+3. Optional second screen: **Fleet chat (SAM)** tab (not Slack on the public host—see [SLACK_BYO.md](SLACK_BYO.md) for your workspace).
 
 **Do not** run a local `demo_publisher` against the same broker while EC2 traffic is on—you will duplicate readings and confuse counters.
 

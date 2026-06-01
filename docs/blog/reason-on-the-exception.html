@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Reason on the Exception — HVAC Fleet Demo Blog</title>
-  <meta name="description" content="Event-driven IIoT architecture: deterministic MQTT pipeline, sketch compression, fleet agent tool budgets, and measured token economics (~196k vs ~135k).">
+  <meta name="description" content="Event-driven IIoT architecture: deterministic MQTT pipeline, fleet agent tool budgets, and measured token economics (~196k NL, ~135k jargon, production FLEET_CRITICAL run 116k tokens ≈ $0.04 USD).">
   <link rel="stylesheet" href="../solace-brand.css">
   <link rel="stylesheet" href="../site.css">
 </head>
@@ -28,7 +28,7 @@
     </header>
 
     <article class="blog-article">
-      <p class="blog-meta">Draft v1 · May 2026 ·
+      <p class="blog-meta">May 2026 ·
         <a href="https://github.com/mstobo/hvac-fleet-sam-demo/blob/main/docs/blog/reason-on-the-exception.md">Markdown source ↗</a>
         · <a href="https://github.com/mstobo/hvac-fleet-sam-demo/blob/main/docs/FLEET_ANALYSIS_PRODUCTION.md">Production guide ↗</a>
       </p>
@@ -315,6 +315,7 @@
         <p>
           Toggle on the dashboard (<strong>NL / Jargon</strong>) or <code class="arch-code">SKETCH_STYLE=jargon</code> ·
           <a href="https://github.com/mstobo/hvac-fleet-sam-demo/tree/main/tools/sketch-token-lab">sketch-token-lab</a> for offline counts.
+          The dashboard toggle calls chart-query <code class="arch-code">/admin/sketch-style</code> and applies to <strong>new</strong> sketches only (Chart API must be configured—see live demo config bar).
         </p>
       </section>
 
@@ -333,21 +334,26 @@
 
       <section id="measured">
         <h2>We measured it</h2>
-        <p>Real fleet-analysis runs on the demo stack (same 3+3 tools; Slack LLM footer):</p>
+        <p>Real fleet-analysis runs on the demo stack (same SECTION A 3+3 tool shape; token counts from automated analysis report footers):</p>
         <div class="blog-table-wrap">
           <table class="blog-table">
             <thead>
               <tr><th>Run</th><th>~Total tokens</th><th>What differed</th></tr>
             </thead>
             <tbody>
+              <tr><td>Production FLEET_CRITICAL (Jun 2026)</td><td>116,038</td><td>110,970 in / 5,068 out · sections 1–8 · 3× machine charts · ≈ <strong>$0.04 USD</strong> (Azure gpt-5-mini)</td></tr>
               <tr><td>NL sketches</td><td>~196k</td><td>3× machine incident context + 3× machine Plotly</td></tr>
               <tr><td>Jargon sketches</td><td>~135k</td><td>Same tools; smaller sketch JSON</td></tr>
               <tr><td>Heavy context</td><td>~308k</td><td>Same tools; ~36k chars/machine in context—not extra tools</td></tr>
             </tbody>
           </table>
         </div>
+        <p>
+          Dollar estimates use configurable per-1K input/output rates (<code class="arch-code">LLM_COST_*</code> env vars in the stack).
+          At Azure gpt-5-mini pricing, one full fleet incident report at ~116k tokens is on the order of <strong>four cents</strong>—the contrast with stream→LLM pilot economics is architectural boundary, not model choice.
+        </p>
         <ul class="blog-list">
-          <li><strong>Input dominates.</strong> Completion is often ~1–2k on good runs.</li>
+          <li><strong>Input dominates.</strong> Completion is often ~1–2k on good runs; the Jun 2026 run was ~5k out.</li>
           <li><strong>Jargon</strong> cut ~30% total in our A/B with the same workflow.</li>
           <li><strong>Fleet sketch cap</strong> trims the largest repeatable tool blob—see production guide for defaults.</li>
           <li><strong>Output <code class="arch-code">max_tokens</code></strong> is a guardrail, not the main savings lever.</li>
@@ -362,7 +368,7 @@
         <ol class="blog-list blog-list--ordered">
           <li><strong>AI off the IIoT hot path</strong> — filter, sketch, and rule-detect before any model sees telemetry.</li>
           <li><strong>Tool budgets on automation</strong> — SECTION A is the template.</li>
-          <li><strong>Measure one change at a time</strong> — Slack token footers on repeated FLEET_CRITICAL runs.</li>
+          <li><strong>Measure one change at a time</strong> — report token footers on repeated FLEET_CRITICAL runs (Slack, logs, or BYO channel).</li>
         </ol>
         <p>
           Full checklist, env table, and verification:
@@ -372,8 +378,13 @@
 
       <section id="try" class="blog-cta-block">
         <h2>Try it</h2>
+        <p>
+          The <strong>public live demo</strong> runs the pipeline dashboard and <strong>Fleet chat (SAM)</strong> in the browser—no corporate Slack on the shared host.
+          Automated fleet analysis can fan out to Slack in your workspace; see
+          <a href="https://github.com/mstobo/hvac-fleet-sam-demo/blob/main/demo/SLACK_BYO.md">Bring your own Slack ↗</a>.
+        </p>
         <p id="video-placeholder" class="blog-video-placeholder">
-          <strong>Video walkthrough:</strong> coming soon (~13 min, FLEET_CRITICAL → Slack report).
+          <strong>Video walkthrough:</strong> coming soon (~13 min, FLEET_CRITICAL on the live dashboard + automated analysis output; Slack shown via screenshot).
         </p>
         <div class="cta-actions">
           <a class="solace-btn solace-btn--primary" href="http://ec2-18-116-251-212.us-east-2.compute.amazonaws.com/">Open live demo ↗</a>
