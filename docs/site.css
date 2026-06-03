@@ -922,33 +922,6 @@ body {
   margin-bottom: 0;
 }
 
-.blog-toc {
-  background: rgba(0, 200, 149, 0.06);
-  border: 1px solid var(--solace-dark-border);
-  border-radius: var(--solace-radius-md);
-  padding: var(--solace-space-4) var(--solace-space-5);
-  margin-bottom: var(--solace-space-6);
-}
-
-.blog-toc-label {
-  font-size: var(--solace-text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--solace-primary);
-  margin: 0 0 var(--solace-space-2);
-  font-weight: var(--solace-weight-semibold);
-}
-
-.blog-toc ol {
-  margin: 0;
-  padding-left: 1.25rem;
-  font-size: var(--solace-text-sm);
-  line-height: 1.7;
-}
-
-.blog-toc a { color: var(--solace-text-on-dark-muted); }
-.blog-toc a:hover { color: var(--solace-primary); }
-
 .blog-article section {
   margin-bottom: var(--solace-space-6);
 }
