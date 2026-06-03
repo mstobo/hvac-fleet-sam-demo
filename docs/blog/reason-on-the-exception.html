@@ -58,13 +58,13 @@
         <figure class="blog-figure tokenburn-wrap">
           <img
             src="../token-burn-device-friendly.png"
-            alt="The Token Burn Problem: naive architecture sends every sensor reading to an LLM; value-based architecture filters on the data plane and applies AI only on high-value events."
+            alt="The Token Burn Problem infographic: top section shows AI in the hot path where cost scales with telemetry; lower sections show filtering on the data plane and AI only on high-value events and operator queries."
             width="862"
             height="1824"
             loading="lazy"
           />
           <figcaption class="blog-figcaption">
-            Stream-to-model (left) vs filter, sketch, and rule-detect first, then AI on exceptions (right)—the reference architecture this demo implements.
+            Top: AI in the hot path (every event through the model). Below: filter on the data plane, then AI on high-value events and operator queries—the architecture this demo implements.
           </figcaption>
         </figure>
 
@@ -90,7 +90,7 @@
         </aside>
 
         <p>
-          The <a href="https://github.com/mstobo/hvac-fleet-sam-demo">hvac-fleet-sam-demo</a> stack implements the right-hand path in the diagram:
+          The <a href="https://github.com/mstobo/hvac-fleet-sam-demo">hvac-fleet-sam-demo</a> stack implements the solution path in the diagram—below the hot path:
           deadband, sketches, and rules on the broker path; agents only on exceptions.
         </p>
       </section>
@@ -330,9 +330,10 @@
       <section id="fleet-report-proof">
         <h2>Bring it home: one report, two price tags</h2>
         <p>
-          The left side of the token-burn diagram is what the <a href="#real-pilot">~$500/day pilot</a> looked like in practice—telemetry treated like chat,
-          over and over. The right side is what operators actually need when the fleet is in trouble: <strong>one</strong>
-          <em>Automated Fleet Analysis</em> with ranked causes, actions, dispatch notes, three machine charts, and an honest token footer.
+          The <strong>top</strong> of the token-burn infographic—<strong>AI in the hot path</strong>—is what the
+          <a href="#real-pilot">~$500/day pilot</a> looked like in practice: telemetry treated like chat, over and over.
+          What operators need when the fleet is in trouble is the <strong>solution below</strong>: discriminate value on the data plane, then
+          <strong>one</strong> <em>Automated Fleet Analysis</em> with ranked causes, actions, dispatch notes, three machine charts, and an honest token footer.
         </p>
 
         <div class="blog-cost-contrast" aria-label="Cost contrast: runaway pilot vs bounded fleet report">

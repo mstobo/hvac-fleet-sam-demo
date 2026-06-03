@@ -20,7 +20,7 @@ Most IIoT AI pilots fail on **economics**, not model quality. Generative models 
 
 ![The Token Burn Problem: stream-to-model vs filter-first, AI on exceptions](../token-burn-device-friendly.png)
 
-*Caption: Stream-to-model (left) vs filter, sketch, and rule-detect first, then AI on exceptions (right).*
+*Caption: Top—AI in the hot path (every event through the model). Below—filter on the data plane, then AI on high-value events and operator queries.*
 
 ### Real pilot meter
 
@@ -28,7 +28,7 @@ In a small industrial dashboard—**three pumps**, one bearing-temperature strea
 
 **Roughly 1,500 telemetry events and 1,100+ analysis attempts in 24 hours.** The gateway meter showed **about $500 in token spend**—not a spreadsheet projection. Spend was capped when **LiteLLM gateway controls** cut off the runaway path (a circuit breaker, not architecture). The durable fix: **never wire IIoT throughput to the reasoning engine—keep AI off the hot path.**
 
-The [hvac-fleet-sam-demo](https://github.com/mstobo/hvac-fleet-sam-demo) stack implements the right-hand path: deadband, sketches, and rules on the broker path; agents only on exceptions.
+The [hvac-fleet-sam-demo](https://github.com/mstobo/hvac-fleet-sam-demo) stack implements the solution path in the infographic—below the hot path: deadband, sketches, and rules on the broker path; agents only on exceptions.
 
 ---
 
@@ -129,7 +129,7 @@ Orchestration without **budgets** invites the expensive pattern: nine assets × 
 
 ## Bring it home: one report, two price tags
 
-The left side of the token-burn diagram is what the [~$500/day pilot](#real-pilot-meter) looked like in practice—telemetry treated like chat, over and over. The right side is what operators need when the fleet is in trouble: **one** *Automated Fleet Analysis* with ranked causes, actions, dispatch notes, three machine charts, and an honest token footer.
+The **top** of the token-burn infographic—**AI in the hot path**—is what the [~$500/day pilot](#real-pilot-meter) looked like in practice: telemetry treated like chat, over and over. What operators need when the fleet is in trouble is the **solution below**: discriminate value on the data plane, then **one** *Automated Fleet Analysis* with ranked causes, actions, dispatch notes, three machine charts, and an honest token footer.
 
 | | Stream → LLM (pilot) | Reason on the exception (this demo) |
 |--|----------------------|-------------------------------------|
