@@ -36,6 +36,17 @@
       <h1 class="blog-title">Reason on the Exception</h1>
       <p class="blog-subtitle">Event-driven IIoT AI that survives production token bills</p>
 
+      <aside class="blog-exec-summary" id="executive-summary" aria-labelledby="executive-summary-label">
+        <p class="blog-exec-summary-label" id="executive-summary-label">Executive summary</p>
+        <ul>
+          <li><strong>The issue:</strong> Many IIoT AI pilots treat live sensor traffic like chat—every reading (and every retry) can trigger the model. Finance feels it when tag counts grow: you pay for “normal” at reasoning prices.</li>
+          <li><strong>What we saw:</strong> On a small lab dashboard (~3 pumps), that pattern produced <a href="#real-pilot">about $500 in token spend in one day</a> and 1,100+ analysis attempts—not a projection.</li>
+          <li><strong>The fix:</strong> Handle filtering, summaries, and alerts on the data path first; use AI only when an operator asks or the fleet hits a <strong>correlated emergency</strong> (not on every publish).</li>
+          <li><strong>Proof in this demo:</strong> One automated fleet incident report (summary, timeline, causes, actions, three machine charts) landed at <a href="#fleet-report-proof">~5¢ per incident</a> (116k tokens ≈ $0.04 on Azure gpt-5-mini)—same stack, different architectural boundary.</li>
+          <li><strong>Takeaway for leadership:</strong> Pilot success is not production economics. The lever is <em>where</em> AI runs, not which model you pick. Technical depth (pipeline, tool budgets, token measurements) follows below.</li>
+        </ul>
+      </aside>
+
       <section id="intro">
         <p class="blog-lede">
           Most IIoT AI pilots fail on <strong>economics</strong>, not model quality. Generative models belong on

@@ -884,6 +884,58 @@ body {
   line-height: 1.5;
 }
 
+.blog-exec-summary {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--solace-dark-border);
+  border-radius: var(--solace-radius-md);
+  padding: var(--solace-space-4) var(--solace-space-5);
+  margin: 0 0 var(--solace-space-6);
+}
+
+.blog-exec-summary-label {
+  font-size: var(--solace-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--solace-primary);
+  margin: 0 0 var(--solace-space-3);
+  font-weight: var(--solace-weight-semibold);
+}
+
+.blog-exec-summary p {
+  font-size: var(--solace-text-base);
+  line-height: 1.6;
+  color: var(--solace-text-on-dark-muted);
+  margin: 0 0 var(--solace-space-3);
+}
+
+.blog-exec-summary p:last-child {
+  margin-bottom: 0;
+}
+
+.blog-exec-summary ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  line-height: 1.65;
+  color: var(--solace-text-on-dark-muted);
+  font-size: var(--solace-text-base);
+}
+
+.blog-exec-summary li {
+  margin-bottom: var(--solace-space-2);
+}
+
+.blog-exec-summary li:last-child {
+  margin-bottom: 0;
+}
+
+.blog-exec-summary strong {
+  color: var(--solace-white);
+}
+
+.blog-exec-summary a {
+  color: var(--solace-primary);
+}
+
 .blog-lede {
   font-size: var(--solace-text-lg);
   line-height: 1.6;

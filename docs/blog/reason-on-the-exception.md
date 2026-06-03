@@ -6,6 +6,16 @@
 
 ---
 
+## Executive summary
+
+- **The issue:** Many IIoT AI pilots treat live sensor traffic like chat—every reading (and every retry) can trigger the model. Finance feels it when tag counts grow: you pay for “normal” at reasoning prices.
+- **What we saw:** On a small lab dashboard (~3 pumps), that pattern produced [about $500 in token spend in one day](#real-pilot-meter) and 1,100+ analysis attempts—not a projection.
+- **The fix:** Handle filtering, summaries, and alerts on the data path first; use AI only when an operator asks or the fleet hits a **correlated emergency** (not on every publish).
+- **Proof in this demo:** One automated fleet incident report (summary, timeline, causes, actions, three machine charts) landed at [~5¢ per incident](#bring-it-home-one-report-two-price-tags) (116k tokens ≈ $0.04 on Azure gpt-5-mini)—same stack, different architectural boundary.
+- **Takeaway for leadership:** Pilot success is not production economics. The lever is *where* AI runs, not which model you pick. Technical depth (pipeline, tool budgets, token measurements) follows below.
+
+---
+
 Most IIoT AI pilots fail on **economics**, not model quality. Generative models belong on **high-value exceptions** and operator questions—not on every IIoT publish on the hot path. We measured that shape in our open fleet demo, and saw the same pattern on a small lab setup ([about $500 in token spend in one day](#real-pilot-meter), three sensors).
 
 ![The Token Burn Problem: stream-to-model vs filter-first, AI on exceptions](../token-burn-device-friendly.png)
