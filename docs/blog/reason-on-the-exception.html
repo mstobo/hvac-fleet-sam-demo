@@ -316,9 +316,66 @@
         </p>
       </section>
 
+      <section id="fleet-report-proof">
+        <h2>Bring it home: one report, two price tags</h2>
+        <p>
+          The left side of the token-burn diagram is what the <a href="#real-pilot">~$500/day pilot</a> looked like in practice—telemetry treated like chat,
+          over and over. The right side is what operators actually need when the fleet is in trouble: <strong>one</strong>
+          <em>Automated Fleet Analysis</em> with ranked causes, actions, dispatch notes, three machine charts, and an honest token footer.
+        </p>
+
+        <div class="blog-cost-contrast" aria-label="Cost contrast: runaway pilot vs bounded fleet report">
+          <div class="blog-cost-card blog-cost-card--bad">
+            <p class="blog-cost-card-label">Stream → LLM (pilot)</p>
+            <p class="blog-cost-amount">~$500 / day</p>
+            <p>~3 sensors · ~1,500 telemetry events · <strong>1,100+</strong> LLM analysis attempts in 24h. Every forwarded reading (and retries) hit the model.</p>
+          </div>
+          <div class="blog-cost-card blog-cost-card--good">
+            <p class="blog-cost-card-label">Reason on the exception (this demo)</p>
+            <p class="blog-cost-amount">~5¢ / incident</p>
+            <p><strong>One</strong> batched report when <code class="arch-code">FLEET_CRITICAL</code> fires (Jun 2026 run: 116,038 tokens ≈ <strong>$0.04 USD</strong> on Azure gpt-5-mini). Same stack, different boundary.</p>
+          </div>
+        </div>
+
+        <p>
+          Below is an abbreviated excerpt from a production <strong>Automated Fleet Analysis</strong> Slack message—the same shape
+          <code class="arch-code">analysis-response</code> → <code class="arch-code">analysis-to-slack</code> posts after debounce. The footer is appended automatically from gateway metadata (not hand-waved).
+        </p>
+
+        <div class="blog-report-preview" role="figure" aria-labelledby="fleet-report-proof-caption">
+          <div class="blog-report-preview-header">Automated Fleet Analysis</div>
+          <pre class="blog-report-preview-body">1) Summary
+Fleet-wide thermal stress: 8 of 15 active cooling signals in CRITICAL across machines 001–003. Correlated motor and outlet excursions; prioritize machine-002 motor bearing path for inspection.
+
+2) Timeline
+Escalation over ~12 minutes: machine-002 motor_temp_c leads, then outlet temps on 001 and 003 follow into CRITICAL. Deadband-sketched deltas show step-change, not sensor noise.
+
+3) Probable causes
+… ranked hypotheses with sketch evidence …
+
+4) Recommended actions
+… operator-ready steps, parts, and hold/release guidance …
+
+Chart Evidence:
+- machine-001: …/machine-plotly-html?asset_id=machine-001
+- machine-002: …/machine-plotly-html?asset_id=machine-002
+- machine-003: …/machine-plotly-html?asset_id=machine-003
+
+5) Risk assessment …  6) Dispatch plan …  7) Data gaps …  8) Dispatch recommendations …</pre>
+          <div class="blog-report-preview-footer" id="fleet-report-proof-caption">
+            <p><em>LLM usage (this run):</em> 116,038 tokens (110,970 in / 5,068 out)</p>
+            <p><em>Estimated LLM cost (Azure gpt-5-mini):</em> 116,038 tokens (110,970 in / 5,068 out) ≈ <em>$0.04 USD</em> for this fleet analysis.</p>
+          </div>
+        </div>
+        <p class="blog-report-preview-caption">
+          Excerpt from a Jun 2026 <code class="arch-code">FLEET_CRITICAL</code> run (sections shortened). Full report + chart links in Slack or your BYO channel —
+          <a href="https://github.com/mstobo/hvac-fleet-sam-demo/blob/main/demo/SLACK_BYO.md">Bring your own Slack ↗</a>.
+        </p>
+      </section>
+
       <section id="measured">
         <h2>We measured it</h2>
-        <p>Real fleet-analysis runs on the demo stack (same SECTION A 3+3 tool shape; token counts from automated analysis report footers):</p>
+        <p>More runs on the same SECTION A 3+3 tool shape—token counts always come from automated report footers like the one above:</p>
         <div class="blog-table-wrap">
           <table class="blog-table">
             <thead>

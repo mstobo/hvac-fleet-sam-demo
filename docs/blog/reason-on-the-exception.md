@@ -117,9 +117,48 @@ Orchestration without **budgets** invites the expensive pattern: nine assets × 
 
 ---
 
+## Bring it home: one report, two price tags
+
+The left side of the token-burn diagram is what the [~$500/day pilot](#real-pilot-meter) looked like in practice—telemetry treated like chat, over and over. The right side is what operators need when the fleet is in trouble: **one** *Automated Fleet Analysis* with ranked causes, actions, dispatch notes, three machine charts, and an honest token footer.
+
+| | Stream → LLM (pilot) | Reason on the exception (this demo) |
+|--|----------------------|-------------------------------------|
+| **Spend** | **~$500 / day** | **~5¢ / incident** |
+| **Scale** | ~3 sensors | Full fleet trigger (`FLEET_CRITICAL`) |
+| **LLM calls** | 1,100+ analysis attempts in 24h | **One** batched report per correlated incident |
+| **Mechanism** | Every forwarded reading → model | Filter → sketch → rule-detect; model on exception only |
+
+Abbreviated excerpt from a production **Automated Fleet Analysis** Slack message (`analysis-response` → `analysis-to-slack`). Sections 3–8 shortened; chart URLs truncated.
+
+```text
+Automated Fleet Analysis
+
+1) Summary
+Fleet-wide thermal stress: 8 of 15 active cooling signals in CRITICAL across machines 001–003.
+Correlated motor and outlet excursions; prioritize machine-002 motor bearing path.
+
+2) Timeline
+Escalation over ~12 minutes: machine-002 motor_temp_c leads, then outlet temps on 001 and 003.
+
+Chart Evidence:
+- machine-001: …/machine-plotly-html?asset_id=machine-001
+- machine-002: …/machine-plotly-html?asset_id=machine-002
+- machine-003: …/machine-plotly-html?asset_id=machine-003
+
+… sections 3–8 (causes, actions, risk, dispatch) …
+
+---
+LLM usage (this run): 116,038 tokens (110,970 in / 5,068 out)
+Estimated LLM cost (Azure gpt-5-mini): … ≈ $0.04 USD for this fleet analysis.
+```
+
+That footer is generated from gateway metadata ([`format_llm_usage_footer`](../../sam/src/fleet_analysis_response.py))—not a spreadsheet. Jun 2026 production run; replicate via [Bring your own Slack](../demo/SLACK_BYO.md).
+
+---
+
 ## We measured it: what moved the token meter
 
-These are **real fleet-analysis runs** on the demo stack (same SECTION A 3+3 tool shape; token counts from automated analysis report footers):
+More runs on the same SECTION A 3+3 tool shape—token counts always come from footers like the one above:
 
 | Run | ~Total tokens | What differed |
 |-----|----------------|---------------|
