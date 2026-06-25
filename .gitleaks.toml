@@ -1,0 +1,19 @@
+title = "hvac-fleet-sam-demo gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Ignore placeholder examples and test fixtures"
+paths = [
+  '''\.env\.example$''',
+  '''env\.deploy\.example$''',
+  '''morning\.env\.example$''',
+  '''DEMO_QUICKSTART\.md$''',
+  '''test_fleet_analysis_response\.py$''',
+]
+regexes = [
+  '''sk-\.\.\.''',
+  '''your-api-key''',
+  '''gdk-task-[a-f0-9]{32}''',
+]
