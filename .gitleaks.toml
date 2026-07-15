@@ -18,5 +18,6 @@ regexes = [
   '''your-api-key''',
   '''YOUR_PASSWORD''',
   '''YOUR TLS PRIVATE KEY''',
+  ''':REDACTED''',
   '''gdk-task-[a-f0-9]{32}''',
 ]
