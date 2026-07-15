@@ -9,11 +9,14 @@ paths = [
   '''\.env\.example$''',
   '''env\.deploy\.example$''',
   '''morning\.env\.example$''',
+  '''values-override\.yaml\.example$''',
   '''DEMO_QUICKSTART\.md$''',
   '''test_fleet_analysis_response\.py$''',
 ]
 regexes = [
   '''sk-\.\.\.''',
   '''your-api-key''',
+  '''YOUR_PASSWORD''',
+  '''YOUR TLS PRIVATE KEY''',
   '''gdk-task-[a-f0-9]{32}''',
 ]

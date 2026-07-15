@@ -28,7 +28,7 @@ public class MqttConfig {
     
     // Authentication Configuration
     public static final String USERNAME = stringEnv("MQTT_USERNAME", "solace-cloud-client");
-    public static final String PASSWORD = stringEnv("MQTT_PASSWORD", "REDACTED");
+    public static final String PASSWORD = stringEnv("MQTT_PASSWORD", "");
     
     // Topic Configuration
     public static final String TOPIC_BASE = "test/mqtt5/messages";
@@ -50,8 +50,8 @@ public class MqttConfig {
     
     // Schema registry (only used when JSON_SERDES_ENABLED is true)
     public static final String SCHEMA_REGISTRY_URL = "https://apis.18.221.21.40.nip.io/apis/registry/v3";
-    public static final String SCHEMA_REGISTRY_USERNAME = "sr-developer";
-    public static final String SCHEMA_REGISTRY_PASSWORD = "admin";
+    public static final String SCHEMA_REGISTRY_USERNAME = stringEnv("SCHEMA_REGISTRY_USERNAME", "sr-developer");
+    public static final String SCHEMA_REGISTRY_PASSWORD = stringEnv("SCHEMA_REGISTRY_PASSWORD", "");
     public static final String SCHEMA_ARTIFACT_ID = "solace/samples/tempsensor";
     /** When false, publisher/subscriber use plain JSON only (no registry calls). */
     public static final boolean JSON_SERDES_ENABLED = boolEnv("MQTT_JSON_SERDES_ENABLED", false);
